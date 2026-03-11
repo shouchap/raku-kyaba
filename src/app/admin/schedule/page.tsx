@@ -1,0 +1,198 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { createBrowserSupabaseClient } from "@/lib/supabase-client";
+import { TIME_OPTIONS_REQUIRED } from "@/lib/time-options";
+
+type Cast = {
+  id: string;
+  name: string;
+  store_id: string;
+};
+
+type Store = {
+  id: string;
+  name: string;
+};
+
+export default function AdminSchedulePage() {
+  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
+  const [casts, setCasts] = useState<Cast[]>([]);
+  const [store, setStore] = useState<Store | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState<"success" | "error" | null>(null);
+
+  const [castId, setCastId] = useState("");
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledTime, setScheduledTime] = useState("20:00");
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [castsRes, storesRes] = await Promise.all([
+          supabase.from("casts").select("id, name, store_id").eq("is_active", true).order("name"),
+          supabase.from("stores").select("id, name").limit(1).single(),
+        ]);
+
+        if (castsRes.data) setCasts(castsRes.data as Cast[]);
+        if (storesRes.data) setStore(storesRes.data as Store);
+      } catch (err) {
+        console.error(err);
+        setMessage("error");
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, [supabase]);
+
+  const resetForm = () => {
+    setCastId("");
+    setScheduledDate("");
+    setScheduledTime("20:00");
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!store) return;
+
+    setSubmitting(true);
+    setMessage(null);
+
+    try {
+      const { error } = await supabase.from("attendance_schedules").insert({
+        store_id: store.id,
+        cast_id: castId,
+        scheduled_date: scheduledDate,
+        scheduled_time: scheduledTime,
+      });
+
+      if (error) throw error;
+
+      setMessage("success");
+      resetForm();
+    } catch (err) {
+      console.error(err);
+      setMessage("error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-500">読み込み中...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6">
+      <div className="max-w-md mx-auto">
+        <h1 className="text-xl font-bold text-gray-900 mb-2">
+          出勤予定を登録
+        </h1>
+        <p className="text-sm text-gray-600 mb-6">
+          {store?.name ?? "店舗"}
+        </p>
+
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-5"
+        >
+          {/* キャスト選択 */}
+          <div>
+            <label
+              htmlFor="cast"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              キャスト
+            </label>
+            <select
+              id="cast"
+              value={castId}
+              onChange={(e) => setCastId(e.target.value)}
+              required
+              className="w-full h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            >
+              <option value="">選択してください</option>
+              {casts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 出勤予定日 */}
+          <div>
+            <label
+              htmlFor="date"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              出勤予定日
+            </label>
+            <input
+              id="date"
+              type="date"
+              value={scheduledDate}
+              onChange={(e) => setScheduledDate(e.target.value)}
+              required
+              className="w-full h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            />
+          </div>
+
+          {/* 出勤予定時間 */}
+          <div>
+            <label
+              htmlFor="time"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              出勤予定時間
+            </label>
+            <select
+              id="time"
+              value={scheduledTime}
+              onChange={(e) => setScheduledTime(e.target.value)}
+              required
+              className="w-full h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+            >
+              {TIME_OPTIONS_REQUIRED.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {message === "success" && (
+            <p className="text-green-600 text-sm font-medium">
+              登録しました
+            </p>
+          )}
+          {message === "error" && (
+            <p className="text-red-600 text-sm">
+              登録に失敗しました。入力内容を確認してください。
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full h-12 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {submitting ? "登録中..." : "登録する"}
+          </button>
+        </form>
+
+        {casts.length === 0 && (
+          <p className="mt-4 text-sm text-amber-700 bg-amber-50 p-4 rounded-lg">
+            キャストが登録されていません。先にキャストを追加してください。
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
