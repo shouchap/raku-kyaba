@@ -3,10 +3,17 @@ import { createClient } from "@supabase/supabase-js";
 import { sendPushMessage } from "@/lib/line-reply";
 
 /**
+ * 日本時間（JST）の「今日」を YYYY-MM-DD で返す
+ */
+function getTodayJst(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
+}
+
+/**
  * 本日出勤予定のキャストへリマインド（Buttons Template）を送信するAPI
  *
  * GET /api/remind で呼び出し。
- * Vercel Cron や外部スケジューラで毎日10:00等に叩く想定。
+ * Vercel Cron で毎日12:00（JST）に実行される想定。
  */
 export async function GET() {
   const supabaseUrl =
@@ -30,13 +37,14 @@ export async function GET() {
   }
 
   const supabase = createClient(supabaseUrl, supabaseKey);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getTodayJst();
 
-  // 本日の出勤予定を取得（casts の name, line_user_id も同時取得）
-  const { data: schedules, error } = await supabase
+  // 本日の出勤予定を取得（休み＝scheduled_time が null/空 は除外、casts と JOIN）
+  const { data: rawSchedules, error } = await supabase
     .from("attendance_schedules")
     .select("*, casts(name, line_user_id)")
-    .eq("scheduled_date", today);
+    .eq("scheduled_date", today)
+    .not("scheduled_time", "is", null);
 
   if (error) {
     console.error("[Remind] Supabase error:", error);
@@ -46,7 +54,13 @@ export async function GET() {
     );
   }
 
-  if (!schedules || schedules.length === 0) {
+  // 休み（—）: scheduled_time が空文字のレコードも除外
+  const schedules = (rawSchedules ?? []).filter((s) => {
+    const t = s.scheduled_time;
+    return t != null && String(t).trim() !== "";
+  });
+
+  if (schedules.length === 0) {
     return NextResponse.json({
       ok: true,
       message: "No schedules for today",
@@ -74,10 +88,10 @@ export async function GET() {
 
       const message = {
         type: "template" as const,
-        altText: `${name}さん、本日出勤確認のお願い`,
+        altText: `${name}さん、本日の出勤確認をお願いします`,
         template: {
           type: "buttons" as const,
-          text: `${name}さん、本日は ${scheduledTime} 出勤予定です。よろしくお願い致します！`,
+          text: `${name}さん、本日は ${scheduledTime} 出勤予定です。出勤確認をお願いいたします。`,
           actions: [
             { type: "postback" as const, label: "出勤", data: "attending", displayText: "出勤" },
             { type: "postback" as const, label: "遅刻", data: "late", displayText: "遅刻" },
