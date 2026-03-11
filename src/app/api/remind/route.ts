@@ -1,13 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendPushMessage } from "@/lib/line-reply";
-
-/**
- * 日本時間（JST）の「今日」を YYYY-MM-DD で返す
- */
-function getTodayJst(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
-}
+import { getTodayJst } from "@/lib/date-utils";
 
 /**
  * 本日出勤予定のキャストへリマインド（Buttons Template）を送信するAPI

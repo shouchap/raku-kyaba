@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { Hono } from "hono";
 import { handle } from "hono/vercel";
 import { verifyLineSignature } from "@/lib/line-signature";
@@ -7,6 +8,7 @@ import {
   createAttendanceConfirmationFlexMessage,
 } from "@/lib/line-reply";
 import { createSupabaseClient } from "@/lib/supabase";
+import { getTodayJst } from "@/lib/date-utils";
 import type {
   LineWebhookBody,
   LineMessageEvent,
@@ -18,37 +20,54 @@ export const runtime = "edge";
 
 const app = new Hono();
 
-/** テキスト「出勤」「欠勤」「遅刻」を AttendancePostbackData に変換 */
+const ERROR_REPLY = "申し訳ございません。エラーが発生しました。しばらく経ってから再度お試しください。";
+const CAST_NOT_FOUND_REPLY = "キャストが登録されていません。管理者にご連絡ください。";
+
+/** テキスト「出勤」「欠勤」「遅刻」を AttendancePostbackData に変換（両方の入力形式に対応） */
 function textToAttendanceData(text: string): AttendancePostbackData | null {
-  const t = text?.trim();
+  const t = String(text ?? "").trim();
   if (t === "出勤") return "attending";
   if (t === "欠勤") return "absent";
   if (t === "遅刻") return "late";
   return null;
 }
 
+/** postback.data を AttendancePostbackData に変換（前後の空白・改行を除去） */
+function parsePostbackData(data: unknown): AttendancePostbackData | null {
+  const s = typeof data === "string" ? data.trim() : "";
+  if (s === "attending" || s === "absent" || s === "late") return s;
+  return null;
+}
+
+function isAttendancePostbackData(value: unknown): value is AttendancePostbackData {
+  return value === "attending" || value === "absent" || value === "late";
+}
+
 /**
- * LINE Webhook エンドポイント
+ * LINE Webhook エンドポイント（本番環境・Vercel完全対応版）
  *
- * 設計意図:
- * - POSTのみ受付。LINEはWebhookにPOSTでイベントを送信する
- * - 署名検証を最優先で実施し、不正リクエストを早期に拒否する
- * - raw bodyを署名検証前に取得するため、Honoのbody解析前にc.req.rawから直接取得
- * - エラー時も必ず200でレスポンスを返し、Vercelの504タイムアウトを防ぐ
+ * - 504タイムアウト防止: 必ず NextResponse.json({ message: "OK" }) を返す
+ * - テキスト・ポストバック両対応: 出勤/欠勤/遅刻ボタンの両形式を処理
+ * - 日本時間: getTodayJst() で日付を正しく処理
+ * - ログ充実: Vercel Logs で何が届いたか追跡可能
+ * - 堅牢な try-catch: エラー時もユーザーに返信
  */
 app.post("*", async (c) => {
-  const okResponse = () => c.json({ message: "OK" }, 200);
+  const okResponse = () => NextResponse.json({ message: "OK" });
 
   try {
+    console.log("[Webhook] リクエスト受信開始");
+
     // -------------------------------------------------------------------------
-    // 1. 生ボディの取得（署名検証には完全一致が必要なため、パース前の文字列を使用）
+    // 1. 生ボディの取得
     // -------------------------------------------------------------------------
     let rawBody: string;
     try {
       rawBody = await c.req.raw.text();
+      console.log("[Webhook] ボディ取得完了 length:", rawBody?.length ?? 0);
     } catch (err) {
-      console.error("[Webhook] Failed to read request body:", err);
-      return c.json({ message: "OK" }, 200); // 不正リクエストでも200で返し再送を防ぐ
+      console.error("[Webhook] ボディ取得失敗:", err);
+      return okResponse();
     }
 
     // -------------------------------------------------------------------------
@@ -58,15 +77,16 @@ app.post("*", async (c) => {
     const channelSecret = process.env.LINE_CHANNEL_SECRET;
 
     if (!channelSecret) {
-      console.error("[Webhook] LINE_CHANNEL_SECRET is not configured");
+      console.error("[Webhook] LINE_CHANNEL_SECRET 未設定");
       return okResponse();
     }
 
     const isValid = await verifyLineSignature(rawBody, signature, channelSecret);
     if (!isValid) {
-      console.warn("[Webhook] Signature verification failed");
+      console.warn("[Webhook] 署名検証失敗");
       return c.json({ error: "Invalid signature" }, 401);
     }
+    console.log("[Webhook] 署名検証OK");
 
     // -------------------------------------------------------------------------
     // 3. ボディのパース
@@ -74,57 +94,72 @@ app.post("*", async (c) => {
     let body: LineWebhookBody;
     try {
       body = JSON.parse(rawBody) as LineWebhookBody;
-    } catch {
+    } catch (err) {
+      console.error("[Webhook] JSONパース失敗:", err);
       return okResponse();
     }
 
-    // イベントが空の場合は即返却（LINEの検証リクエスト等）
-    if (!body.events || !Array.isArray(body.events) || body.events.length === 0) {
+    const events = body.events;
+    if (!events || !Array.isArray(events) || events.length === 0) {
+      console.log("[Webhook] イベントなし（検証リクエスト等）");
       return okResponse();
     }
+
+    console.log("[Webhook] イベント数:", events.length, "| 先頭イベントtype:", events[0]?.type ?? "(none)");
 
     // -------------------------------------------------------------------------
-    // 4. イベント処理（各イベントを順次処理）
+    // 4. イベント処理
     // -------------------------------------------------------------------------
     const supabase = createSupabaseClient();
     const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN ?? undefined;
 
-    for (let i = 0; i < body.events.length; i++) {
-      const event = body.events[i];
+    if (!channelAccessToken) {
+      console.error("[Webhook] LINE_CHANNEL_ACCESS_TOKEN 未設定");
+    }
+
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i];
       const eventType = event?.type ?? "(unknown)";
-      console.log(`[Webhook] Event[${i}] type:`, eventType);
+      const webhookId = event?.webhookEventId ?? `idx-${i}`;
+
+      console.log(`[Webhook] Event[${i}] type=${eventType} webhookEventId=${webhookId}`);
 
       if (!event || typeof event.type !== "string") {
-        console.warn("[Webhook] Skipping invalid event:", event);
+        console.warn("[Webhook] 不正なイベントをスキップ:", JSON.stringify(event));
         continue;
       }
 
       try {
-        await processWebhookEvent(
-          event,
-          body.destination,
-          supabase,
-          channelAccessToken
-        );
+        await processWebhookEvent(event, body.destination, supabase, channelAccessToken);
       } catch (err) {
-        console.error("[Webhook] Event processing error:", event.webhookEventId ?? i, err);
+        console.error("[Webhook] イベント処理エラー:", webhookId, err);
+
+        // エラー時もユーザーに返信を試みる
+        const replyToken = (event as { replyToken?: string }).replyToken;
+        if (replyToken && channelAccessToken) {
+          try {
+            await sendReply(replyToken, channelAccessToken, [
+              { type: "text", text: ERROR_REPLY },
+            ]);
+            console.log("[Webhook] エラー返信を送信");
+          } catch (replyErr) {
+            console.error("[Webhook] エラー返信も失敗:", replyErr);
+          }
+        }
       }
     }
 
+    console.log("[Webhook] 全イベント処理完了");
     return okResponse();
   } catch (err) {
-    console.error("[Webhook] Unexpected error:", err);
+    console.error("[Webhook] 予期しないエラー:", err);
     return okResponse();
   }
 });
 
 /**
  * 単一Webhookイベントの処理
- *
- * 設計意図:
- * - LINE User ID は source.userId から取得（1対1チャット・グループ共通）
- * - Postbackのdataで「attending」「absent」「late」を識別
- * - マルチテナント時は body.destination でストアを特定可能（将来拡張）
+ * - ポストバック（ボタンタップ）とテキストメッセージの両方で出勤/欠勤/遅刻に対応
  */
 async function processWebhookEvent(
   event: LineWebhookBody["events"][number],
@@ -134,16 +169,19 @@ async function processWebhookEvent(
 ): Promise<void> {
   const userId = event.source?.userId;
   if (!userId) {
-    // グループ/ルームのみのイベントなど、userIdが無い場合はスキップ
+    console.log("[Webhook] userId なし（グループ等）のためスキップ");
     return;
   }
 
   switch (event.type) {
     case "postback": {
       const postbackEvent = event as LinePostbackEvent;
-      const data = postbackEvent.postback?.data as AttendancePostbackData | undefined;
+      const rawData = postbackEvent.postback?.data;
+      const data = parsePostbackData(rawData);
 
-      if (isAttendancePostbackData(data)) {
+      console.log("[Webhook] Postback受信 | rawData:", JSON.stringify(rawData), "| 判定:", data ?? "未対応");
+
+      if (data) {
         await handleAttendanceResponse(
           userId,
           data,
@@ -151,6 +189,8 @@ async function processWebhookEvent(
           postbackEvent.replyToken,
           channelAccessToken
         );
+      } else {
+        console.warn("[Webhook] 未対応のpostback.data:", rawData);
       }
       break;
     }
@@ -159,25 +199,25 @@ async function processWebhookEvent(
       const messageEvent = event as LineMessageEvent;
       if (messageEvent.message?.type === "text") {
         const text = messageEvent.message.text ?? "";
-        console.log("[Webhook] テキストメッセージ:", text);
+        const data = textToAttendanceData(text);
 
-        const attendanceData = textToAttendanceData(text);
-        if (attendanceData) {
-          // 「出勤」「欠勤」「遅刻」→ 出勤回答として記録・返信
+        console.log("[Webhook] テキスト受信 | text:", JSON.stringify(text), "| 出勤判定:", data ?? "その他");
+
+        if (data) {
           await handleAttendanceResponse(
             userId,
-            attendanceData,
+            data,
             supabase,
             messageEvent.replyToken,
             channelAccessToken
           );
         } else if (channelAccessToken && messageEvent.replyToken) {
-          // その他のテキスト → 出勤確認Flex Messageを返信
           await sendReply(
             messageEvent.replyToken,
             channelAccessToken,
             [createAttendanceConfirmationFlexMessage()]
           );
+          console.log("[Webhook] 出勤確認Flex送信");
         }
       }
       break;
@@ -194,26 +234,23 @@ async function processWebhookEvent(
     case "unfollow":
     case "join":
     case "leave":
+      console.log("[Webhook] 未処理イベント:", event.type);
       break;
 
     default:
-      // 未対応イベントは無視（ログ出力のみ）
-      break;
+      console.log("[Webhook] 未対応イベント:", event.type);
   }
 }
 
-/** 出勤回答に対する返信メッセージ（管理しやすいようにオブジェクトにまとめる） */
+/** 出勤回答に対する返信メッセージ */
 const REPLY_MESSAGES: Record<AttendancePostbackData, string> = {
-  attending:
-    "出勤を記録しました。本日もよろしくお願い致します！",
+  attending: "出勤を記録しました。本日もよろしくお願い致します。",
   late: "遅刻の連絡を受け付けました。差し支えなければ、このチャットで『理由』と『到着予定時刻』を教えていただけますか？",
-  absent:
-    "欠勤の連絡を受け付けました。この後、管理者から直接ご連絡させていただきます。",
+  absent: "欠勤の連絡を受け付けました。この後、管理者から直接ご連絡させていただきます。",
 };
 
 /**
  * 友だち追加・ブロック解除時の処理
- * LINEプロフィールから表示名を取得し、castsテーブルに登録する
  */
 async function handleFollowEvent(
   lineUserId: string,
@@ -223,13 +260,9 @@ async function handleFollowEvent(
 ): Promise<void> {
   console.log("[Follow] 処理開始 lineUserId:", lineUserId);
 
-  // 1. LINEプロフィールから表示名を取得
-  console.log("[Follow] プロフィール取得を開始");
   const { displayName } = await getLineProfile(lineUserId, channelAccessToken);
   console.log("[Follow] プロフィール取得成功 displayName:", displayName);
 
-  // 2. stores テーブルから最初の1件を取得
-  console.log("[Follow] 店舗取得を開始");
   const { data: store, error: storeError } = await supabase
     .from("stores")
     .select("id")
@@ -237,18 +270,13 @@ async function handleFollowEvent(
     .single();
 
   if (storeError || !store) {
-    console.error("[Follow] 店舗取得エラー:", storeError?.message ?? "No store data");
-    await sendReply(
-      replyToken,
-      channelAccessToken,
-      [{ type: "text", text: `${displayName}さん、友だち追加ありがとうございます！` }]
-    );
+    console.error("[Follow] 店舗取得エラー:", storeError?.message);
+    await sendReply(replyToken, channelAccessToken, [
+      { type: "text", text: `${displayName}さん、友だち追加ありがとうございます。` },
+    ]);
     return;
   }
-  console.log("[Follow] 店舗取得成功 storeId:", store.id);
 
-  // 3. casts テーブルを line_user_id で SELECT（既存登録の確認）
-  console.log("[Follow] 既存キャスト確認を開始 line_user_id:", lineUserId);
   const { data: existingCast, error: selectError } = await supabase
     .from("casts")
     .select("id, name")
@@ -258,62 +286,42 @@ async function handleFollowEvent(
 
   if (selectError) {
     console.error("[Follow] SELECT エラー:", selectError);
-    await sendReply(
-      replyToken,
-      channelAccessToken,
-      [{ type: "text", text: `${displayName}さん、友だち追加ありがとうございます！` }]
-    );
+    await sendReply(replyToken, channelAccessToken, [
+      { type: "text", text: `${displayName}さん、友だち追加ありがとうございます。` },
+    ]);
     return;
   }
 
   if (!existingCast) {
-    // 4a. データが無ければ INSERT で新規登録
-    console.log("[Follow] 新規登録のため INSERT を実行");
     const { error: insertError } = await supabase.from("casts").insert({
       store_id: store.id,
       line_user_id: lineUserId,
       name: displayName,
       is_active: true,
     });
-
     if (insertError) {
       console.error("[Follow] INSERT エラー:", insertError);
-      await sendReply(
-        replyToken,
-        channelAccessToken,
-        [{ type: "text", text: `${displayName}さん、友だち追加ありがとうございます！` }]
-      );
+      await sendReply(replyToken, channelAccessToken, [
+        { type: "text", text: `${displayName}さん、友だち追加ありがとうございます。` },
+      ]);
       return;
     }
-    console.log("[Follow] INSERT 成功 新規キャスト登録完了");
+    console.log("[Follow] 新規キャスト登録完了");
   } else {
-    // 4b. データが有れば UPDATE で名前を更新
-    console.log("[Follow] 既存データあり UPDATE を実行 castId:", existingCast.id, "旧name:", existingCast.name);
     const { error: updateError } = await supabase
       .from("casts")
       .update({ name: displayName })
       .eq("id", existingCast.id);
-
     if (updateError) {
       console.error("[Follow] UPDATE エラー:", updateError);
-      await sendReply(
-        replyToken,
-        channelAccessToken,
-        [{ type: "text", text: `${displayName}さん、友だち追加ありがとうございます！` }]
-      );
-      return;
     }
-    console.log("[Follow] UPDATE 成功 名前を更新:", displayName);
   }
 
-  // 5. 挨拶メッセージを返信
-  console.log("[Follow] 挨拶メッセージを送信");
-  const welcomeMessage = `${displayName}さん、はじめまして！出勤・退勤の連絡はこのLINEから行えます。よろしくお願いいたします。`;
+  const welcomeMessage = `${displayName}さん、はじめまして。出勤・退勤の連絡はこのLINEから行えます。よろしくお願いいたします。`;
   await sendReply(replyToken, channelAccessToken, [{ type: "text", text: welcomeMessage }]);
   console.log("[Follow] 処理完了");
 }
 
-/** LINEプロフィールから表示名を取得 */
 async function getLineProfile(
   userId: string,
   channelAccessToken: string
@@ -322,29 +330,17 @@ async function getLineProfile(
     headers: { Authorization: `Bearer ${channelAccessToken}` },
   });
   if (!res.ok) {
-    console.warn("[LINE] getLineProfile failed:", res.status, await res.text());
+    console.warn("[LINE] getLineProfile failed:", res.status);
     return { displayName: "ゲスト" };
   }
   const data = (await res.json()) as { displayName?: string };
   return { displayName: data.displayName?.trim() || "ゲスト" };
 }
 
-function isAttendancePostbackData(value: unknown): value is AttendancePostbackData {
-  return value === "attending" || value === "absent" || value === "late";
-}
-
-function toAttendanceStatus(data: AttendancePostbackData): "attending" | "absent" | "late" {
-  return data;
-}
-
 /**
- * 出勤回答の記録処理
- *
- * 設計意図:
- * - line_user_id で casts を検索し、store_id を取得してテナントを特定
- * - 同一キャスト・同一日の重複は upsert で上書き（再回答を許可）
- * - 記録成功後、REPLY_MESSAGES に従い該当メッセージをLINEで返信
- * - 欠勤時の管理者即時通知は別モジュール（将来的に実装）で行う想定
+ * 出勤回答の記録・返信
+ * - キャスト未登録時はユーザーにメッセージを返す（反応なしを防止）
+ * - エラー時は try-catch で捕捉し返信
  */
 async function handleAttendanceResponse(
   lineUserId: string,
@@ -353,75 +349,99 @@ async function handleAttendanceResponse(
   replyToken?: string,
   channelAccessToken?: string
 ): Promise<void> {
-  // キャスト照合: line_user_id で検索
-  const { data: cast, error: castError } = await supabase
-    .from("casts")
-    .select("id, store_id, name")
-    .eq("line_user_id", lineUserId)
-    .eq("is_active", true)
-    .single();
-
-  if (castError || !cast) {
-    console.warn("[Webhook] Cast not found for line_user_id:", lineUserId, castError?.message);
-    return;
-  }
-
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const status = toAttendanceStatus(statusData);
-
-  // attendance_logs に upsert（同日・同キャストの重複回答は上書き）
-  const { error: upsertError } = await supabase
-    .from("attendance_logs")
-    .upsert(
-      {
-        store_id: cast.store_id,
-        cast_id: cast.id,
-        attendance_schedule_id: null,
-        attended_date: today,
-        status,
-        responded_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      } as Record<string, unknown>,
-      {
-        onConflict: "store_id,cast_id,attended_date",
-        ignoreDuplicates: false,
-      }
-    );
-
-  if (upsertError) {
-    console.error("[Webhook] Failed to upsert attendance_log:", upsertError);
-    throw upsertError;
-  }
-
-  // 記録成功後、該当メッセージをLINEへ返信（KISS原則に基づきシンプルに）
-  const text =
-    REPLY_MESSAGES[statusData] || "記録を受け付けました。";
-  if (replyToken && channelAccessToken) {
-    await sendReply(replyToken, channelAccessToken, [{ type: "text", text }]);
-  }
-
-  // 遅刻・欠勤時に管理者へPushメッセージを送る
-  if (
-    (statusData === "late" || statusData === "absent") &&
-    channelAccessToken
-  ) {
-    const { data: store } = await supabase
-      .from("stores")
-      .select("admin_line_user_id")
-      .eq("id", cast.store_id)
-      .single();
-
-    const adminUserId = store?.admin_line_user_id;
-    if (adminUserId) {
-      const adminMessage =
-        statusData === "late"
-          ? `⚠️ 【遅刻連絡】\nキャストの ${cast.name} さんから遅刻の連絡がありました。チャットで理由と到着予定時刻を確認してください。`
-          : `🚨 【欠勤連絡】\nキャストの ${cast.name} さんから欠勤の連絡がありました。至急、直接の連絡・シフト調整をお願いします。`;
-
-      await sendPushMessage(adminUserId, channelAccessToken, [
-        { type: "text", text: adminMessage },
-      ]);
+  const safeReply = async (text: string) => {
+    if (replyToken && channelAccessToken) {
+      await sendReply(replyToken, channelAccessToken, [{ type: "text", text }]);
+    } else {
+      console.warn("[Webhook] 返信スキップ（replyToken or channelAccessToken なし）");
     }
+  };
+
+  try {
+    console.log("[Attendance] 処理開始 lineUserId:", lineUserId, "status:", statusData);
+
+    // キャスト照合（複数店舗の場合は先頭1件を使用）
+    const { data: cast, error: castError } = await supabase
+      .from("casts")
+      .select("id, store_id, name")
+      .eq("line_user_id", lineUserId)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+    if (castError) {
+      console.error("[Attendance] キャスト検索エラー:", castError);
+      await safeReply(ERROR_REPLY);
+      return;
+    }
+
+    if (!cast) {
+      console.warn("[Attendance] キャスト未登録 lineUserId:", lineUserId);
+      await safeReply(CAST_NOT_FOUND_REPLY);
+      return;
+    }
+
+    const today = getTodayJst();
+    const status = statusData;
+
+    console.log("[Attendance] 記録実行 cast:", cast.name, "date:", today, "status:", status);
+
+    const { error: upsertError } = await supabase
+      .from("attendance_logs")
+      .upsert(
+        {
+          store_id: cast.store_id,
+          cast_id: cast.id,
+          attendance_schedule_id: null,
+          attended_date: today,
+          status,
+          responded_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as Record<string, unknown>,
+        {
+          onConflict: "store_id,cast_id,attended_date",
+          ignoreDuplicates: false,
+        }
+      );
+
+    if (upsertError) {
+      console.error("[Attendance] upsert エラー:", upsertError);
+      await safeReply(ERROR_REPLY);
+      return;
+    }
+
+    const replyText = REPLY_MESSAGES[statusData] ?? "記録を受け付けました。";
+    await safeReply(replyText);
+    console.log("[Attendance] 記録・返信完了");
+
+    // 遅刻・欠勤時に管理者へ通知
+    if ((statusData === "late" || statusData === "absent") && channelAccessToken) {
+      const { data: store } = await supabase
+        .from("stores")
+        .select("admin_line_user_id")
+        .eq("id", cast.store_id)
+        .single();
+
+      const adminUserId = store?.admin_line_user_id;
+      if (adminUserId) {
+        const adminMessage =
+          statusData === "late"
+            ? `【遅刻連絡】\n${cast.name} さんから遅刻の連絡がありました。理由と到着予定時刻を確認してください。`
+            : `【欠勤連絡】\n${cast.name} さんから欠勤の連絡がありました。至急、連絡・シフト調整をお願いします。`;
+        try {
+          await sendPushMessage(adminUserId, channelAccessToken, [
+            { type: "text", text: adminMessage },
+          ]);
+          console.log("[Attendance] 管理者通知送信");
+        } catch (adminErr) {
+          console.error("[Attendance] 管理者通知失敗:", adminErr);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[Attendance] 処理エラー:", err);
+    await safeReply(ERROR_REPLY);
+    throw err;
   }
 }
 
