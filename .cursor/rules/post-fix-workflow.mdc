@@ -1,0 +1,21 @@
+---
+description: 修正後の更新ワークフロー（ローカルビルド＋本番デプロイ）
+alwaysApply: true
+---
+
+# 修正後の更新ワークフロー
+
+コード修正を行った後は、必ず以下を実行する：
+
+## 1. ローカル更新（毎回）
+
+1. **型チェック**: `npm run typecheck`
+2. **ビルド**: `npm run build`
+
+## 2. ネット側（本番）更新
+
+1. **Git push**: 変更をコミットして `git push origin main` を実行
+   - Vercel 等で GitHub 連携している場合は push で自動デプロイされる
+2. **または Vercel 直接デプロイ**: `npx vercel --prod`
+
+修正完了時は、上記を省略せずに実行すること。

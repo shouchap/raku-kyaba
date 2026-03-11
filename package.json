@@ -7,7 +7,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "update": "npm run typecheck && npm run build",
+    "deploy": "npm run update && npx vercel --prod"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.0",
