@@ -18,6 +18,15 @@ export const runtime = "edge";
 
 const app = new Hono();
 
+/** テキスト「出勤」「欠勤」「遅刻」を AttendancePostbackData に変換 */
+function textToAttendanceData(text: string): AttendancePostbackData | null {
+  const t = text?.trim();
+  if (t === "出勤") return "attending";
+  if (t === "欠勤") return "absent";
+  if (t === "遅刻") return "late";
+  return null;
+}
+
 /**
  * LINE Webhook エンドポイント
  *
@@ -25,80 +34,88 @@ const app = new Hono();
  * - POSTのみ受付。LINEはWebhookにPOSTでイベントを送信する
  * - 署名検証を最優先で実施し、不正リクエストを早期に拒否する
  * - raw bodyを署名検証前に取得するため、Honoのbody解析前にc.req.rawから直接取得
- * - "*" で全POSTをキャッチ（Next.jsのルート構造と重複しないよう、このファイルに届く全てのリクエストを処理）
+ * - エラー時も必ず200でレスポンスを返し、Vercelの504タイムアウトを防ぐ
  */
 app.post("*", async (c) => {
-  console.log("📢 LINEからリクエストが届きました！");
-  // -------------------------------------------------------------------------
-  // 1. 生ボディの取得（署名検証には完全一致が必要なため、パース前の文字列を使用）
-  // 設計意図: JSON.parse()すると余分なスペース等が失われ、検証が失敗する
-  // -------------------------------------------------------------------------
-  let rawBody: string;
+  const okResponse = () => c.json({ message: "OK" }, 200);
+
   try {
-    rawBody = await c.req.raw.text();
-  } catch (err) {
-    console.error("[Webhook] Failed to read request body:", err);
-    return c.json({ error: "Invalid request body" }, 400);
-  }
-
-  // -------------------------------------------------------------------------
-  // 2. 署名検証
-  // 設計意図: LINE公式推奨。検証前に処理を進めないことで改ざん・偽装を防止
-  // -------------------------------------------------------------------------
-  const signature = c.req.header("x-line-signature") ?? null;
-  const channelSecret = process.env.LINE_CHANNEL_SECRET;
-
-  if (!channelSecret) {
-    console.error("[Webhook] LINE_CHANNEL_SECRET is not configured");
-    return c.json({ error: "Server configuration error" }, 500);
-  }
-
-  const isValid = await verifyLineSignature(rawBody, signature, channelSecret);
-  if (!isValid) {
-    console.warn("[Webhook] Signature verification failed");
-    return c.json({ error: "Invalid signature" }, 401);
-  }
-
-  // -------------------------------------------------------------------------
-  // 3. ボディのパース（署名検証成功後に実施）
-  // -------------------------------------------------------------------------
-  let body: LineWebhookBody;
-  try {
-    body = JSON.parse(rawBody) as LineWebhookBody;
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400);
-  }
-  console.log("📢 LINEから何かが届きました！種類:", body.events[0]?.type);
-
-  // イベントが空の場合は200で即返却（LINEの検証リクエスト等）
-  // 設計意図: LINEは定期的にWebhookの疎通確認を行う。空イベントでも200必須
-  if (!body.events || body.events.length === 0) {
-    return c.json({ ok: true });
-  }
-
-  // -------------------------------------------------------------------------
-  // 4. イベント処理
-  // 設計意図: 各イベントを順次処理。Postback（出勤/欠勤/遅刻タップ）を主に対応
-  // -------------------------------------------------------------------------
-  const supabase = createSupabaseClient();
-  const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-
-  for (const event of body.events) {
+    // -------------------------------------------------------------------------
+    // 1. 生ボディの取得（署名検証には完全一致が必要なため、パース前の文字列を使用）
+    // -------------------------------------------------------------------------
+    let rawBody: string;
     try {
-      await processWebhookEvent(
-        event,
-        body.destination,
-        supabase,
-        channelAccessToken ?? undefined
-      );
+      rawBody = await c.req.raw.text();
     } catch (err) {
-      // 個別イベントの失敗はログに残し、他イベントの処理は継続
-      // 設計意図: 一つの失敗で全体が500にならないよう、部分的な耐障害性を確保
-      console.error("[Webhook] Event processing error:", event.webhookEventId, err);
+      console.error("[Webhook] Failed to read request body:", err);
+      return c.json({ message: "OK" }, 200); // 不正リクエストでも200で返し再送を防ぐ
     }
-  }
 
-  return c.json({ ok: true });
+    // -------------------------------------------------------------------------
+    // 2. 署名検証
+    // -------------------------------------------------------------------------
+    const signature = c.req.header("x-line-signature") ?? null;
+    const channelSecret = process.env.LINE_CHANNEL_SECRET;
+
+    if (!channelSecret) {
+      console.error("[Webhook] LINE_CHANNEL_SECRET is not configured");
+      return okResponse();
+    }
+
+    const isValid = await verifyLineSignature(rawBody, signature, channelSecret);
+    if (!isValid) {
+      console.warn("[Webhook] Signature verification failed");
+      return c.json({ error: "Invalid signature" }, 401);
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. ボディのパース
+    // -------------------------------------------------------------------------
+    let body: LineWebhookBody;
+    try {
+      body = JSON.parse(rawBody) as LineWebhookBody;
+    } catch {
+      return okResponse();
+    }
+
+    // イベントが空の場合は即返却（LINEの検証リクエスト等）
+    if (!body.events || !Array.isArray(body.events) || body.events.length === 0) {
+      return okResponse();
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. イベント処理（各イベントを順次処理）
+    // -------------------------------------------------------------------------
+    const supabase = createSupabaseClient();
+    const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN ?? undefined;
+
+    for (let i = 0; i < body.events.length; i++) {
+      const event = body.events[i];
+      const eventType = event?.type ?? "(unknown)";
+      console.log(`[Webhook] Event[${i}] type:`, eventType);
+
+      if (!event || typeof event.type !== "string") {
+        console.warn("[Webhook] Skipping invalid event:", event);
+        continue;
+      }
+
+      try {
+        await processWebhookEvent(
+          event,
+          body.destination,
+          supabase,
+          channelAccessToken
+        );
+      } catch (err) {
+        console.error("[Webhook] Event processing error:", event.webhookEventId ?? i, err);
+      }
+    }
+
+    return okResponse();
+  } catch (err) {
+    console.error("[Webhook] Unexpected error:", err);
+    return okResponse();
+  }
 });
 
 /**
@@ -141,9 +158,21 @@ async function processWebhookEvent(
     case "message": {
       const messageEvent = event as LineMessageEvent;
       if (messageEvent.message?.type === "text") {
-        console.log("📝 テキストメッセージ:", messageEvent.message.text);
-        // テキスト受信時に出勤確認Flex Messageを返信
-        if (channelAccessToken && messageEvent.replyToken) {
+        const text = messageEvent.message.text ?? "";
+        console.log("[Webhook] テキストメッセージ:", text);
+
+        const attendanceData = textToAttendanceData(text);
+        if (attendanceData) {
+          // 「出勤」「欠勤」「遅刻」→ 出勤回答として記録・返信
+          await handleAttendanceResponse(
+            userId,
+            attendanceData,
+            supabase,
+            messageEvent.replyToken,
+            channelAccessToken
+          );
+        } else if (channelAccessToken && messageEvent.replyToken) {
+          // その他のテキスト → 出勤確認Flex Messageを返信
           await sendReply(
             messageEvent.replyToken,
             channelAccessToken,
