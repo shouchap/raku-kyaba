@@ -16,8 +16,6 @@ import type {
   AttendancePostbackData,
 } from "@/types/line-webhook";
 
-export const runtime = "edge";
-
 const app = new Hono();
 
 const ERROR_REPLY = "申し訳ございません。エラーが発生しました。しばらく経ってから再度お試しください。";
@@ -37,10 +35,6 @@ function parsePostbackData(data: unknown): AttendancePostbackData | null {
   const s = typeof data === "string" ? data.trim() : "";
   if (s === "attending" || s === "absent" || s === "late") return s;
   return null;
-}
-
-function isAttendancePostbackData(value: unknown): value is AttendancePostbackData {
-  return value === "attending" || value === "absent" || value === "late";
 }
 
 /**
@@ -86,7 +80,7 @@ app.post("*", async (c) => {
       console.warn("[Webhook] 署名検証失敗");
       return c.json({ error: "Invalid signature" }, 401);
     }
-    console.log("[Webhook] 署名検証OK");
+    console.log("[Webhook] Step 1: 署名検証完了");
 
     // -------------------------------------------------------------------------
     // 3. ボディのパース
@@ -149,7 +143,7 @@ app.post("*", async (c) => {
       }
     }
 
-    console.log("[Webhook] 全イベント処理完了");
+    console.log("[Webhook] Step 4: 全処理完了（レスポンス送信）");
     return okResponse();
   } catch (err) {
     console.error("[Webhook] 予期しないエラー:", err);
@@ -360,7 +354,8 @@ async function handleAttendanceResponse(
   try {
     console.log("[Attendance] 処理開始 lineUserId:", lineUserId, "status:", statusData);
 
-    // キャスト照合（複数店舗の場合は先頭1件を使用）
+    // Step 2: キャスト検索開始
+    console.log("[Attendance] Step 2: キャスト検索開始");
     const { data: cast, error: castError } = await supabase
       .from("casts")
       .select("id, store_id, name")
@@ -384,9 +379,11 @@ async function handleAttendanceResponse(
     const today = getTodayJst();
     const status = statusData;
 
-    console.log("[Attendance] 記録実行 cast:", cast.name, "date:", today, "status:", status);
+    // Step 3: DB更新 & LINE返信を並行実行
+    console.log("[Attendance] Step 3: DB更新 & LINE返信開始");
+    const replyText = REPLY_MESSAGES[statusData] ?? "記録を受け付けました。";
 
-    const { error: upsertError } = await supabase
+    const upsertPromise = supabase
       .from("attendance_logs")
       .upsert(
         {
@@ -404,14 +401,16 @@ async function handleAttendanceResponse(
         }
       );
 
-    if (upsertError) {
-      console.error("[Attendance] upsert エラー:", upsertError);
+    const replyPromise = safeReply(replyText);
+
+    const [upsertResult] = await Promise.all([upsertPromise, replyPromise]);
+
+    if (upsertResult.error) {
+      console.error("[Attendance] upsert エラー:", upsertResult.error);
       await safeReply(ERROR_REPLY);
       return;
     }
 
-    const replyText = REPLY_MESSAGES[statusData] ?? "記録を受け付けました。";
-    await safeReply(replyText);
     console.log("[Attendance] 記録・返信完了");
 
     // 遅刻・欠勤時に管理者へ通知
