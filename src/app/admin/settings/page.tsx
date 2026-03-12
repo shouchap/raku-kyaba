@@ -14,6 +14,11 @@ type ReminderConfig = {
   enabled: boolean;
   sendTime: string;
   messageTemplate: string;
+  reply_present: string;
+  reply_late: string;
+  reply_absent: string;
+  admin_notify_late: string;
+  admin_notify_absent: string;
 };
 
 const DEFAULT_CONFIG: ReminderConfig = {
@@ -21,6 +26,15 @@ const DEFAULT_CONFIG: ReminderConfig = {
   sendTime: "12:00",
   messageTemplate:
     "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。",
+  reply_present: "出勤を記録しました。本日もよろしくお願い致します。",
+  reply_late:
+    "遅刻の連絡を受け付けました。差し支えなければ、このチャットで『理由』と『到着予定時刻』を教えていただけますか？",
+  reply_absent:
+    "欠勤の連絡を受け付けました。この後、管理者から直接ご連絡させていただきます。",
+  admin_notify_late:
+    "【遅刻連絡】\n{name} さんから遅刻の連絡がありました。理由と到着予定時刻を確認してください。",
+  admin_notify_absent:
+    "【欠勤連絡】\n{name} さんから欠勤の連絡がありました。至急、連絡・シフト調整をお願いします。",
 };
 
 export default function AdminSettingsPage() {
@@ -58,6 +72,26 @@ export default function AdminSettingsPage() {
             typeof v.messageTemplate === "string"
               ? v.messageTemplate
               : DEFAULT_CONFIG.messageTemplate,
+          reply_present:
+            typeof v.reply_present === "string"
+              ? v.reply_present
+              : DEFAULT_CONFIG.reply_present,
+          reply_late:
+            typeof v.reply_late === "string"
+              ? v.reply_late
+              : DEFAULT_CONFIG.reply_late,
+          reply_absent:
+            typeof v.reply_absent === "string"
+              ? v.reply_absent
+              : DEFAULT_CONFIG.reply_absent,
+          admin_notify_late:
+            typeof v.admin_notify_late === "string"
+              ? v.admin_notify_late
+              : DEFAULT_CONFIG.admin_notify_late,
+          admin_notify_absent:
+            typeof v.admin_notify_absent === "string"
+              ? v.admin_notify_absent
+              : DEFAULT_CONFIG.admin_notify_absent,
         });
       }
     } catch (err) {
@@ -85,6 +119,11 @@ export default function AdminSettingsPage() {
               enabled: config.enabled,
               sendTime: config.sendTime,
               messageTemplate: config.messageTemplate.trim() || DEFAULT_CONFIG.messageTemplate,
+              reply_present: config.reply_present.trim() || DEFAULT_CONFIG.reply_present,
+              reply_late: config.reply_late.trim() || DEFAULT_CONFIG.reply_late,
+              reply_absent: config.reply_absent.trim() || DEFAULT_CONFIG.reply_absent,
+              admin_notify_late: config.admin_notify_late.trim() || DEFAULT_CONFIG.admin_notify_late,
+              admin_notify_absent: config.admin_notify_absent.trim() || DEFAULT_CONFIG.admin_notify_absent,
             },
           },
           { onConflict: "key" }
@@ -223,6 +262,112 @@ export default function AdminSettingsPage() {
             />
             <p className="text-xs text-gray-500 mt-1">
               ※ {"{name}"} はキャスト名、{"{time}"} は出勤時間に置換されます
+            </p>
+          </div>
+
+          {/* ボタン押下時の自動返信メッセージ */}
+          <h3 className="text-sm font-medium text-gray-700 mb-3 mt-8">
+            ボタン押下時の自動返信
+          </h3>
+          <div className="mb-6">
+            <label
+              htmlFor="reply_present"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              出勤ボタンへの返信
+            </label>
+            <textarea
+              id="reply_present"
+              value={config.reply_present}
+              onChange={(e) =>
+                setConfig((c) => ({ ...c, reply_present: e.target.value }))
+              }
+              rows={2}
+              placeholder="例: 出勤を記録しました。本日もよろしくお願い致します。"
+              className="w-full min-h-[60px] px-4 py-3 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-gray-400 resize-y"
+            />
+          </div>
+          <div className="mb-6">
+            <label
+              htmlFor="reply_late"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              遅刻ボタンへの返信
+            </label>
+            <textarea
+              id="reply_late"
+              value={config.reply_late}
+              onChange={(e) =>
+                setConfig((c) => ({ ...c, reply_late: e.target.value }))
+              }
+              rows={2}
+              placeholder="例: 遅刻の連絡を受け付けました。理由と到着予定時刻を教えてください。"
+              className="w-full min-h-[60px] px-4 py-3 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-gray-400 resize-y"
+            />
+          </div>
+          <div className="mb-6">
+            <label
+              htmlFor="reply_absent"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              欠勤ボタンへの返信
+            </label>
+            <textarea
+              id="reply_absent"
+              value={config.reply_absent}
+              onChange={(e) =>
+                setConfig((c) => ({ ...c, reply_absent: e.target.value }))
+              }
+              rows={2}
+              placeholder="例: 欠勤の連絡を受け付けました。管理者からご連絡します。"
+              className="w-full min-h-[60px] px-4 py-3 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-gray-400 resize-y"
+            />
+          </div>
+
+          {/* 管理者への通知メッセージ */}
+          <h3 className="text-sm font-medium text-gray-700 mb-3 mt-8">
+            管理者への通知メッセージ
+          </h3>
+          <div className="mb-6">
+            <label
+              htmlFor="admin_notify_late"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              遅刻時の管理者通知
+            </label>
+            <textarea
+              id="admin_notify_late"
+              value={config.admin_notify_late}
+              onChange={(e) =>
+                setConfig((c) => ({ ...c, admin_notify_late: e.target.value }))
+              }
+              rows={2}
+              placeholder="例: 【遅刻連絡】{name} さんから遅刻の連絡がありました。"
+              className="w-full min-h-[60px] px-4 py-3 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-gray-400 resize-y"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              ※ {"{name}"} はキャスト名に置換されます
+            </p>
+          </div>
+          <div className="mb-8">
+            <label
+              htmlFor="admin_notify_absent"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              欠勤時の管理者通知
+            </label>
+            <textarea
+              id="admin_notify_absent"
+              value={config.admin_notify_absent}
+              onChange={(e) =>
+                setConfig((c) => ({ ...c, admin_notify_absent: e.target.value }))
+              }
+              rows={2}
+              placeholder="例: 【欠勤連絡】{name} さんから欠勤の連絡がありました。"
+              className="w-full min-h-[60px] px-4 py-3 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-gray-400 resize-y"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              ※ {"{name}"} はキャスト名に置換されます
             </p>
           </div>
 

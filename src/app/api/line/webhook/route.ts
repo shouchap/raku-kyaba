@@ -236,12 +236,55 @@ async function processWebhookEvent(
   }
 }
 
-/** 出勤回答に対する返信メッセージ */
-const REPLY_MESSAGES: Record<AttendancePostbackData, string> = {
+/** 返信メッセージのデフォルト（DBにデータがない場合のフォールバック） */
+const DEFAULT_REPLY_MESSAGES: Record<AttendancePostbackData, string> = {
   attending: "出勤を記録しました。本日もよろしくお願い致します。",
   late: "遅刻の連絡を受け付けました。差し支えなければ、このチャットで『理由』と『到着予定時刻』を教えていただけますか？",
   absent: "欠勤の連絡を受け付けました。この後、管理者から直接ご連絡させていただきます。",
 };
+
+const DEFAULT_ADMIN_NOTIFY_LATE =
+  "【遅刻連絡】\n{name} さんから遅刻の連絡がありました。理由と到着予定時刻を確認してください。";
+const DEFAULT_ADMIN_NOTIFY_ABSENT =
+  "【欠勤連絡】\n{name} さんから欠勤の連絡がありました。至急、連絡・シフト調整をお願いします。";
+
+type ReminderConfigValue = {
+  reply_present?: string;
+  reply_late?: string;
+  reply_absent?: string;
+  admin_notify_late?: string;
+  admin_notify_absent?: string;
+};
+
+/** system_settings から reminder_config を取得し、返信・管理者通知メッセージを返す */
+async function getReminderReplyConfig(
+  supabase: ReturnType<typeof createSupabaseClient>
+): Promise<{
+  replyMessages: Record<AttendancePostbackData, string>;
+  adminNotifyLate: string;
+  adminNotifyAbsent: string;
+}> {
+  const { data, error } = await supabase
+    .from("system_settings")
+    .select("value")
+    .eq("key", "reminder_config")
+    .maybeSingle();
+
+  const config = (data?.value ?? {}) as ReminderConfigValue;
+
+  return {
+    replyMessages: {
+      attending:
+        config.reply_present?.trim() || DEFAULT_REPLY_MESSAGES.attending,
+      late: config.reply_late?.trim() || DEFAULT_REPLY_MESSAGES.late,
+      absent: config.reply_absent?.trim() || DEFAULT_REPLY_MESSAGES.absent,
+    },
+    adminNotifyLate:
+      config.admin_notify_late?.trim() || DEFAULT_ADMIN_NOTIFY_LATE,
+    adminNotifyAbsent:
+      config.admin_notify_absent?.trim() || DEFAULT_ADMIN_NOTIFY_ABSENT,
+  };
+}
 
 /**
  * 友だち追加・ブロック解除時の処理
@@ -379,9 +422,13 @@ async function handleAttendanceResponse(
     const today = getTodayJst();
     const status = statusData;
 
-    // Step 3: DB更新 & LINE返信を並行実行
-    console.log("[Attendance] Step 3: DB更新 & LINE返信開始");
-    const replyText = REPLY_MESSAGES[statusData] ?? "記録を受け付けました。";
+    // Step 3: DBから返信メッセージを取得
+    const { replyMessages, adminNotifyLate, adminNotifyAbsent } =
+      await getReminderReplyConfig(supabase);
+    const replyText = replyMessages[statusData] ?? "記録を受け付けました。";
+
+    // Step 4: DB更新 & LINE返信を並行実行
+    console.log("[Attendance] Step 4: DB更新 & LINE返信開始");
 
     const upsertPromise = supabase
       .from("attendance_logs")
@@ -413,7 +460,7 @@ async function handleAttendanceResponse(
 
     console.log("[Attendance] 記録・返信完了");
 
-    // 遅刻・欠勤時に管理者へ通知
+    // 遅刻・欠勤時に管理者へ通知（DBのテンプレートを使用、{name}を置換）
     if ((statusData === "late" || statusData === "absent") && channelAccessToken) {
       const { data: store } = await supabase
         .from("stores")
@@ -423,10 +470,9 @@ async function handleAttendanceResponse(
 
       const adminUserId = store?.admin_line_user_id;
       if (adminUserId) {
-        const adminMessage =
-          statusData === "late"
-            ? `【遅刻連絡】\n${cast.name} さんから遅刻の連絡がありました。理由と到着予定時刻を確認してください。`
-            : `【欠勤連絡】\n${cast.name} さんから欠勤の連絡がありました。至急、連絡・シフト調整をお願いします。`;
+        const template =
+          statusData === "late" ? adminNotifyLate : adminNotifyAbsent;
+        const adminMessage = template.replace(/\{name\}/g, cast.name ?? "キャスト");
         try {
           await sendPushMessage(adminUserId, channelAccessToken, [
             { type: "text", text: adminMessage },
