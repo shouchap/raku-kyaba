@@ -1,1 +1,26 @@
 @import "tailwindcss";
+
+/* Club GOLD ログイン画面: ゴールド粒子アニメーション */
+@keyframes gold-float {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.15;
+  }
+  25% {
+    transform: translate(10px, -15px) scale(1.2);
+    opacity: 0.25;
+  }
+  50% {
+    transform: translate(-8px, 10px) scale(0.9);
+    opacity: 0.2;
+  }
+  75% {
+    transform: translate(15px, 5px) scale(1.1);
+    opacity: 0.22;
+  }
+}
+
+.animate-gold-float {
+  animation: gold-float 8s ease-in-out infinite;
+}
