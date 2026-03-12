@@ -277,6 +277,12 @@ export default function AdminWeeklyPage() {
           </div>
           <div className="flex flex-wrap gap-2 sm:gap-3">
             <Link
+              href="/admin/view"
+              className="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-gray-700 rounded-lg hover:bg-gray-800 transition-colors"
+            >
+              シフト一覧表示
+            </Link>
+            <Link
               href="/admin/casts"
               className="text-sm text-blue-600 hover:text-blue-700 font-medium"
             >
