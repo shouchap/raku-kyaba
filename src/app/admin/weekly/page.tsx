@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { TIME_OPTIONS } from "@/lib/time-options";
 
