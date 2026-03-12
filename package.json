@@ -12,6 +12,7 @@
     "deploy": "npm run update && npx vercel --prod"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.47.0",
     "hono": "^4.6.0",
     "next": "^15.0.0",
