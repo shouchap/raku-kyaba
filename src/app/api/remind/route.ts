@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendPushMessage } from "@/lib/line-reply";
-import { getTodayJst, getCurrentHourJst } from "@/lib/date-utils";
+import { getTodayJst, getCurrentTimeJst } from "@/lib/date-utils";
 
 /** キャッシュ無効化: 毎回最新のDB値を取得する */
 export const dynamic = "force-dynamic";
@@ -81,25 +81,36 @@ export async function GET(request: Request) {
     });
   }
 
-  // 3. 時刻チェック: manual=true でなければ、現在の JST の「時」と sendTime の「時」が一致する場合のみ送信
+  // 3. 時刻チェック: manual=true でなければ、設定時刻から15分以内の場合のみ送信（15分おきCron想定）
   const sendTime = config.sendTime ?? "12:00";
-  const configuredHour = parseInt(sendTime.split(":")[0] ?? "12", 10);
-  const currentHourJst = getCurrentHourJst();
+  const [configHourStr, configMinStr] = sendTime.split(":");
+  const configuredHour = parseInt(configHourStr ?? "12", 10);
+  const configuredMin = parseInt(configMinStr ?? "0", 10);
+  const configuredMinutesSinceMidnight = configuredHour * 60 + configuredMin;
+
+  const { hour: currentHour, minute: currentMin } = getCurrentTimeJst();
+  const currentMinutesSinceMidnight = currentHour * 60 + currentMin;
 
   if (!isManual) {
-    if (currentHourJst !== configuredHour) {
+    const windowStart = configuredMinutesSinceMidnight;
+    const windowEnd = configuredMinutesSinceMidnight + 15;
+    const inWindow =
+      currentMinutesSinceMidnight >= windowStart &&
+      currentMinutesSinceMidnight < windowEnd;
+
+    if (!inWindow) {
       console.log(
-        `[Remind] 送信時刻外のためスキップ（設定: ${sendTime}、現在: ${currentHourJst}:xx JST）`
+        `[Remind] 送信時刻外のためスキップ（設定: ${sendTime}、現在: ${String(currentHour).padStart(2, "0")}:${String(currentMin).padStart(2, "0")} JST、窓: ${sendTime}〜15分以内）`
       );
       return NextResponse.json({
         ok: true,
-        message: `Not send time (config: ${sendTime}, now: ${currentHourJst}:xx JST)`,
+        message: `Not send time (config: ${sendTime}, now: ${currentHour}:${currentMin} JST)`,
         successCount: 0,
         failureCount: 0,
       });
     }
     console.log(
-      `[Remind] 設定に従い、${configuredHour}時（JST）のリマインドを開始します`
+      `[Remind] 設定に従い、${sendTime}（JST）の15分窓内のリマインドを開始します`
     );
   } else {
     console.log("[Remind] 手動テスト送信（manual=true）を開始します");
@@ -114,10 +125,10 @@ export async function GET(request: Request) {
 
   console.log("[Remind] 使用するテンプレート:", messageTemplate);
 
-  // 本日の出勤予定を取得（休み＝scheduled_time が null/空 は除外、casts と JOIN）
+  // 本日の出勤予定を取得（休み＝scheduled_time が null/空 は除外、casts と JOIN、last_reminded_at 含む）
   const { data: rawSchedules, error } = await supabase
     .from("attendance_schedules")
-    .select("*, casts(name, line_user_id)")
+    .select("id, cast_id, store_id, scheduled_date, scheduled_time, last_reminded_at, casts(name, line_user_id)")
     .eq("scheduled_date", today)
     .not("scheduled_time", "is", null);
 
@@ -129,10 +140,19 @@ export async function GET(request: Request) {
     );
   }
 
-  // 休み（—）: scheduled_time が空文字のレコードも除外
+  // 休み（—）: scheduled_time が空文字のレコードを除外
+  // 二重送信防止: 本日すでに送信済み（last_reminded_at が今日の日付）はスキップ
+  const todayForCompare = today;
   const schedules = (rawSchedules ?? []).filter((s) => {
     const t = s.scheduled_time;
-    return t != null && String(t).trim() !== "";
+    if (t == null || String(t).trim() === "") return false;
+    const lastReminded = s.last_reminded_at;
+    if (!lastReminded) return true;
+    const lastRemindedDate = new Date(lastReminded).toLocaleDateString("en-CA", {
+      timeZone: "Asia/Tokyo",
+    });
+    if (lastRemindedDate === todayForCompare) return false;
+    return true;
   });
 
   if (schedules.length === 0) {
@@ -250,9 +270,15 @@ export async function GET(request: Request) {
   });
 
   // 各キャストへ Push 送信（並列処理、1件失敗しても他は続行）
+  // 送信成功後に last_reminded_at を更新して二重送信を防止
+  const nowIso = new Date().toISOString();
   const results = await Promise.allSettled(
     schedules.map(async (schedule) => {
-      const casts = schedule.casts as { name: string; line_user_id: string } | null;
+      const rawCasts = schedule.casts as
+        | { name: string; line_user_id: string }
+        | { name: string; line_user_id: string }[]
+        | null;
+      const casts = Array.isArray(rawCasts) ? rawCasts[0] : rawCasts;
       if (!casts?.line_user_id) {
         throw new Error(`No line_user_id for schedule ${schedule.id}`);
       }
@@ -262,6 +288,15 @@ export async function GET(request: Request) {
       const message = createAttendanceFlexMessage(bodyText);
 
       await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);
+
+      // 送信成功: last_reminded_at を更新（二重送信防止）
+      const { error: updateError } = await supabase
+        .from("attendance_schedules")
+        .update({ last_reminded_at: nowIso })
+        .eq("id", schedule.id);
+      if (updateError) {
+        console.error("[Remind] last_reminded_at 更新失敗:", schedule.id, updateError);
+      }
     })
   );
 

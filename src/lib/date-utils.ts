@@ -16,3 +16,20 @@ export function getCurrentHourJst(): number {
   });
   return parseInt(hourStr, 10) || 0;
 }
+
+/**
+ * 日本時間（JST）の現在の「時」と「分」を返す
+ * Cron が15分おきに動くことを想定した判定用
+ */
+export function getCurrentTimeJst(): { hour: number; minute: number } {
+  const formatter = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(new Date());
+  const hour = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10) || 0;
+  const minute = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10) || 0;
+  return { hour, minute };
+}
