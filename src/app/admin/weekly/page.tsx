@@ -50,6 +50,8 @@ export default function AdminWeeklyPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notifying, setNotifying] = useState(false);
+  const [notifyingCastId, setNotifyingCastId] = useState<string | null>(null);
+  const [notifyStatus, setNotifyStatus] = useState<"idle" | "sending" | "done">("idle");
   const [message, setMessage] = useState<"success" | "error" | null>(null);
 
   const today = useMemo(() => formatDate(new Date()), []);
@@ -206,6 +208,7 @@ export default function AdminWeeklyPage() {
 
   const handleNotify = async () => {
     setNotifying(true);
+    setNotifyStatus("sending");
     try {
       const res = await fetch("/api/admin/notify-weekly", {
         method: "POST",
@@ -214,12 +217,32 @@ export default function AdminWeeklyPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "送信に失敗しました");
-      alert("キャストのLINEへシフトを送信しました！");
+      setNotifyStatus("done");
+      setTimeout(() => setNotifyStatus("idle"), 2500);
+    } catch (err) {
+      console.error(err);
+      setNotifyStatus("idle");
+      alert(err instanceof Error ? err.message : "送信に失敗しました");
+    } finally {
+      setNotifying(false);
+    }
+  };
+
+  const handleNotifyIndividual = async (castId: string) => {
+    setNotifyingCastId(castId);
+    try {
+      const res = await fetch("/api/admin/notify-individual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startDate: baseDate, castId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "送信に失敗しました");
     } catch (err) {
       console.error(err);
       alert(err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
-      setNotifying(false);
+      setNotifyingCastId(null);
     }
   };
 
@@ -273,12 +296,15 @@ export default function AdminWeeklyPage() {
                   return (
                     <th
                       key={d}
-                      className={`border-b border-r border-gray-200 px-1 py-2 text-center text-xs font-medium last:border-r-0 ${colorClass}`}
+                      className={`border-b border-r border-gray-200 px-1 py-2 text-center text-xs font-medium ${colorClass}`}
                     >
                       {formatDateWithWeekday(d)}
                     </th>
                   );
                 })}
+                <th className="border-b border-gray-200 px-2 py-2 text-center text-xs font-medium text-gray-700 min-w-[80px]">
+                  個別送信
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -288,7 +314,7 @@ export default function AdminWeeklyPage() {
                     {cast.name}
                   </td>
                   {dates.map((dateStr) => (
-                    <td key={dateStr} className="border-b border-r border-gray-200 p-1 last:border-r-0">
+                    <td key={dateStr} className="border-b border-r border-gray-200 p-1">
                       <select
                         value={matrix[cast.id]?.[dateStr] ?? ""}
                         onChange={(e) => updateCell(cast.id, dateStr, e.target.value)}
@@ -302,6 +328,22 @@ export default function AdminWeeklyPage() {
                       </select>
                     </td>
                   ))}
+                  <td className="border-b border-gray-200 p-1 text-center">
+                    <button
+                      type="button"
+                      onClick={() => handleNotifyIndividual(cast.id)}
+                      disabled={
+                        saving ||
+                        notifying ||
+                        notifyingCastId !== null
+                      }
+                      className="text-xs px-2 py-1.5 rounded border border-[#06C755] text-[#06C755] hover:bg-[#06C755] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {notifyingCastId === cast.id
+                        ? "送信中..."
+                        : "個別送信"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -331,10 +373,14 @@ export default function AdminWeeklyPage() {
           <button
             type="button"
             onClick={handleNotify}
-            disabled={saving || notifying}
+            disabled={saving || notifying || notifyingCastId !== null}
             className="w-full sm:w-auto sm:min-w-[260px] h-12 px-6 py-3 bg-[#06C755] text-white font-medium rounded-lg hover:bg-[#05B34C] focus:ring-2 focus:ring-[#06C755] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
           >
-            {notifying ? "送信中..." : "確定シフトをLINEで一斉通知"}
+            {notifying
+              ? notifyStatus === "done"
+                ? "送信完了"
+                : "送信中..."
+              : "確定シフトをLINEで一斉通知"}
           </button>
         </div>
 

@@ -89,6 +89,31 @@ export async function POST(request: Request) {
     );
   }
 
+  // 全キャスト（LINE連携あり）を取得（休みの人にも通知するため）
+  const { data: allCasts, error: castsError } = await supabase
+    .from("casts")
+    .select("id, name, line_user_id")
+    .eq("store_id", store.id)
+    .eq("is_active", true)
+    .not("line_user_id", "is", null);
+
+  if (castsError) {
+    console.error("[NotifyWeekly] Casts fetch error:", castsError);
+    return NextResponse.json(
+      { error: "Failed to fetch casts" },
+      { status: 500 }
+    );
+  }
+
+  if (!allCasts || allCasts.length === 0) {
+    return NextResponse.json({
+      ok: true,
+      message: "No casts to notify",
+      successCount: 0,
+      failureCount: 0,
+    });
+  }
+
   // 7日間の attendance_schedules を casts と JOIN して取得
   const { data: schedules, error: scheduleError } = await supabase
     .from("attendance_schedules")
@@ -104,7 +129,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // cast_id ごとにグループ化
+  // cast_id ごとにスケジュールをグループ化
   type CastSchedule = {
     name: string;
     line_user_id: string;
@@ -132,31 +157,38 @@ export async function POST(request: Request) {
     entry.byDate[scheduledDate] = formatTime(scheduledTime);
   });
 
-  if (castMap.size === 0) {
-    return NextResponse.json({
-      ok: true,
-      message: "No schedules to notify",
-      successCount: 0,
-      failureCount: 0,
-    });
-  }
-
-  // 各キャストにメッセージを送信
+  // 全キャストに送信（スケジュールあり→詳細、全て休み→「来週はお休みです」）
   const results = await Promise.allSettled(
-    Array.from(castMap.entries()).map(async ([_castId, cast]) => {
-      const lines: string[] = [
-        `${cast.name}さん、来週のシフトが確定しました。`,
-        "",
-      ];
-      dates.forEach((dateStr) => {
-        const time = cast.byDate[dateStr];
-        const dateJa = formatDateJa(dateStr);
-        lines.push(time ? `${dateJa}: ${time}〜` : `${dateJa}: お休み`);
-      });
-      lines.push("", "よろしくお願いします！");
+    allCasts.map(async (castRow) => {
+      const lineUserId = castRow.line_user_id;
+      if (!lineUserId) return;
 
-      const text = lines.join("\n");
-      await sendPushMessage(cast.line_user_id, channelAccessToken, [
+      const scheduleEntry = castMap.get(castRow.id);
+      const name = castRow.name ?? scheduleEntry?.name ?? "キャスト";
+
+      let text: string;
+      if (scheduleEntry) {
+        const hasAnyShift = Object.values(scheduleEntry.byDate).some((t) => t);
+        if (hasAnyShift) {
+          const lines: string[] = [
+            `${name}さん、来週のシフトが確定しました。`,
+            "",
+          ];
+          dates.forEach((dateStr) => {
+            const time = scheduleEntry.byDate[dateStr];
+            const dateJa = formatDateJa(dateStr);
+            lines.push(time ? `${dateJa}: ${time}〜` : `${dateJa}: お休み`);
+          });
+          lines.push("", "よろしくお願いします！");
+          text = lines.join("\n");
+        } else {
+          text = `${name}さん、来週はお休みです。よろしくお願いします。`;
+        }
+      } else {
+        text = `${name}さん、来週はお休みです。よろしくお願いします。`;
+      }
+
+      await sendPushMessage(lineUserId, channelAccessToken, [
         { type: "text", text },
       ]);
     })
