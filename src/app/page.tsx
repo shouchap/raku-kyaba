@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 
 const GOLD = "#D4AF37";
 
-/** ユーザー名に内部ドメインを付加 */
+/** ユーザー名に内部ドメインを付加（前後の空白を自動削除） */
 function toInternalEmail(username: string): string {
   const trimmed = String(username ?? "").trim().toLowerCase();
   if (!trimmed) return "";
@@ -17,21 +18,26 @@ export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    setLoading(true);
+    setLoading(true); // 連打防止
 
-    const email = toInternalEmail(username);
+    // ユーザー名・パスワードの両方に .trim() を適用（目に見えない空白を削除）
+    const trimmedUsername = username.trim();
+    const trimmedPassword = password.trim();
+
+    const email = toInternalEmail(trimmedUsername);
     if (!email) {
       setError("ユーザー名を入力してください。");
       setLoading(false);
       return;
     }
-    if (!password.trim()) {
+    if (!trimmedPassword) {
       setError("パスワードを入力してください。");
       setLoading(false);
       return;
@@ -41,10 +47,11 @@ export default function LoginPage() {
       const supabase = createBrowserSupabaseClient();
       const { error: authError } = await supabase.auth.signInWithPassword({
         email,
-        password: password.trim(),
+        password: trimmedPassword,
       });
 
       if (authError) {
+        console.error("[Login] エラー詳細:", authError.message);
         setError("ユーザー名またはパスワードに誤りがあります。もう一度お確かめください。");
         setLoading(false);
         return;
@@ -53,7 +60,8 @@ export default function LoginPage() {
       router.push("/admin/weekly");
       router.refresh();
     } catch (err) {
-      console.error("[Login] Auth error:", err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[Login] エラー詳細:", errMsg);
       setError("エラーが発生しました。しばらく経ってから再度お試しください。");
     } finally {
       setLoading(false);
@@ -139,16 +147,31 @@ export default function LoginPage() {
               >
                 パスワード
               </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full px-4 py-3 bg-black/80 border border-[#D4AF37]/50 rounded focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]/50 text-white placeholder-gray-500 transition-colors"
-                autoComplete="current-password"
-                disabled={loading}
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-4 py-3 pr-12 bg-black/80 border border-[#D4AF37]/50 rounded focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]/50 text-white placeholder-gray-500 transition-colors"
+                  autoComplete="current-password"
+                  disabled={loading}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((p) => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[#D4AF37]/70 hover:text-[#D4AF37] transition-colors disabled:opacity-50"
+                  disabled={loading}
+                  aria-label={showPassword ? "パスワードを隠す" : "パスワードを表示"}
+                >
+                  {showPassword ? (
+                    <EyeOff size={18} strokeWidth={1.5} />
+                  ) : (
+                    <Eye size={18} strokeWidth={1.5} />
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 
