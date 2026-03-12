@@ -1,13 +1,22 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendPushMessage } from "@/lib/line-reply";
-import { getTodayJst } from "@/lib/date-utils";
+import { getTodayJst, getCurrentHourJst } from "@/lib/date-utils";
+
+type ReminderConfig = {
+  enabled?: boolean;
+  sendTime?: string;
+  messageTemplate?: string;
+};
+
+const DEFAULT_TEMPLATE =
+  "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。";
 
 /**
  * 本日出勤予定のキャストへリマインド（Buttons Template）を送信するAPI
  *
  * GET /api/remind で呼び出し。
- * Vercel Cron で毎日12:00（JST）に実行される想定。
+ * system_settings の reminder_config に従い、有効時かつ送信時刻一致時のみ送信。
  */
 export async function GET() {
   const supabaseUrl =
@@ -31,7 +40,59 @@ export async function GET() {
   }
 
   const supabase = createClient(supabaseUrl, supabaseKey);
+
+  // 1. system_settings から reminder_config を取得
+  const { data: settingsRow, error: settingsError } = await supabase
+    .from("system_settings")
+    .select("value")
+    .eq("key", "reminder_config")
+    .maybeSingle();
+
+  if (settingsError) {
+    console.error("[Remind] Failed to fetch reminder_config:", settingsError);
+    return NextResponse.json(
+      { error: "Failed to fetch settings", details: settingsError.message },
+      { status: 500 }
+    );
+  }
+
+  const config = (settingsRow?.value ?? {}) as ReminderConfig;
+
+  // 2. enabled が false なら何もせず終了
+  if (config.enabled === false) {
+    console.log("[Remind] リマインドは無効です（enabled: false）");
+    return NextResponse.json({
+      ok: true,
+      message: "Reminder disabled",
+      successCount: 0,
+      failureCount: 0,
+    });
+  }
+
+  // 3. 時刻チェック: 現在の JST の「時」と sendTime の「時」が一致する場合のみ送信
+  const sendTime = config.sendTime ?? "12:00";
+  const configuredHour = parseInt(sendTime.split(":")[0] ?? "12", 10);
+  const currentHourJst = getCurrentHourJst();
+
+  if (currentHourJst !== configuredHour) {
+    console.log(
+      `[Remind] 送信時刻外のためスキップ（設定: ${sendTime}、現在: ${currentHourJst}:xx JST）`
+    );
+    return NextResponse.json({
+      ok: true,
+      message: `Not send time (config: ${sendTime}, now: ${currentHourJst}:xx JST)`,
+      successCount: 0,
+      failureCount: 0,
+    });
+  }
+
+  console.log(
+    `[Remind] 設定に従い、${configuredHour}時（JST）のリマインドを開始します`
+  );
+
   const today = getTodayJst();
+  const messageTemplate =
+    config.messageTemplate?.trim() || DEFAULT_TEMPLATE;
 
   // 本日の出勤予定を取得（休み＝scheduled_time が null/空 は除外、casts と JOIN）
   const { data: rawSchedules, error } = await supabase
@@ -55,6 +116,7 @@ export async function GET() {
   });
 
   if (schedules.length === 0) {
+    console.log("[Remind] 本日の出勤予定はありません");
     return NextResponse.json({
       ok: true,
       message: "No schedules for today",
@@ -70,6 +132,17 @@ export async function GET() {
     return match ? `${match[1]}:${match[2]}` : "営業時間";
   };
 
+  // 4. テンプレートの {name} / {time} を置換
+  const applyTemplate = (
+    template: string,
+    name: string,
+    time: string
+  ): string => {
+    return template
+      .replace(/\{name\}/g, name)
+      .replace(/\{time\}/g, time);
+  };
+
   // 各キャストへ Push 送信（並列処理、1件失敗しても他は続行）
   const results = await Promise.allSettled(
     schedules.map(async (schedule) => {
@@ -79,13 +152,14 @@ export async function GET() {
       }
       const name = casts.name ?? "キャスト";
       const scheduledTime = formatTime(schedule.scheduled_time);
+      const text = applyTemplate(messageTemplate, name, scheduledTime);
 
       const message = {
         type: "template" as const,
         altText: `${name}さん、本日の出勤確認をお願いします`,
         template: {
           type: "buttons" as const,
-          text: `${name}さん、本日は ${scheduledTime} 出勤予定です。出勤確認をお願いいたします。`,
+          text,
           actions: [
             { type: "postback" as const, label: "出勤", data: "attending", displayText: "出勤" },
             { type: "postback" as const, label: "遅刻", data: "late", displayText: "遅刻" },
@@ -107,6 +181,8 @@ export async function GET() {
       .filter(Boolean);
     console.error("[Remind] Some sends failed:", failures);
   }
+
+  console.log(`[Remind] 送信完了 success=${successCount} failure=${failureCount}`);
 
   return NextResponse.json({
     ok: true,

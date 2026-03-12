@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 
-const GOLD = "#D4AF37";
-
 type Cast = {
   id: string;
   name: string;
@@ -115,43 +113,43 @@ export default function AdminCastsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <p className="text-[#D4AF37]/80">読み込み中...</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-500">読み込み中...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-black text-[#D4AF37] py-8 px-4 sm:px-6">
+    <div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-6">
       <div className="max-w-2xl mx-auto">
-        <h1
-          className="text-2xl font-light tracking-[0.15em] mb-2"
-          style={{ fontFamily: "'Cinzel', 'Georgia', serif" }}
-        >
-          キャスト管理
-        </h1>
-        <p className="text-sm text-[#D4AF37]/70 mb-6">
-          {store?.name ?? "店舗"}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 mb-2">
+              キャスト管理
+            </h1>
+            <p className="text-sm text-gray-600">
+              {store?.name ?? "店舗"}
+            </p>
+          </div>
+          <Link
+            href="/admin/weekly"
+            className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+          >
+            シフト登録へ →
+          </Link>
+        </div>
 
-        <Link
-          href="/admin/weekly"
-          className="inline-flex items-center gap-2 mb-6 px-4 py-2 border border-[#D4AF37]/50 rounded hover:bg-[#D4AF37]/10 transition-colors text-sm"
-        >
-          シフト登録へ
-        </Link>
-
-        <div className="border border-[#D4AF37]/50 rounded-lg overflow-hidden bg-black/80">
-          <ul className="divide-y divide-[#D4AF37]/20">
+        <div className="w-full rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+          <ul className="divide-y divide-gray-200">
             {casts.length === 0 ? (
-              <li className="px-4 py-8 text-center text-[#D4AF37]/60 text-sm">
+              <li className="px-4 py-8 text-center text-gray-500 text-sm">
                 キャストが登録されていません。LINEで友だち追加すると自動登録されます。
               </li>
             ) : (
               casts.map((cast) => (
                 <li
                   key={cast.id}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-[#D4AF37]/5 transition-colors"
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50"
                 >
                   {editingId === cast.id ? (
                     <>
@@ -163,7 +161,7 @@ export default function AdminCastsPage() {
                           if (e.key === "Enter") handleSaveEdit();
                           if (e.key === "Escape") handleCancelEdit();
                         }}
-                        className="flex-1 px-3 py-2 bg-black/80 border border-[#D4AF37]/50 rounded text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                         placeholder="名前"
                         autoFocus
                       />
@@ -171,7 +169,7 @@ export default function AdminCastsPage() {
                         type="button"
                         onClick={handleSaveEdit}
                         disabled={saving}
-                        className="px-3 py-1.5 text-xs border border-[#D4AF37] rounded hover:bg-[#D4AF37]/10 disabled:opacity-50"
+                        className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                       >
                         {saving ? "保存中..." : "保存"}
                       </button>
@@ -179,19 +177,19 @@ export default function AdminCastsPage() {
                         type="button"
                         onClick={handleCancelEdit}
                         disabled={saving}
-                        className="px-3 py-1.5 text-xs border border-[#D4AF37]/50 rounded hover:bg-[#D4AF37]/5 disabled:opacity-50"
+                        className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50"
                       >
                         キャンセル
                       </button>
                     </>
                   ) : (
                     <>
-                      <span className="flex-1 font-light">{cast.name}</span>
+                      <span className="flex-1 font-medium text-gray-900">{cast.name}</span>
                       <button
                         type="button"
                         onClick={() => handleStartEdit(cast)}
                         disabled={deletingId !== null}
-                        className="px-3 py-1.5 text-xs border border-[#D4AF37]/50 rounded hover:bg-[#D4AF37]/10 disabled:opacity-50"
+                        className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50"
                       >
                         編集
                       </button>
@@ -199,7 +197,7 @@ export default function AdminCastsPage() {
                         type="button"
                         onClick={() => handleDelete(cast)}
                         disabled={deletingId !== null}
-                        className="px-3 py-1.5 text-xs border border-red-500/50 text-red-400 rounded hover:bg-red-500/10 disabled:opacity-50"
+                        className="px-3 py-1.5 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
                       >
                         {deletingId === cast.id ? "削除中..." : "削除"}
                       </button>
@@ -212,10 +210,12 @@ export default function AdminCastsPage() {
         </div>
 
         {message === "success" && (
-          <p className="mt-4 text-green-400 text-sm">完了しました。</p>
+          <p className="mt-4 text-green-600 text-sm font-medium">
+            完了しました
+          </p>
         )}
         {message === "error" && (
-          <p className="mt-4 text-red-400 text-sm">
+          <p className="mt-4 text-red-600 text-sm">
             処理に失敗しました。再度お試しください。
           </p>
         )}
