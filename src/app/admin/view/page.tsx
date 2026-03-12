@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toPng } from "html-to-image";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 
 type Cast = {
@@ -55,7 +56,10 @@ export default function AdminViewPage() {
   const [casts, setCasts] = useState<Cast[]>([]);
   const [store, setStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
+  const [savingImage, setSavingImage] = useState(false);
+  const [capturing, setCapturing] = useState(false);
   const [matrix, setMatrix] = useState<Record<string, Record<string, string>>>({});
+  const captureRef = useRef<HTMLDivElement>(null);
 
   const today = useMemo(() => formatDate(new Date()), []);
   const [baseDate, setBaseDate] = useState(today);
@@ -145,6 +149,31 @@ export default function AdminViewPage() {
     }
   }, [store, casts, dates, loadSchedules]);
 
+  const handleSaveAsImage = useCallback(async () => {
+    const el = captureRef.current;
+    if (!el) return;
+    setSavingImage(true);
+    setCapturing(true);
+    try {
+      await new Promise((r) => setTimeout(r, 50));
+      const dataUrl = await toPng(el, {
+        pixelRatio: 2,
+        backgroundColor: "#ffffff",
+        style: { margin: "0" },
+      });
+      const link = document.createElement("a");
+      link.download = `シフト一覧_${baseDate}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error("[View] 画像保存エラー:", err);
+      alert("画像の保存に失敗しました。");
+    } finally {
+      setCapturing(false);
+      setSavingImage(false);
+    }
+  }, [baseDate, dates]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
@@ -166,24 +195,42 @@ export default function AdminViewPage() {
         </div>
 
         {/* 基準日選択 */}
-        <div className="mb-4 sm:mb-6">
-          <label
-            htmlFor="base-date"
-            className="block text-sm font-medium text-gray-700 mb-2"
+        <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-end gap-4">
+          <div>
+            <label
+              htmlFor="base-date"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              表示する週の基準日
+            </label>
+            <input
+              id="base-date"
+              type="date"
+              value={baseDate}
+              onChange={(e) => setBaseDate(e.target.value)}
+              className="w-full sm:w-auto min-h-[44px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveAsImage}
+            disabled={savingImage || casts.length === 0}
+            className="min-h-[44px] px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation flex items-center gap-2"
           >
-            表示する週の基準日
-          </label>
-          <input
-            id="base-date"
-            type="date"
-            value={baseDate}
-            onChange={(e) => setBaseDate(e.target.value)}
-            className="w-full sm:w-auto min-h-[44px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-          />
+            {savingImage ? "保存中..." : "画像で保存"}
+          </button>
         </div>
 
-        {/* 閲覧専用テーブル（スマホで横スクロール） */}
-        <div className="w-full overflow-x-auto -mx-3 sm:mx-0 rounded-lg border border-gray-200 bg-white shadow-sm">
+        {/* キャプチャ用ラッパー（画像保存時にこの範囲をキャプチャ） */}
+        <div
+          ref={captureRef}
+          className={`bg-white p-4 rounded-lg border border-gray-200 ${capturing ? "overflow-visible w-max" : ""}`}
+        >
+          <div className="text-sm font-medium text-gray-700 mb-2">
+            {store?.name ?? "店舗"} 週間シフト {baseDate} 〜 {dates[6] ? formatDateWithWeekday(dates[6]) : ""}
+          </div>
+          {/* 閲覧専用テーブル（通常時は横スクロール、キャプチャ時は全幅表示） */}
+          <div className={`rounded border border-gray-200 ${capturing ? "overflow-visible" : "w-full overflow-x-auto -mx-3 sm:mx-0"}`}>
           <table className="min-w-[400px] sm:min-w-[480px] w-full border-collapse">
             <thead>
               <tr className="bg-gray-100">
@@ -241,6 +288,7 @@ export default function AdminViewPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
 
         {casts.length === 0 && (
