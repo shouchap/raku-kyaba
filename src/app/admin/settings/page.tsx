@@ -27,7 +27,11 @@ export default function AdminSettingsPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<"success" | "error" | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testComplete, setTestComplete] = useState(false);
+  const [message, setMessage] = useState<
+    "success" | "error" | "test_success" | "test_error" | null
+  >(null);
   const [config, setConfig] = useState<ReminderConfig>(DEFAULT_CONFIG);
 
   const fetchConfig = useCallback(async () => {
@@ -93,6 +97,29 @@ export default function AdminSettingsPage() {
       setMessage("error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTestSend = async () => {
+    setTesting(true);
+    setTestComplete(false);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/remind?manual=true");
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? "送信に失敗しました");
+      }
+      setTestComplete(true);
+      setMessage("test_success");
+      setTimeout(() => {
+        setTestComplete(false);
+        setTesting(false);
+      }, 3000);
+    } catch (err) {
+      console.error("[Settings] Test send error:", err);
+      setMessage("test_error");
+      setTesting(false);
     }
   };
 
@@ -199,13 +226,27 @@ export default function AdminSettingsPage() {
             </p>
           </div>
 
-          <button
-            type="submit"
-            disabled={saving}
-            className="w-full min-h-[48px] h-12 px-6 bg-blue-600 text-white text-base font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
-          >
-            {saving ? "保存中..." : "設定を保存"}
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              type="submit"
+              disabled={saving || testing}
+              className="flex-1 min-h-[48px] h-12 px-6 bg-blue-600 text-white text-base font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+            >
+              {saving ? "保存中..." : "設定を保存"}
+            </button>
+            <button
+              type="button"
+              onClick={handleTestSend}
+              disabled={saving || testing}
+              className="flex-1 min-h-[48px] h-12 px-6 bg-gray-700 text-white text-base font-medium rounded-lg hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+            >
+              {testing
+                ? testComplete
+                  ? "テスト送信完了"
+                  : "送信中..."
+                : "今すぐテスト送信（本日分）"}
+            </button>
+          </div>
         </form>
 
         {message === "success" && (
@@ -213,9 +254,19 @@ export default function AdminSettingsPage() {
             保存しました
           </p>
         )}
+        {message === "test_success" && (
+          <p className="mt-4 text-green-600 text-sm font-medium">
+            テスト送信が完了しました
+          </p>
+        )}
         {message === "error" && (
           <p className="mt-4 text-red-600 text-sm">
             保存に失敗しました。再度お試しください。
+          </p>
+        )}
+        {message === "test_error" && (
+          <p className="mt-4 text-red-600 text-sm">
+            テスト送信に失敗しました。再度お試しください。
           </p>
         )}
       </div>

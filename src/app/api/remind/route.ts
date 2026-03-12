@@ -17,8 +17,12 @@ const DEFAULT_TEMPLATE =
  *
  * GET /api/remind で呼び出し。
  * system_settings の reminder_config に従い、有効時かつ送信時刻一致時のみ送信。
+ *
+ * GET /api/remind?manual=true でテスト送信（時刻チェックをスキップして即送信）
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const isManual = url.searchParams.get("manual") === "true";
   const supabaseUrl =
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const supabaseKey =
@@ -69,26 +73,29 @@ export async function GET() {
     });
   }
 
-  // 3. 時刻チェック: 現在の JST の「時」と sendTime の「時」が一致する場合のみ送信
+  // 3. 時刻チェック: manual=true でなければ、現在の JST の「時」と sendTime の「時」が一致する場合のみ送信
   const sendTime = config.sendTime ?? "12:00";
   const configuredHour = parseInt(sendTime.split(":")[0] ?? "12", 10);
   const currentHourJst = getCurrentHourJst();
 
-  if (currentHourJst !== configuredHour) {
+  if (!isManual) {
+    if (currentHourJst !== configuredHour) {
+      console.log(
+        `[Remind] 送信時刻外のためスキップ（設定: ${sendTime}、現在: ${currentHourJst}:xx JST）`
+      );
+      return NextResponse.json({
+        ok: true,
+        message: `Not send time (config: ${sendTime}, now: ${currentHourJst}:xx JST)`,
+        successCount: 0,
+        failureCount: 0,
+      });
+    }
     console.log(
-      `[Remind] 送信時刻外のためスキップ（設定: ${sendTime}、現在: ${currentHourJst}:xx JST）`
+      `[Remind] 設定に従い、${configuredHour}時（JST）のリマインドを開始します`
     );
-    return NextResponse.json({
-      ok: true,
-      message: `Not send time (config: ${sendTime}, now: ${currentHourJst}:xx JST)`,
-      successCount: 0,
-      failureCount: 0,
-    });
+  } else {
+    console.log("[Remind] 手動テスト送信（manual=true）を開始します");
   }
-
-  console.log(
-    `[Remind] 設定に従い、${configuredHour}時（JST）のリマインドを開始します`
-  );
 
   const today = getTodayJst();
   const messageTemplate =
