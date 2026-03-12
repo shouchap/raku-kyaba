@@ -3,12 +3,16 @@ import { createClient } from "@supabase/supabase-js";
 import { sendPushMessage } from "@/lib/line-reply";
 import { getTodayJst, getCurrentHourJst } from "@/lib/date-utils";
 
+/** キャッシュ無効化: 毎回最新のDB値を取得する */
+export const dynamic = "force-dynamic";
+
 type ReminderConfig = {
   enabled?: boolean;
   sendTime?: string;
   messageTemplate?: string;
 };
 
+/** DBに未設定の場合のフォールバック（空文字時のみ使用） */
 const DEFAULT_TEMPLATE =
   "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。";
 
@@ -62,6 +66,9 @@ export async function GET(request: Request) {
 
   const config = (settingsRow?.value ?? {}) as ReminderConfig;
 
+  // DBから取得したテンプレートをログ出力（デバッグ用）
+  console.log("[Remind] DBから取得したテンプレート:", config.messageTemplate ?? "(未設定)");
+
   // 2. enabled が false なら何もせず終了
   if (config.enabled === false) {
     console.log("[Remind] リマインドは無効です（enabled: false）");
@@ -98,8 +105,13 @@ export async function GET(request: Request) {
   }
 
   const today = getTodayJst();
+  // 必ずDBの最新値を使用。空の場合のみフォールバック
   const messageTemplate =
-    config.messageTemplate?.trim() || DEFAULT_TEMPLATE;
+    (config.messageTemplate && config.messageTemplate.trim() !== "")
+      ? config.messageTemplate.trim()
+      : DEFAULT_TEMPLATE;
+
+  console.log("[Remind] 使用するテンプレート:", messageTemplate);
 
   // 本日の出勤予定を取得（休み＝scheduled_time が null/空 は除外、casts と JOIN）
   const { data: rawSchedules, error } = await supabase
@@ -139,15 +151,16 @@ export async function GET(request: Request) {
     return match ? `${match[1]}:${match[2]}` : "営業時間";
   };
 
-  // 4. テンプレートの {name} / {time} を置換
+  // 4. テンプレートの {name} / {time} を置換（DBから取得したテンプレートに対して実行）
   const applyTemplate = (
     template: string,
     name: string,
     time: string
   ): string => {
-    return template
+    const result = template
       .replace(/\{name\}/g, name)
       .replace(/\{time\}/g, time);
+    return result;
   };
 
   // 各キャストへ Push 送信（並列処理、1件失敗しても他は続行）
