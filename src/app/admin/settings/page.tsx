@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 
 /** 1時間刻みの時刻オプション（00:00〜23:00） */
@@ -173,21 +172,13 @@ export default function AdminSettingsPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-4 sm:py-6 px-3 sm:px-6">
       <div className="max-w-2xl mx-auto">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-4 sm:mb-6">
-          <div>
-            <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
-              システム設定
-            </h1>
-            <p className="text-xs sm:text-sm text-gray-600">
-              リマインド・各種設定を管理します
-            </p>
-          </div>
-          <Link
-            href="/admin/weekly"
-            className="text-sm text-blue-600 hover:text-blue-700 font-medium py-2 min-h-[44px] flex items-center"
-          >
-            シフト登録へ →
-          </Link>
+        <div className="mb-4 sm:mb-6">
+          <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
+            システム設定
+          </h1>
+          <p className="text-xs sm:text-sm text-gray-600">
+            リマインド・各種設定を管理します
+          </p>
         </div>
 
         <form

@@ -89,14 +89,16 @@ export default function AdminSchedulePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-4 sm:py-8 px-3 sm:px-6">
+    <div className="py-4 sm:py-6 px-3 sm:px-6">
       <div className="max-w-md mx-auto">
-        <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
-          出勤予定を登録
-        </h1>
-        <p className="text-xs sm:text-sm text-gray-600 mb-4 sm:mb-6">
-          {store?.name ?? "店舗"}
-        </p>
+        <div className="mb-4 sm:mb-6">
+          <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
+            出勤予定を登録
+          </h1>
+          <p className="text-xs sm:text-sm text-gray-600">
+            {store?.name ?? "店舗"}
+          </p>
+        </div>
 
         <form
           onSubmit={handleSubmit}
