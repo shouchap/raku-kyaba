@@ -258,12 +258,30 @@ export default function AdminWeeklyPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-6">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-xl font-bold text-gray-900 mb-2">
-          週間シフト登録
-        </h1>
-        <p className="text-sm text-gray-600 mb-6">
-          {store?.name ?? "店舗"}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 mb-2">
+              週間シフト登録
+            </h1>
+            <p className="text-sm text-gray-600">
+              {store?.name ?? "店舗"}
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <Link
+              href="/admin/casts"
+              className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+            >
+              キャスト管理へ
+            </Link>
+            <Link
+              href="/admin/settings"
+              className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+            >
+              システム設定
+            </Link>
+          </div>
+        </div>
 
         {/* 基準日選択 */}
         <div className="mb-6">
