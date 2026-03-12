@@ -17,10 +17,11 @@ const DEFAULT_TEMPLATE =
   "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。";
 
 /**
- * 本日出勤予定のキャストへリマインド（Buttons Template）を送信するAPI
+ * 本日出勤予定のキャストへリマインド（Flex Message）を送信するAPI
  *
  * GET /api/remind で呼び出し。
  * system_settings の reminder_config に従い、有効時かつ送信時刻一致時のみ送信。
+ * メッセージは白背景カード型の Flex Message（Club GOLD 出勤確認）。
  *
  * GET /api/remind?manual=true でテスト送信（時刻チェックをスキップして即送信）
  */
@@ -157,11 +158,96 @@ export async function GET(request: Request) {
     name: string,
     time: string
   ): string => {
-    const result = template
+    return template
       .replace(/\{name\}/g, name)
       .replace(/\{time\}/g, time);
-    return result;
   };
+
+  /**
+   * 出勤確認用 Flex Message を生成
+   * 白背景のカード型、ヘッダーにゴールド、本文はDBテンプレート、ボタンは縦並び
+   */
+  const createAttendanceFlexMessage = (bodyText: string) => ({
+    type: "flex" as const,
+    altText: `${bodyText.slice(0, 60)}${bodyText.length > 60 ? "…" : ""}\n下のボタンから選択してください。`,
+    contents: {
+      type: "bubble",
+      header: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "separator",
+            color: "#D4AF37",
+          },
+          {
+            type: "text",
+            text: "Club GOLD 出勤確認",
+            color: "#D4AF37",
+            size: "sm",
+            weight: "bold",
+            margin: "sm",
+          },
+        ],
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "text",
+            text: bodyText,
+            wrap: true,
+            size: "md",
+            color: "#333333",
+          },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: "#2196F3",
+            height: "sm",
+            action: {
+              type: "postback",
+              label: "出勤",
+              data: "attending",
+              displayText: "出勤",
+            },
+          },
+          {
+            type: "button",
+            style: "primary",
+            color: "#FFC107",
+            height: "sm",
+            action: {
+              type: "postback",
+              label: "遅刻",
+              data: "late",
+              displayText: "遅刻",
+            },
+          },
+          {
+            type: "button",
+            style: "primary",
+            color: "#FF5252",
+            height: "sm",
+            action: {
+              type: "postback",
+              label: "欠勤",
+              data: "absent",
+              displayText: "欠勤",
+            },
+          },
+        ],
+      },
+    },
+  });
 
   // 各キャストへ Push 送信（並列処理、1件失敗しても他は続行）
   const results = await Promise.allSettled(
@@ -172,21 +258,8 @@ export async function GET(request: Request) {
       }
       const name = casts.name ?? "キャスト";
       const scheduledTime = formatTime(schedule.scheduled_time);
-      const text = applyTemplate(messageTemplate, name, scheduledTime);
-
-      const message = {
-        type: "template" as const,
-        altText: `${name}さん、本日の出勤確認をお願いします`,
-        template: {
-          type: "buttons" as const,
-          text,
-          actions: [
-            { type: "postback" as const, label: "出勤", data: "attending", displayText: "出勤" },
-            { type: "postback" as const, label: "遅刻", data: "late", displayText: "遅刻" },
-            { type: "postback" as const, label: "欠勤", data: "absent", displayText: "欠勤" },
-          ],
-        },
-      };
+      const bodyText = applyTemplate(messageTemplate, name, scheduledTime);
+      const message = createAttendanceFlexMessage(bodyText);
 
       await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);
     })
