@@ -82,25 +82,25 @@ export default function AdminSchedulePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-500">読み込み中...</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <p className="text-gray-500 text-sm sm:text-base">読み込み中...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6">
+    <div className="min-h-screen bg-gray-50 py-4 sm:py-8 px-3 sm:px-6">
       <div className="max-w-md mx-auto">
-        <h1 className="text-xl font-bold text-gray-900 mb-2">
+        <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
           出勤予定を登録
         </h1>
-        <p className="text-sm text-gray-600 mb-6">
+        <p className="text-xs sm:text-sm text-gray-600 mb-4 sm:mb-6">
           {store?.name ?? "店舗"}
         </p>
 
         <form
           onSubmit={handleSubmit}
-          className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-5"
+          className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6 space-y-4 sm:space-y-5"
         >
           {/* キャスト選択 */}
           <div>
@@ -115,7 +115,7 @@ export default function AdminSchedulePage() {
               value={castId}
               onChange={(e) => setCastId(e.target.value)}
               required
-              className="w-full h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full min-h-[48px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             >
               <option value="">選択してください</option>
               {casts.map((c) => (
@@ -140,7 +140,7 @@ export default function AdminSchedulePage() {
               value={scheduledDate}
               onChange={(e) => setScheduledDate(e.target.value)}
               required
-              className="w-full h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full min-h-[48px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             />
           </div>
 
@@ -157,7 +157,7 @@ export default function AdminSchedulePage() {
               value={scheduledTime}
               onChange={(e) => setScheduledTime(e.target.value)}
               required
-              className="w-full h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+              className="w-full min-h-[48px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
             >
               {TIME_OPTIONS_REQUIRED.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -181,7 +181,7 @@ export default function AdminSchedulePage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full h-12 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full min-h-[48px] h-12 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
           >
             {submitting ? "登録中..." : "登録する"}
           </button>

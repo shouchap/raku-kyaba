@@ -32,6 +32,14 @@ function formatDateWithWeekday(dateStr: string): string {
   return `${m}/${day}(${w})`;
 }
 
+/** モバイル用短縮 "20(日)" */
+function formatDateShort(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00");
+  const day = d.getDate();
+  const w = WEEKDAY_JA[d.getDay()];
+  return `${day}(${w})`;
+}
+
 /** 日付の曜日（0=日, 6=土） */
 function getWeekday(dateStr: string): number {
   return new Date(dateStr + "T12:00:00").getDay();
@@ -256,18 +264,18 @@ export default function AdminWeeklyPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-6">
+    <div className="min-h-screen bg-gray-50 py-4 sm:py-6 px-3 sm:px-6">
       <div className="max-w-4xl mx-auto">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-3 sm:gap-2 mb-4 sm:mb-6">
           <div>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
               週間シフト登録
             </h1>
             <p className="text-sm text-gray-600">
               {store?.name ?? "店舗"}
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-2 sm:gap-3">
             <Link
               href="/admin/casts"
               className="text-sm text-blue-600 hover:text-blue-700 font-medium"
@@ -284,7 +292,7 @@ export default function AdminWeeklyPage() {
         </div>
 
         {/* 基準日選択 */}
-        <div className="mb-6">
+        <div className="mb-4 sm:mb-6">
           <label
             htmlFor="base-date"
             className="block text-sm font-medium text-gray-700 mb-2"
@@ -296,16 +304,16 @@ export default function AdminWeeklyPage() {
             type="date"
             value={baseDate}
             onChange={(e) => setBaseDate(e.target.value)}
-            className="h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            className="w-full sm:w-auto min-h-[44px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
           />
         </div>
 
-        {/* マトリックステーブル */}
-        <div className="w-full overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm">
-          <table className="min-w-[480px] w-full border-collapse">
+        {/* マトリックステーブル（スマホで横スクロール） */}
+        <div className="w-full overflow-x-auto -mx-3 sm:mx-0 rounded-lg border border-gray-200 bg-white shadow-sm">
+          <table className="min-w-[400px] sm:min-w-[480px] w-full border-collapse">
             <thead>
               <tr className="bg-gray-100">
-                <th className="border-b border-r border-gray-200 px-2 py-2 text-left text-xs font-medium text-gray-700 sticky left-0 z-10 bg-gray-100 min-w-[100px] border-r shadow-sm">
+                <th className="border-b border-r border-gray-200 px-2 py-2 text-left text-[10px] sm:text-xs font-medium text-gray-700 sticky left-0 z-10 bg-gray-100 min-w-[72px] sm:min-w-[100px] border-r shadow-sm">
                   キャスト
                 </th>
                 {dates.map((d) => {
@@ -315,29 +323,30 @@ export default function AdminWeeklyPage() {
                   return (
                     <th
                       key={d}
-                      className={`border-b border-r border-gray-200 px-1 py-2 text-center text-xs font-medium ${colorClass}`}
+                      className={`border-b border-r border-gray-200 px-1 py-2 text-center text-[10px] sm:text-xs font-medium ${colorClass} whitespace-nowrap min-w-[48px] sm:min-w-0`}
                     >
-                      {formatDateWithWeekday(d)}
+                      <span className="sm:hidden">{formatDateShort(d)}</span>
+                      <span className="hidden sm:inline">{formatDateWithWeekday(d)}</span>
                     </th>
                   );
                 })}
-                <th className="border-b border-gray-200 px-2 py-2 text-center text-xs font-medium text-gray-700 min-w-[80px]">
-                  個別送信
+                <th className="border-b border-gray-200 px-1 sm:px-2 py-2 text-center text-[10px] sm:text-xs font-medium text-gray-700 min-w-[64px] sm:min-w-[80px]">
+                  個別
                 </th>
               </tr>
             </thead>
             <tbody>
               {casts.map((cast) => (
                 <tr key={cast.id} className="hover:bg-gray-50">
-                  <td className="border-b border-r border-gray-200 px-2 py-1 text-xs font-medium text-gray-900 sticky left-0 z-10 bg-white min-w-[100px] border-r shadow-sm">
+                  <td className="border-b border-r border-gray-200 px-2 py-1 text-[10px] sm:text-xs font-medium text-gray-900 sticky left-0 z-10 bg-white min-w-[72px] sm:min-w-[100px] border-r shadow-sm">
                     {cast.name}
                   </td>
                   {dates.map((dateStr) => (
-                    <td key={dateStr} className="border-b border-r border-gray-200 p-1">
+                    <td key={dateStr} className="border-b border-r border-gray-200 p-0.5 sm:p-1">
                       <select
                         value={matrix[cast.id]?.[dateStr] ?? ""}
                         onChange={(e) => updateCell(cast.id, dateStr, e.target.value)}
-                        className="w-20 min-w-0 h-9 px-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                        className="w-full min-w-[56px] sm:w-20 min-h-[36px] sm:h-9 px-1 sm:px-1.5 text-[10px] sm:text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
                       >
                         {TIME_OPTIONS.map((opt) => (
                           <option key={opt.value || "empty"} value={opt.value}>
@@ -347,7 +356,7 @@ export default function AdminWeeklyPage() {
                       </select>
                     </td>
                   ))}
-                  <td className="border-b border-gray-200 p-1 text-center">
+                  <td className="border-b border-gray-200 p-0.5 sm:p-1 text-center">
                     <button
                       type="button"
                       onClick={() => handleNotifyIndividual(cast.id)}
@@ -356,11 +365,11 @@ export default function AdminWeeklyPage() {
                         notifying ||
                         notifyingCastId !== null
                       }
-                      className="text-xs px-2 py-1.5 rounded border border-[#06C755] text-[#06C755] hover:bg-[#06C755] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-2 sm:py-1.5 min-h-[36px] rounded border border-[#06C755] text-[#06C755] hover:bg-[#06C755] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
                     >
                       {notifyingCastId === cast.id
                         ? "送信中..."
-                        : "個別送信"}
+                        : "個別"}
                     </button>
                   </td>
                 </tr>
@@ -380,12 +389,12 @@ export default function AdminWeeklyPage() {
           </p>
         )}
 
-        <div className="mt-6 flex flex-col sm:flex-row gap-4">
+        <div className="mt-4 sm:mt-6 flex flex-col sm:flex-row gap-3 sm:gap-4">
           <button
             type="button"
             onClick={handleSave}
             disabled={saving || notifying}
-            className="w-full sm:w-auto sm:min-w-[200px] h-12 px-6 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full sm:w-auto sm:min-w-[200px] min-h-[48px] h-12 px-6 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
           >
             {saving ? "保存中..." : "一括保存する"}
           </button>
@@ -393,7 +402,7 @@ export default function AdminWeeklyPage() {
             type="button"
             onClick={handleNotify}
             disabled={saving || notifying || notifyingCastId !== null}
-            className="w-full sm:w-auto sm:min-w-[260px] h-12 px-6 py-3 bg-[#06C755] text-white font-medium rounded-lg hover:bg-[#05B34C] focus:ring-2 focus:ring-[#06C755] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+            className="w-full sm:w-auto sm:min-w-[260px] min-h-[48px] h-12 px-6 py-3 bg-[#06C755] text-white font-medium rounded-lg hover:bg-[#05B34C] focus:ring-2 focus:ring-[#06C755] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap touch-manipulation"
           >
             {notifying
               ? notifyStatus === "done"

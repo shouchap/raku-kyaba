@@ -96,14 +96,14 @@ export default function LoginPage() {
       </div>
 
       {/* ログインフォーム */}
-      <div className="relative z-10 w-full max-w-sm mx-4">
+      <div className="relative z-10 w-full max-w-sm mx-3 sm:mx-4 px-1 sm:px-0">
         <form
           onSubmit={handleSubmit}
-          className="border-2 border-[#D4AF37] rounded-lg p-8 bg-black/90 backdrop-blur-sm shadow-[0_0_30px_rgba(212,175,55,0.15)]"
+          className="border-2 border-[#D4AF37] rounded-lg p-5 sm:p-8 bg-black/90 backdrop-blur-sm shadow-[0_0_30px_rgba(212,175,55,0.15)]"
           style={{ borderColor: GOLD }}
         >
           <h1
-            className="text-2xl font-light tracking-[0.2em] text-center mb-8 text-[#D4AF37]"
+            className="text-xl sm:text-2xl font-light tracking-[0.15em] sm:tracking-[0.2em] text-center mb-6 sm:mb-8 text-[#D4AF37]"
             style={{
               fontFamily: "'Cinzel', 'Georgia', serif",
             }}
@@ -117,7 +117,7 @@ export default function LoginPage() {
             </p>
           )}
 
-          <div className="space-y-5">
+          <div className="space-y-4 sm:space-y-5">
             <div>
               <label
                 htmlFor="username"
@@ -131,7 +131,7 @@ export default function LoginPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="gold"
-                className="w-full px-4 py-3 bg-black/80 border border-[#D4AF37]/50 rounded focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]/50 text-white placeholder-gray-500 transition-colors"
+                className="w-full px-4 py-3 min-h-[44px] text-base bg-black/80 border border-[#D4AF37]/50 rounded focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]/50 text-white placeholder-gray-500 transition-colors"
                 autoComplete="username"
                 disabled={loading}
               />
@@ -154,7 +154,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full px-4 py-3 pr-12 bg-black/80 border border-[#D4AF37]/50 rounded focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]/50 text-white placeholder-gray-500 transition-colors"
+                  className="w-full px-4 py-3 pr-12 min-h-[44px] text-base bg-black/80 border border-[#D4AF37]/50 rounded focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]/50 text-white placeholder-gray-500 transition-colors"
                   autoComplete="current-password"
                   disabled={loading}
                 />
@@ -178,7 +178,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full mt-6 py-3 rounded border-2 border-[#D4AF37] text-[#D4AF37] font-light tracking-widest hover:bg-[#D4AF37]/10 focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+            className="w-full mt-5 sm:mt-6 py-3 min-h-[48px] rounded border-2 border-[#D4AF37] text-[#D4AF37] font-light tracking-widest hover:bg-[#D4AF37]/10 focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 touch-manipulation"
           >
             {loading ? "ログイン中..." : "ログイン"}
           </button>

@@ -113,27 +113,27 @@ export default function AdminCastsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-500">読み込み中...</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <p className="text-gray-500 text-sm sm:text-base">読み込み中...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-6">
+    <div className="min-h-screen bg-gray-50 py-4 sm:py-6 px-3 sm:px-6">
       <div className="max-w-2xl mx-auto">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4 sm:mb-6">
           <div>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
               キャスト管理
             </h1>
-            <p className="text-sm text-gray-600">
+            <p className="text-xs sm:text-sm text-gray-600">
               {store?.name ?? "店舗"}
             </p>
           </div>
           <Link
             href="/admin/weekly"
-            className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+            className="text-sm text-blue-600 hover:text-blue-700 font-medium py-2 touch-manipulation"
           >
             シフト登録へ →
           </Link>
@@ -142,14 +142,14 @@ export default function AdminCastsPage() {
         <div className="w-full rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
           <ul className="divide-y divide-gray-200">
             {casts.length === 0 ? (
-              <li className="px-4 py-8 text-center text-gray-500 text-sm">
+              <li className="px-3 sm:px-4 py-6 sm:py-8 text-center text-gray-500 text-sm">
                 キャストが登録されていません。LINEで友だち追加すると自動登録されます。
               </li>
             ) : (
               casts.map((cast) => (
                 <li
                   key={cast.id}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50"
+                  className="flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 hover:bg-gray-50"
                 >
                   {editingId === cast.id ? (
                     <>
@@ -161,7 +161,7 @@ export default function AdminCastsPage() {
                           if (e.key === "Enter") handleSaveEdit();
                           if (e.key === "Escape") handleCancelEdit();
                         }}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                        className="flex-1 min-w-0 min-h-[44px] px-3 py-2 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                         placeholder="名前"
                         autoFocus
                       />
@@ -169,7 +169,7 @@ export default function AdminCastsPage() {
                         type="button"
                         onClick={handleSaveEdit}
                         disabled={saving}
-                        className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                        className="min-h-[44px] px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 touch-manipulation"
                       >
                         {saving ? "保存中..." : "保存"}
                       </button>
@@ -177,30 +177,32 @@ export default function AdminCastsPage() {
                         type="button"
                         onClick={handleCancelEdit}
                         disabled={saving}
-                        className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50"
+                        className="min-h-[44px] px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 touch-manipulation"
                       >
                         キャンセル
                       </button>
                     </>
                   ) : (
                     <>
-                      <span className="flex-1 font-medium text-gray-900">{cast.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleStartEdit(cast)}
-                        disabled={deletingId !== null}
-                        className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50"
-                      >
-                        編集
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(cast)}
-                        disabled={deletingId !== null}
-                        className="px-3 py-1.5 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
-                      >
-                        {deletingId === cast.id ? "削除中..." : "削除"}
-                      </button>
+                      <span className="flex-1 min-w-0 font-medium text-gray-900 text-sm sm:text-base truncate">{cast.name}</span>
+                      <div className="flex gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(cast)}
+                          disabled={deletingId !== null}
+                          className="min-h-[44px] px-3 py-2 text-xs sm:text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 touch-manipulation"
+                        >
+                          編集
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(cast)}
+                          disabled={deletingId !== null}
+                          className="min-h-[44px] px-3 py-2 text-xs sm:text-sm border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50 touch-manipulation"
+                        >
+                          {deletingId === cast.id ? "削除中..." : "削除"}
+                        </button>
+                      </div>
                     </>
                   )}
                 </li>

@@ -98,27 +98,27 @@ export default function AdminSettingsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-500">読み込み中...</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <p className="text-gray-500 text-sm sm:text-base">読み込み中...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-6">
+    <div className="min-h-screen bg-gray-50 py-4 sm:py-6 px-3 sm:px-6">
       <div className="max-w-2xl mx-auto">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4 sm:mb-6">
           <div>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
               システム設定
             </h1>
-            <p className="text-sm text-gray-600">
+            <p className="text-xs sm:text-sm text-gray-600">
               リマインド・各種設定を管理します
             </p>
           </div>
           <Link
             href="/admin/weekly"
-            className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+            className="text-sm text-blue-600 hover:text-blue-700 font-medium py-2 min-h-[44px] flex items-center"
           >
             シフト登録へ →
           </Link>
@@ -126,7 +126,7 @@ export default function AdminSettingsPage() {
 
         <form
           onSubmit={handleSave}
-          className="rounded-lg border border-gray-200 bg-white shadow-sm p-6"
+          className="rounded-lg border border-gray-200 bg-white shadow-sm p-4 sm:p-6"
         >
           <h2 className="text-sm font-medium text-gray-700 mb-6">
             リマインド設定
@@ -163,7 +163,7 @@ export default function AdminSettingsPage() {
               onChange={(e) =>
                 setConfig((c) => ({ ...c, sendTime: e.target.value }))
               }
-              className="w-full max-w-[120px] px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full max-w-[120px] min-h-[44px] px-4 py-2 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             >
               {HOUR_OPTIONS.map((h) => (
                 <option key={h} value={h}>
@@ -192,7 +192,7 @@ export default function AdminSettingsPage() {
               }
               rows={4}
               placeholder="例: {name}さん、本日は {time} 出勤予定です。"
-              className="w-full px-4 py-3 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-gray-400 resize-y"
+              className="w-full min-h-[100px] px-4 py-3 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-gray-400 resize-y"
             />
             <p className="text-xs text-gray-500 mt-1">
               ※ {"{name}"} はキャスト名、{"{time}"} は出勤時間に置換されます
@@ -202,7 +202,7 @@ export default function AdminSettingsPage() {
           <button
             type="submit"
             disabled={saving}
-            className="w-full h-12 px-6 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full min-h-[48px] h-12 px-6 bg-blue-600 text-white text-base font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
           >
             {saving ? "保存中..." : "設定を保存"}
           </button>

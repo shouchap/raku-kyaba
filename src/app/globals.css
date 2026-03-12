@@ -39,3 +39,11 @@
 .animate-fade-in {
   animation: fade-in 0.2s ease-out;
 }
+
+/* スマホ: セーフエリア（ノッチ対応） */
+@supports (padding: env(safe-area-inset-bottom)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
