@@ -18,6 +18,8 @@ type ReminderConfig = {
   reply_absent: string;
   admin_notify_late: string;
   admin_notify_absent: string;
+  admin_notify_new_cast: string;
+  welcome_message: string;
 };
 
 const DEFAULT_CONFIG: ReminderConfig = {
@@ -34,6 +36,9 @@ const DEFAULT_CONFIG: ReminderConfig = {
     "【遅刻連絡】\n{name} さんから遅刻の連絡がありました。理由と到着予定時刻を確認してください。",
   admin_notify_absent:
     "【欠勤連絡】\n{name} さんから欠勤の連絡がありました。至急、連絡・シフト調整をお願いします。",
+  admin_notify_new_cast: "新しく {name} さんが登録されました！",
+  welcome_message:
+    "{name}さん、はじめまして。出勤・退勤の連絡はこのLINEから行えます。よろしくお願いいたします。",
 };
 
 export default function AdminSettingsPage() {
@@ -66,11 +71,13 @@ export default function AdminSettingsPage() {
         setConfig({
           enabled: Boolean(v.enabled ?? DEFAULT_CONFIG.enabled),
           sendTime:
-            typeof v.sendTime === "string" ? v.sendTime : DEFAULT_CONFIG.sendTime,
+            (typeof v.sendTime === "string" ? v.sendTime : null) ??
+            (typeof v.send_time === "string" ? v.send_time : null) ??
+            DEFAULT_CONFIG.sendTime,
           messageTemplate:
-            typeof v.messageTemplate === "string"
-              ? v.messageTemplate
-              : DEFAULT_CONFIG.messageTemplate,
+            (typeof v.messageTemplate === "string" ? v.messageTemplate : null) ??
+            (typeof v.template === "string" ? v.template : null) ??
+            DEFAULT_CONFIG.messageTemplate,
           reply_present:
             typeof v.reply_present === "string"
               ? v.reply_present
@@ -91,6 +98,14 @@ export default function AdminSettingsPage() {
             typeof v.admin_notify_absent === "string"
               ? v.admin_notify_absent
               : DEFAULT_CONFIG.admin_notify_absent,
+          admin_notify_new_cast:
+            typeof v.admin_notify_new_cast === "string"
+              ? v.admin_notify_new_cast
+              : DEFAULT_CONFIG.admin_notify_new_cast,
+          welcome_message:
+            typeof v.welcome_message === "string"
+              ? v.welcome_message
+              : DEFAULT_CONFIG.welcome_message,
         });
       }
     } catch (err) {
@@ -109,22 +124,23 @@ export default function AdminSettingsPage() {
     setSaving(true);
     setMessage(null);
     try {
+      const value: Record<string, unknown> = {
+        enabled: config.enabled,
+        sendTime: config.sendTime,
+        messageTemplate: config.messageTemplate.trim() || DEFAULT_CONFIG.messageTemplate,
+        reply_present: config.reply_present.trim() || DEFAULT_CONFIG.reply_present,
+        reply_late: config.reply_late.trim() || DEFAULT_CONFIG.reply_late,
+        reply_absent: config.reply_absent.trim() || DEFAULT_CONFIG.reply_absent,
+        admin_notify_late: config.admin_notify_late.trim() || DEFAULT_CONFIG.admin_notify_late,
+        admin_notify_absent: config.admin_notify_absent.trim() || DEFAULT_CONFIG.admin_notify_absent,
+        admin_notify_new_cast: config.admin_notify_new_cast.trim() || DEFAULT_CONFIG.admin_notify_new_cast,
+        welcome_message: config.welcome_message.trim() || DEFAULT_CONFIG.welcome_message,
+      };
+
       const { error } = await supabase
         .from("system_settings")
         .upsert(
-          {
-            key: "reminder_config",
-            value: {
-              enabled: config.enabled,
-              sendTime: config.sendTime,
-              messageTemplate: config.messageTemplate.trim() || DEFAULT_CONFIG.messageTemplate,
-              reply_present: config.reply_present.trim() || DEFAULT_CONFIG.reply_present,
-              reply_late: config.reply_late.trim() || DEFAULT_CONFIG.reply_late,
-              reply_absent: config.reply_absent.trim() || DEFAULT_CONFIG.reply_absent,
-              admin_notify_late: config.admin_notify_late.trim() || DEFAULT_CONFIG.admin_notify_late,
-              admin_notify_absent: config.admin_notify_absent.trim() || DEFAULT_CONFIG.admin_notify_absent,
-            },
-          },
+          { key: "reminder_config", value },
           { onConflict: "key" }
         );
 
@@ -230,13 +246,13 @@ export default function AdminSettingsPage() {
             </select>
           </div>
 
-          {/* メッセージテンプレート */}
+          {/* リマインドメッセージテンプレート（送信時間のすぐ下） */}
           <div className="mb-8">
             <label
               htmlFor="messageTemplate"
               className="block text-sm font-medium text-gray-700 mb-2"
             >
-              メッセージテンプレート
+              リマインドメッセージテンプレート
             </label>
             <textarea
               id="messageTemplate"
@@ -248,7 +264,7 @@ export default function AdminSettingsPage() {
                 }))
               }
               rows={4}
-              placeholder="例: {name}さん、本日は {time} 出勤予定です。"
+              placeholder="例: {name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。"
               className="w-full min-h-[100px] px-4 py-3 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-gray-400 resize-y"
             />
             <p className="text-xs text-gray-500 mt-1">
@@ -359,6 +375,53 @@ export default function AdminSettingsPage() {
             />
             <p className="text-xs text-gray-500 mt-1">
               ※ {"{name}"} はキャスト名に置換されます
+            </p>
+          </div>
+
+          {/* 新人登録時のメッセージ */}
+          <h3 className="text-sm font-medium text-gray-700 mb-3 mt-8">
+            新人登録時のメッセージ
+          </h3>
+          <div className="mb-6">
+            <label
+              htmlFor="admin_notify_new_cast"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              新人登録時の管理者通知
+            </label>
+            <textarea
+              id="admin_notify_new_cast"
+              value={config.admin_notify_new_cast}
+              onChange={(e) =>
+                setConfig((c) => ({ ...c, admin_notify_new_cast: e.target.value }))
+              }
+              rows={2}
+              placeholder="例: 新しく {name} さんが登録されました！"
+              className="w-full min-h-[60px] px-4 py-3 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-gray-400 resize-y"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              ※ {"{name}"} はキャスト名に置換されます
+            </p>
+          </div>
+          <div className="mb-8">
+            <label
+              htmlFor="welcome_message"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              新人への挨拶メッセージ
+            </label>
+            <textarea
+              id="welcome_message"
+              value={config.welcome_message}
+              onChange={(e) =>
+                setConfig((c) => ({ ...c, welcome_message: e.target.value }))
+              }
+              rows={3}
+              placeholder="例: {name}さん、はじめまして。出勤・退勤の連絡はこのLINEから行えます。"
+              className="w-full min-h-[80px] px-4 py-3 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-gray-400 resize-y"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              ※ {"{name}"} はキャスト名に置換されます（友だち追加時に本人へ送信）
             </p>
           </div>
 

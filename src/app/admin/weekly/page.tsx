@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
+import { getTodayJst } from "@/lib/date-utils";
 import { TIME_OPTIONS } from "@/lib/time-options";
 
 type Cast = {
@@ -62,11 +63,13 @@ export default function AdminWeeklyPage() {
   const [notifyStatus, setNotifyStatus] = useState<"idle" | "sending" | "done">("idle");
   const [message, setMessage] = useState<"success" | "error" | null>(null);
 
-  const today = useMemo(() => formatDate(new Date()), []);
+  const today = useMemo(() => getTodayJst(), []);
   const [baseDate, setBaseDate] = useState(today);
 
   // マトリックスデータ: matrix[castId][dateStr] = "HH:mm" | ""
   const [matrix, setMatrix] = useState<Record<string, Record<string, string>>>({});
+  // 同伴フラグ: dohan[castId][dateStr] = boolean（出勤時間がある場合のみ意味を持つ）
+  const [dohan, setDohan] = useState<Record<string, Record<string, boolean>>>({});
 
   // 基準日から7日間の日付配列
   const dates = useMemo(() => {
@@ -103,28 +106,35 @@ export default function AdminWeeklyPage() {
     }
   }, [supabase]);
 
-  // 既存シフトの読み込み
+  // 既存シフトの読み込み（scheduled_time と is_dohan を取得）
   const loadExistingSchedules = useCallback(
     async (storeId: string) => {
       const { data } = await supabase
         .from("attendance_schedules")
-        .select("cast_id, scheduled_date, scheduled_time")
+        .select("cast_id, scheduled_date, scheduled_time, is_dohan")
         .eq("store_id", storeId)
         .in("scheduled_date", dates);
 
-      const next: Record<string, Record<string, string>> = {};
+      const nextMatrix: Record<string, Record<string, string>> = {};
+      const nextDohan: Record<string, Record<string, boolean>> = {};
       casts.forEach((c) => {
-        next[c.id] = {};
+        nextMatrix[c.id] = {};
+        nextDohan[c.id] = {};
         dates.forEach((d) => {
-          next[c.id][d] = "";
+          nextMatrix[c.id][d] = "";
+          nextDohan[c.id][d] = false;
         });
       });
-      (data ?? []).forEach((row: { cast_id: string; scheduled_date: string; scheduled_time?: string }) => {
-        if (next[row.cast_id]) {
-          next[row.cast_id][row.scheduled_date] = formatTimeForInput(row.scheduled_time);
+      (data ?? []).forEach(
+        (row: { cast_id: string; scheduled_date: string; scheduled_time?: string; is_dohan?: boolean }) => {
+          if (nextMatrix[row.cast_id]) {
+            nextMatrix[row.cast_id][row.scheduled_date] = formatTimeForInput(row.scheduled_time);
+            nextDohan[row.cast_id][row.scheduled_date] = Boolean(row.is_dohan);
+          }
         }
-      });
-      setMatrix(next);
+      );
+      setMatrix(nextMatrix);
+      setDohan(nextDohan);
     },
     [supabase, casts, dates]
   );
@@ -139,13 +149,17 @@ export default function AdminWeeklyPage() {
     } else if (casts.length > 0 && dates.length === 7) {
       // 店舗がまだ無い場合の空マトリックス初期化
       const next: Record<string, Record<string, string>> = {};
+      const nextDohan: Record<string, Record<string, boolean>> = {};
       casts.forEach((c) => {
         next[c.id] = {};
+        nextDohan[c.id] = {};
         dates.forEach((d) => {
           next[c.id][d] = "";
+          nextDohan[c.id][d] = false;
         });
       });
       setMatrix(next);
+      setDohan(nextDohan);
     }
   }, [store, casts, dates, loadExistingSchedules]);
 
@@ -155,6 +169,26 @@ export default function AdminWeeklyPage() {
       [castId]: {
         ...(prev[castId] ?? {}),
         [dateStr]: value,
+      },
+    }));
+    // 時間をクリアした場合は同伴もオフにする（整合性維持）
+    if (!value.trim()) {
+      setDohan((prev) => ({
+        ...prev,
+        [castId]: { ...(prev[castId] ?? {}), [dateStr]: false },
+      }));
+    }
+  };
+
+  /** 同伴トグル。出勤時間があるセルのみ有効 */
+  const toggleDohan = (castId: string, dateStr: string) => {
+    const time = matrix[castId]?.[dateStr]?.trim();
+    if (!time) return;
+    setDohan((prev) => ({
+      ...prev,
+      [castId]: {
+        ...(prev[castId] ?? {}),
+        [dateStr]: !(prev[castId]?.[dateStr] ?? false),
       },
     }));
   };
@@ -175,12 +209,13 @@ export default function AdminWeeklyPage() {
 
       if (deleteError) throw deleteError;
 
-      // b. 時間が入力されているセルを抽出して配列作成
+      // b. 時間が入力されているセルを抽出して配列作成（is_dohan を含む）
       const toInsert: Array<{
         store_id: string;
         cast_id: string;
         scheduled_date: string;
         scheduled_time: string;
+        is_dohan: boolean;
       }> = [];
       casts.forEach((cast) => {
         dates.forEach((dateStr) => {
@@ -191,6 +226,7 @@ export default function AdminWeeklyPage() {
               cast_id: cast.id,
               scheduled_date: dateStr,
               scheduled_time: time.length === 5 ? `${time}:00` : time,
+              is_dohan: dohan[cast.id]?.[dateStr] ?? false,
             });
           }
         });
@@ -324,21 +360,41 @@ export default function AdminWeeklyPage() {
                   <td className="border-b border-r border-gray-200 px-2 py-1 text-[10px] sm:text-xs font-medium text-gray-900 sticky left-0 z-10 bg-white min-w-[72px] sm:min-w-[100px] border-r shadow-sm">
                     {cast.name}
                   </td>
-                  {dates.map((dateStr) => (
-                    <td key={dateStr} className="border-b border-r border-gray-200 p-0.5 sm:p-1">
-                      <select
-                        value={matrix[cast.id]?.[dateStr] ?? ""}
-                        onChange={(e) => updateCell(cast.id, dateStr, e.target.value)}
-                        className="w-full min-w-[56px] sm:w-20 min-h-[36px] sm:h-9 px-1 sm:px-1.5 text-[10px] sm:text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
-                      >
-                        {TIME_OPTIONS.map((opt) => (
-                          <option key={opt.value || "empty"} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                  ))}
+                  {dates.map((dateStr) => {
+                    const hasTime = Boolean(matrix[cast.id]?.[dateStr]?.trim());
+                    const isDohanOn = dohan[cast.id]?.[dateStr] ?? false;
+                    return (
+                      <td key={dateStr} className="border-b border-r border-gray-200 p-0.5 sm:p-1">
+                        <div className="flex flex-col gap-0.5">
+                          <select
+                            value={matrix[cast.id]?.[dateStr] ?? ""}
+                            onChange={(e) => updateCell(cast.id, dateStr, e.target.value)}
+                            className="w-full min-w-[56px] sm:w-20 min-h-[36px] sm:h-9 px-1 sm:px-1.5 text-[10px] sm:text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                          >
+                            {TIME_OPTIONS.map((opt) => (
+                              <option key={opt.value || "empty"} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                          {/* 同伴トグル: 出勤時間がある場合のみ表示。ON時はピンクで視認性を確保 */}
+                          {hasTime && (
+                            <button
+                              type="button"
+                              onClick={() => toggleDohan(cast.id, dateStr)}
+                              className={`min-h-[24px] text-[9px] sm:text-[10px] px-1 py-0.5 rounded border touch-manipulation transition-colors ${
+                                isDohanOn
+                                  ? "bg-pink-500 border-pink-600 text-white font-medium"
+                                  : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+                              }`}
+                            >
+                              同伴
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    );
+                  })}
                   <td className="border-b border-gray-200 p-0.5 sm:p-1 text-center">
                     <button
                       type="button"

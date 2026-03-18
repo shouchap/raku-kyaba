@@ -26,6 +26,7 @@ export default function AdminSchedulePage() {
   const [castId, setCastId] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("20:00");
+  const [isDohan, setIsDohan] = useState(false);
 
   useEffect(() => {
     async function fetchData() {
@@ -51,6 +52,7 @@ export default function AdminSchedulePage() {
     setCastId("");
     setScheduledDate("");
     setScheduledTime("20:00");
+    setIsDohan(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -66,6 +68,7 @@ export default function AdminSchedulePage() {
         cast_id: castId,
         scheduled_date: scheduledDate,
         scheduled_time: scheduledTime,
+        is_dohan: isDohan,
       });
 
       if (error) throw error;
@@ -167,6 +170,18 @@ export default function AdminSchedulePage() {
                 </option>
               ))}
             </select>
+            {/* 同伴トグル: ON時はピンクで視認性を確保 */}
+            <button
+              type="button"
+              onClick={() => setIsDohan((prev) => !prev)}
+              className={`mt-2 w-full min-h-[40px] px-4 rounded-lg border font-medium transition-colors touch-manipulation ${
+                isDohan
+                  ? "bg-pink-500 border-pink-600 text-white"
+                  : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              同伴 {isDohan && "✓"}
+            </button>
           </div>
 
           {message === "success" && (

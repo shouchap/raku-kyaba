@@ -13,11 +13,15 @@ function formatDateJa(dateStr: string): string {
   return `${m}/${day}(${w})`;
 }
 
-/** "20:00:00" → "20:00" */
-function formatTime(time: string | null | undefined): string {
+/** "20:00:00" → "20:00"。is_dohan が true の場合は「（同伴）」を追記 */
+function formatTimeWithDohan(
+  time: string | null | undefined,
+  isDohan?: boolean | null
+): string {
   if (!time) return "";
   const match = String(time).match(/^(\d{1,2}):(\d{2})/);
-  return match ? `${match[1]}:${match[2]}` : "";
+  const base = match ? `${match[1]}:${match[2]}` : "";
+  return isDohan ? `${base}（同伴）` : base;
 }
 
 /**
@@ -105,18 +109,21 @@ export async function POST(request: Request) {
     );
   }
 
-  // 該当キャストの7日間シフト
+  // 該当キャストの7日間シフト（is_dohan 含む）
   const { data: schedules } = await supabase
     .from("attendance_schedules")
-    .select("scheduled_date, scheduled_time")
+    .select("scheduled_date, scheduled_time, is_dohan")
     .eq("cast_id", castId)
     .eq("store_id", cast.store_id)
     .in("scheduled_date", dates);
 
   const byDate: Record<string, string> = {};
-  (schedules ?? []).forEach((row: { scheduled_date: string; scheduled_time?: string }) => {
-    byDate[row.scheduled_date] = formatTime(row.scheduled_time);
-  });
+  (schedules ?? []).forEach(
+    (row: { scheduled_date: string; scheduled_time?: string; is_dohan?: boolean }) => {
+      const formatted = formatTimeWithDohan(row.scheduled_time, row.is_dohan);
+      byDate[row.scheduled_date] = formatted ? `${formatted}〜` : "";
+    }
+  );
 
   const lines: string[] = [
     `${cast.name}さん、来週のシフトが確定しました。`,
@@ -128,7 +135,7 @@ export async function POST(request: Request) {
     const dateJa = formatDateJa(dateStr);
     if (time) {
       hasShift = true;
-      lines.push(`${dateJa}: ${time}〜`);
+      lines.push(`${dateJa}: ${time}`);
     } else {
       lines.push(`${dateJa}: お休み`);
     }

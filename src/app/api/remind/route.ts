@@ -1,7 +1,38 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { sendPushMessage } from "@/lib/line-reply";
-import { getTodayJst, getCurrentTimeJst } from "@/lib/date-utils";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { sendPushMessage, sendMulticastMessage } from "@/lib/line-reply";
+import { getTodayJst } from "@/lib/date-utils";
+
+/** 管理者の line_user_id 一覧を取得（warn-unanswered と同様のロジック） */
+async function getAdminLineUserIds(
+  supabase: SupabaseClient,
+  storeId: string
+): Promise<string[]> {
+  const { data: adminCasts } = await supabase
+    .from("casts")
+    .select("line_user_id")
+    .eq("store_id", storeId)
+    .eq("is_admin", true)
+    .eq("is_active", true)
+    .not("line_user_id", "is", null);
+
+  const fromCasts = (adminCasts ?? [])
+    .map((r: { line_user_id?: string }) => r.line_user_id)
+    .filter((id): id is string => !!id && id.trim() !== "");
+
+  if (fromCasts.length > 0) return fromCasts;
+
+  const { data: store } = await supabase
+    .from("stores")
+    .select("admin_line_user_id")
+    .eq("id", storeId)
+    .single();
+
+  const legacyId = (store as { admin_line_user_id?: string | null })?.admin_line_user_id;
+  if (legacyId && String(legacyId).trim() !== "") return [legacyId];
+
+  return [];
+}
 
 /** キャッシュ無効化: 毎回最新のDB値を取得する */
 export const dynamic = "force-dynamic";
@@ -9,12 +40,65 @@ export const dynamic = "force-dynamic";
 type ReminderConfig = {
   enabled?: boolean;
   sendTime?: string;
+  send_time?: string;
   messageTemplate?: string;
+  template?: string;
+  reply_present?: string;
+  reply_late?: string;
+  reply_absent?: string;
+  admin_notify_late?: string;
+  admin_notify_absent?: string;
+  admin_notify_new_cast?: string;
+  welcome_message?: string;
 };
+
+/** reminder_config の文字列フィールドを undefined なら "" に正規化（JSONエラー防止） */
+function sanitizeReminderConfig(raw: Record<string, unknown>): Record<string, string | boolean> {
+  const stringKeys = [
+    "sendTime",
+    "messageTemplate",
+    "reply_present",
+    "reply_late",
+    "reply_absent",
+    "admin_notify_late",
+    "admin_notify_absent",
+    "admin_notify_new_cast",
+    "welcome_message",
+  ] as const;
+  const out: Record<string, string | boolean> = { ...raw } as Record<string, string | boolean>;
+  for (const k of stringKeys) {
+    const v = raw[k];
+    out[k] = typeof v === "string" ? v : "";
+  }
+  // キー名の違いに対応: send_time → sendTime, template → messageTemplate
+  if (!out.sendTime && typeof raw.send_time === "string") out.sendTime = raw.send_time;
+  if (!out.messageTemplate && typeof raw.template === "string") out.messageTemplate = raw.template;
+  return out;
+}
 
 /** DBに未設定の場合のフォールバック（空文字時のみ使用） */
 const DEFAULT_TEMPLATE =
   "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。";
+
+/** reminder_config が空・未設定時のデフォルト値 */
+const DEFAULT_REMINDER_CONFIG: ReminderConfig = {
+  enabled: true,
+  sendTime: "12:00",
+  messageTemplate: DEFAULT_TEMPLATE,
+};
+
+/** エラーを詳細にログ出力（LINE API レスポンス等を含む） */
+function logError(context: string, err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  const extra =
+    err && typeof err === "object" && !(err instanceof Error)
+      ? JSON.stringify(err, null, 2)
+      : "";
+  console.error(`[Remind] ${context}:`, msg);
+  if (stack) console.error(`[Remind] ${context} stack:`, stack);
+  if (extra) console.error(`[Remind] ${context} details:`, extra);
+}
 
 /**
  * 本日出勤予定のキャストへリマインド（Flex Message）を送信するAPI
@@ -26,8 +110,37 @@ const DEFAULT_TEMPLATE =
  * GET /api/remind?manual=true でテスト送信（時刻チェックをスキップして即送信）
  */
 export async function GET(request: Request) {
+  try {
+    return await handleRemind(request);
+  } catch (err) {
+    console.error("[Remind] Full Error details:", err);
+    logError("予期しないエラー", err);
+    return NextResponse.json(
+      {
+        error: "Internal server error",
+        details: err instanceof Error ? err.message : String(err),
+      },
+      { status: 500 }
+    );
+  }
+}
+
+async function handleRemind(request: Request) {
   const url = new URL(request.url);
   const isManual = url.searchParams.get("manual") === "true";
+
+  // GitHub Actions からのアクセス許可: Authorization Bearer が CRON_SECRET と一致すれば処理継続
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && cronSecret.trim() !== "") {
+    const authHeader = request.headers.get("authorization");
+    const expected = `Bearer ${cronSecret.trim()}`;
+    if (authHeader?.trim() !== expected) {
+      return NextResponse.json(
+        { error: "Unauthorized", message: "Invalid or missing Authorization header" },
+        { status: 401 }
+      );
+    }
+  }
   const supabaseUrl =
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const supabaseKey =
@@ -58,17 +171,32 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   if (settingsError) {
-    console.error("[Remind] Failed to fetch reminder_config:", settingsError);
+    console.error("[Remind] Full Error details:", settingsError);
+    logError("reminder_config 取得失敗", settingsError);
     return NextResponse.json(
       { error: "Failed to fetch settings", details: settingsError.message },
       { status: 500 }
     );
   }
 
-  const config = (settingsRow?.value ?? {}) as ReminderConfig;
+  const rawConfig = (settingsRow?.value ?? {}) as Record<string, unknown>;
+  const sanitized = sanitizeReminderConfig(rawConfig);
 
-  // DBから取得したテンプレートをログ出力（デバッグ用）
-  console.log("[Remind] DBから取得したテンプレート:", config.messageTemplate ?? "(未設定)");
+  console.log("[Remind] DBから取得した reminder_config の中身:", JSON.stringify(rawConfig, null, 2));
+
+  const config: ReminderConfig = {
+    ...DEFAULT_REMINDER_CONFIG,
+    ...sanitized,
+    enabled: rawConfig.enabled === false ? false : DEFAULT_REMINDER_CONFIG.enabled,
+    sendTime:
+      (sanitized.sendTime && String(sanitized.sendTime).trim()) ||
+      (typeof rawConfig.send_time === "string" && rawConfig.send_time.trim()) ||
+      DEFAULT_REMINDER_CONFIG.sendTime,
+    messageTemplate:
+      (sanitized.messageTemplate && String(sanitized.messageTemplate).trim()) ||
+      (typeof rawConfig.template === "string" && rawConfig.template.trim()) ||
+      DEFAULT_REMINDER_CONFIG.messageTemplate,
+  };
 
   // 2. enabled が false なら何もせず終了
   if (config.enabled === false) {
@@ -81,59 +209,35 @@ export async function GET(request: Request) {
     });
   }
 
-  // 3. 時刻チェック: manual=true でなければ、設定時刻から15分以内の場合のみ送信（15分おきCron想定）
-  const sendTime = config.sendTime ?? "12:00";
-  const [configHourStr, configMinStr] = sendTime.split(":");
-  const configuredHour = parseInt(configHourStr ?? "12", 10);
-  const configuredMin = parseInt(configMinStr ?? "0", 10);
-  const configuredMinutesSinceMidnight = configuredHour * 60 + configuredMin;
-
-  const { hour: currentHour, minute: currentMin } = getCurrentTimeJst();
-  const currentMinutesSinceMidnight = currentHour * 60 + currentMin;
-
-  if (!isManual) {
-    const windowStart = configuredMinutesSinceMidnight;
-    const windowEnd = configuredMinutesSinceMidnight + 15;
-    const inWindow =
-      currentMinutesSinceMidnight >= windowStart &&
-      currentMinutesSinceMidnight < windowEnd;
-
-    if (!inWindow) {
-      console.log(
-        `[Remind] 送信時刻外のためスキップ（設定: ${sendTime}、現在: ${String(currentHour).padStart(2, "0")}:${String(currentMin).padStart(2, "0")} JST、窓: ${sendTime}〜15分以内）`
-      );
-      return NextResponse.json({
-        ok: true,
-        message: `Not send time (config: ${sendTime}, now: ${currentHour}:${currentMin} JST)`,
-        successCount: 0,
-        failureCount: 0,
-      });
-    }
-    console.log(
-      `[Remind] 設定に従い、${sendTime}（JST）の15分窓内のリマインドを開始します`
-    );
-  } else {
+  // 3. Hobbyプラン（1日1回Cron）対応: 時刻枠チェックを削除。呼ばれたら未送信者へ送信。
+  if (isManual) {
     console.log("[Remind] 手動テスト送信（manual=true）を開始します");
+  } else {
+    console.log("[Remind] Cron起動によりリマインド処理を開始します");
   }
 
   const today = getTodayJst();
-  // 必ずDBの最新値を使用。空の場合のみフォールバック
-  const messageTemplate =
-    (config.messageTemplate && config.messageTemplate.trim() !== "")
-      ? config.messageTemplate.trim()
-      : DEFAULT_TEMPLATE;
+  // config.messageTemplate が undefined でも絶対にクラッシュしないガード
+  const rawTemplate =
+    (config.messageTemplate && String(config.messageTemplate).trim()) ||
+    (config.template && String(config.template).trim()) ||
+    (typeof rawConfig.messageTemplate === "string" && rawConfig.messageTemplate.trim()) ||
+    (typeof rawConfig.template === "string" && rawConfig.template.trim()) ||
+    "【Club GOLD】本日は {time} 出勤予定です。";
+  const messageTemplate = rawTemplate.trim() || "【Club GOLD】本日は {time} 出勤予定です。";
 
   console.log("[Remind] 使用するテンプレート:", messageTemplate);
 
-  // 本日の出勤予定を取得（休み＝scheduled_time が null/空 は除外、casts と JOIN、last_reminded_at 含む）
+  // 本日の出勤予定を取得（休み＝scheduled_time が null/空 は除外、casts と JOIN、is_dohan 含む）
   const { data: rawSchedules, error } = await supabase
     .from("attendance_schedules")
-    .select("id, cast_id, store_id, scheduled_date, scheduled_time, last_reminded_at, casts(name, line_user_id)")
+    .select("id, cast_id, store_id, scheduled_date, scheduled_time, is_dohan, last_reminded_at, casts(name, line_user_id)")
     .eq("scheduled_date", today)
     .not("scheduled_time", "is", null);
 
   if (error) {
-    console.error("[Remind] Supabase error:", error);
+    console.error("[Remind] Full Error details:", error);
+    logError("出勤予定取得失敗 (Supabase)", error);
     return NextResponse.json(
       { error: "Failed to fetch schedules", details: error.message },
       { status: 500 }
@@ -155,32 +259,44 @@ export async function GET(request: Request) {
     return true;
   });
 
+  console.log(
+    "[Remind] 本日の出勤者数:",
+    schedules.length,
+    `(DB取得件数: ${rawSchedules?.length ?? 0}、フィルタ後: ${schedules.length})`
+  );
+
   if (schedules.length === 0) {
-    console.log("[Remind] 本日の出勤予定はありません");
+    console.log("[Remind] 本日の出勤予定はありません（送信対象0人）");
     return NextResponse.json({
       ok: true,
-      message: "No schedules for today",
+      message: "送信対象がいません",
       successCount: 0,
       failureCount: 0,
     });
   }
 
-  // "20:00:00" -> "20:00" 形式に整形
-  const formatTime = (time: string | null | undefined): string => {
+  // "20:00:00" -> "20:00" 形式に整形。is_dohan が true の場合は「（同伴）」を追記
+  const formatTime = (
+    time: string | null | undefined,
+    isDohan?: boolean | null
+  ): string => {
     if (!time) return "営業時間";
     const match = String(time).match(/^(\d{1,2}):(\d{2})/);
-    return match ? `${match[1]}:${match[2]}` : "営業時間";
+    const base = match ? `${match[1]}:${match[2]}` : "営業時間";
+    return isDohan ? `${base}（同伴）` : base;
   };
 
-  // 4. テンプレートの {name} / {time} を置換（DBから取得したテンプレートに対して実行）
+  // 4. テンプレートの {name} / {time} を置換（置換前に文字列の存在をチェック）
   const applyTemplate = (
-    template: string,
+    tpl: string,
     name: string,
     time: string
   ): string => {
-    return template
-      .replace(/\{name\}/g, name)
-      .replace(/\{time\}/g, time);
+    const safeTpl =
+      tpl && typeof tpl === "string" ? tpl : "【Club GOLD】本日は {time} 出勤予定です。";
+    return safeTpl
+      .replace(/\{name\}/g, name ?? "キャスト")
+      .replace(/\{time\}/g, time ?? "営業時間");
   };
 
   /**
@@ -274,28 +390,53 @@ export async function GET(request: Request) {
   const nowIso = new Date().toISOString();
   const results = await Promise.allSettled(
     schedules.map(async (schedule) => {
-      const rawCasts = schedule.casts as
-        | { name: string; line_user_id: string }
-        | { name: string; line_user_id: string }[]
-        | null;
-      const casts = Array.isArray(rawCasts) ? rawCasts[0] : rawCasts;
-      if (!casts?.line_user_id) {
-        throw new Error(`No line_user_id for schedule ${schedule.id}`);
-      }
-      const name = casts.name ?? "キャスト";
-      const scheduledTime = formatTime(schedule.scheduled_time);
-      const bodyText = applyTemplate(messageTemplate, name, scheduledTime);
-      const message = createAttendanceFlexMessage(bodyText);
+      try {
+        const rawCasts = schedule.casts as
+          | { name: string; line_user_id: string }
+          | { name: string; line_user_id: string }[]
+          | null;
+        const casts = Array.isArray(rawCasts) ? rawCasts[0] : rawCasts;
+        if (!casts?.line_user_id) {
+          throw new Error(`No line_user_id for schedule ${schedule.id}`);
+        }
+        const name = casts.name ?? "キャスト";
+        const scheduledTime = formatTime(schedule.scheduled_time, schedule.is_dohan);
+        const bodyText = applyTemplate(messageTemplate, name, scheduledTime);
+        const message = createAttendanceFlexMessage(bodyText);
 
-      await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);
+        console.log(
+          "[Remind] 送信先:",
+          name,
+          "| 組み立てメッセージ:",
+          bodyText
+        );
 
-      // 送信成功: last_reminded_at を更新（二重送信防止）
-      const { error: updateError } = await supabase
-        .from("attendance_schedules")
-        .update({ last_reminded_at: nowIso })
-        .eq("id", schedule.id);
-      if (updateError) {
-        console.error("[Remind] last_reminded_at 更新失敗:", schedule.id, updateError);
+        await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);
+
+        // 送信成功: last_reminded_at を更新（二重送信防止）
+        const { error: updateError } = await supabase
+          .from("attendance_schedules")
+          .update({ last_reminded_at: nowIso })
+          .eq("id", schedule.id);
+        if (updateError) {
+          logError(
+            `last_reminded_at 更新失敗 scheduleId=${schedule.id}`,
+            updateError
+          );
+        }
+      } catch (err) {
+        console.error("[Remind] Full Error details:", err);
+        const raw = schedule.casts as
+          | { name?: string; line_user_id?: string }
+          | { name?: string; line_user_id?: string }[]
+          | null;
+        const cast = Array.isArray(raw) ? raw[0] : raw;
+        const lineUserId = cast?.line_user_id ?? "unknown";
+        logError(
+          `LINE Push 送信失敗 scheduleId=${schedule.id} lineUserId=${lineUserId}`,
+          err
+        );
+        throw err;
       }
     })
   );
@@ -304,13 +445,50 @@ export async function GET(request: Request) {
   const failureCount = results.filter((r) => r.status === "rejected").length;
 
   if (failureCount > 0) {
-    const failures = results
-      .map((r, i) => (r.status === "rejected" ? { index: i, reason: r.reason } : null))
-      .filter(Boolean);
-    console.error("[Remind] Some sends failed:", failures);
+    results.forEach((r, i) => {
+      if (r.status === "rejected") {
+        console.error("[Remind] Full Error details:", r.reason);
+        logError(`送信失敗 [index=${i}]`, r.reason);
+      }
+    });
   }
 
   console.log(`[Remind] 送信完了 success=${successCount} failure=${failureCount}`);
+
+  // 送信成功したキャストの名前・時刻・同伴を抽出し、管理者へ1通の完了報告を送信
+  const sentItems = results
+    .map((r, i) => (r.status === "fulfilled" ? schedules[i] : null))
+    .filter((s): s is (typeof schedules)[number] => s != null)
+    .map((s) => {
+      const raw = s.casts as { name?: string } | { name?: string }[] | null;
+      const c = Array.isArray(raw) ? raw[0] : raw;
+      const name = c?.name ?? "キャスト";
+      const baseTime = formatTime(s.scheduled_time, false);
+      const timeDisplay = `${baseTime}〜${s.is_dohan ? " 同伴" : ""}`.trim();
+      return { name, timeDisplay };
+    });
+
+  if (sentItems.length > 0 && channelAccessToken) {
+    const storeId = schedules[0]?.store_id;
+    if (storeId) {
+      try {
+        const adminIds = await getAdminLineUserIds(supabase, storeId);
+        if (adminIds.length > 0) {
+          const nameList = sentItems
+            .map(({ name, timeDisplay }) => `・${name} (${timeDisplay})`)
+            .join("\n");
+          const adminMessage = `【システム通知】本日、以下の${sentItems.length}名に出勤確認のリマインドを送信しました。\n${nameList}`;
+          await sendMulticastMessage(adminIds, channelAccessToken, [
+            { type: "text", text: adminMessage },
+          ]);
+          console.log("[Remind] 管理者へ送信完了報告を送信", adminIds.length, "名");
+        }
+      } catch (adminErr) {
+        // 管理者通知失敗はメイン処理に影響させない（ログのみ）
+        logError("管理者への送信完了報告失敗", adminErr);
+      }
+    }
+  }
 
   return NextResponse.json({
     ok: true,

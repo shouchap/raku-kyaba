@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
+import { getTodayJst } from "@/lib/date-utils";
+
+/** 未返信アラートを出すまでの経過時間（時間） */
+const ALERT_HOURS = 6;
 
 type Cast = {
   id: string;
@@ -13,6 +17,14 @@ type Cast = {
 type Store = {
   id: string;
   name: string;
+};
+
+/** セル表示用データ */
+type CellData = {
+  time: string;
+  lastRemindedAt: string | null;
+  /** 回答ステータス（attending/late/absent）。null は未回答 */
+  responseStatus: "attending" | "late" | "absent" | null;
 };
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
@@ -44,11 +56,41 @@ function getWeekday(dateStr: string): number {
   return new Date(dateStr + "T12:00:00").getDay();
 }
 
-/** "20:00:00" → "20:00" に変換 */
-function formatTimeDisplay(time: string | null | undefined): string {
+/** "20:00:00" → "20:00" に変換。is_dohan が true の場合は「（同伴）」を追記 */
+function formatTimeDisplay(
+  time: string | null | undefined,
+  isDohan?: boolean | null
+): string {
   if (!time) return "—";
   const match = String(time).match(/^(\d{1,2}):(\d{2})/);
-  return match ? `${match[1]}:${match[2]}` : "—";
+  const base = match ? `${match[1]}:${match[2]}` : "—";
+  if (base === "—") return base;
+  return isDohan ? `${base}（同伴）` : base;
+}
+
+/** last_reminded_at から ALERT_HOURS 時間以上経過しているか */
+function isOverAlertHours(lastRemindedAt: string | null): boolean {
+  if (!lastRemindedAt) return false;
+  const reminded = new Date(lastRemindedAt).getTime();
+  const now = Date.now();
+  return now - reminded >= ALERT_HOURS * 60 * 60 * 1000;
+}
+
+/**
+ * 時間表示文字列（"20:00" / "20:00（同伴）" 等）から HH:mm を抽出し、
+ * 分単位の数値（0〜1439）に変換。休み（—/ー/空）の場合は null。
+ * ソート用の比較可能な値として使用する。
+ */
+function parseTimeToMinutes(timeStr: string | null | undefined): number | null {
+  if (timeStr == null || typeof timeStr !== "string") return null;
+  const trimmed = timeStr.trim();
+  if (!trimmed || trimmed === "—" || trimmed === "ー") return null;
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const h = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10);
+  if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
 }
 
 export default function AdminViewPage() {
@@ -58,10 +100,10 @@ export default function AdminViewPage() {
   const [loading, setLoading] = useState(true);
   const [savingImage, setSavingImage] = useState(false);
   const [capturing, setCapturing] = useState(false);
-  const [matrix, setMatrix] = useState<Record<string, Record<string, string>>>({});
+  const [matrix, setMatrix] = useState<Record<string, Record<string, CellData>>>({});
   const captureRef = useRef<HTMLDivElement>(null);
 
-  const today = useMemo(() => formatDate(new Date()), []);
+  const today = useMemo(() => getTodayJst(), []); // 日本時間の今日
   const [baseDate, setBaseDate] = useState(today);
 
   // 基準日から7日間の日付配列
@@ -75,6 +117,27 @@ export default function AdminViewPage() {
     }
     return result;
   }, [baseDate]);
+
+  // 基準日（dates[0]）の出勤時間でソート。休みは下。同着は名前で二次ソート
+  const sortedCasts = useMemo(() => {
+    const baseDateStr = dates[0];
+    if (!baseDateStr) return [...casts];
+
+    return [...casts].sort((a, b) => {
+      const timeA = matrix[a.id]?.[baseDateStr]?.time;
+      const timeB = matrix[b.id]?.[baseDateStr]?.time;
+      const minutesA = parseTimeToMinutes(timeA);
+      const minutesB = parseTimeToMinutes(timeB);
+
+      // 休み（null）は出勤より下に配置
+      const sortValA = minutesA ?? 9999;
+      const sortValB = minutesB ?? 9999;
+      if (sortValA !== sortValB) return sortValA - sortValB;
+
+      // 同着: 名前の五十音順、さらに名前が同じなら ID
+      return a.name.localeCompare(b.name, "ja") || a.id.localeCompare(b.id);
+    });
+  }, [casts, dates, matrix]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -99,32 +162,52 @@ export default function AdminViewPage() {
 
   const loadSchedules = useCallback(
     async (storeId: string) => {
-      const { data } = await supabase
+      const { data: schedulesData } = await supabase
         .from("attendance_schedules")
-        .select("cast_id, scheduled_date, scheduled_time")
+        .select("cast_id, scheduled_date, scheduled_time, is_dohan, last_reminded_at, response_status")
         .eq("store_id", storeId)
         .in("scheduled_date", dates);
 
-      const next: Record<string, Record<string, string>> = {};
+      const schedulesRes = { data: schedulesData };
+
+      const schedules = (schedulesRes.data ?? []) as Array<{
+        cast_id: string;
+        scheduled_date: string;
+        scheduled_time?: string | null;
+        is_dohan?: boolean | null;
+        last_reminded_at?: string | null;
+        response_status?: "attending" | "late" | "absent" | null;
+      }>;
+
+      const next: Record<string, Record<string, CellData>> = {};
       casts.forEach((c) => {
         next[c.id] = {};
         dates.forEach((d) => {
-          next[c.id][d] = "";
+          next[c.id][d] = {
+            time: "",
+            lastRemindedAt: null,
+            responseStatus: null,
+          };
         });
       });
-      (data ?? []).forEach(
-        (row: {
-          cast_id: string;
-          scheduled_date: string;
-          scheduled_time?: string;
-        }) => {
-          if (next[row.cast_id]) {
-            next[row.cast_id][row.scheduled_date] = formatTimeDisplay(
-              row.scheduled_time
-            );
-          }
+
+      // attendance_schedules の response_status を優先（Webhook で更新済み）
+      schedules.forEach((row) => {
+        if (next[row.cast_id]?.[row.scheduled_date]) {
+          const status =
+            row.response_status === "attending" ||
+            row.response_status === "late" ||
+            row.response_status === "absent"
+              ? row.response_status
+              : null;
+          next[row.cast_id][row.scheduled_date] = {
+            time: formatTimeDisplay(row.scheduled_time, row.is_dohan),
+            lastRemindedAt: row.last_reminded_at ?? null,
+            responseStatus: status,
+          };
         }
-      );
+      });
+
       setMatrix(next);
     },
     [supabase, casts, dates]
@@ -138,11 +221,15 @@ export default function AdminViewPage() {
     if (store && casts.length > 0 && dates.length === 7) {
       loadSchedules(store.id);
     } else if (casts.length > 0 && dates.length === 7) {
-      const next: Record<string, Record<string, string>> = {};
+      const next: Record<string, Record<string, CellData>> = {};
       casts.forEach((c) => {
         next[c.id] = {};
         dates.forEach((d) => {
-          next[c.id][d] = "—";
+          next[c.id][d] = {
+            time: "—",
+            lastRemindedAt: null,
+            responseStatus: null,
+          };
         });
       });
       setMatrix(next);
@@ -214,7 +301,7 @@ export default function AdminViewPage() {
           <button
             type="button"
             onClick={handleSaveAsImage}
-            disabled={savingImage || casts.length === 0}
+            disabled={savingImage || sortedCasts.length === 0}
             className="min-h-[44px] px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation flex items-center gap-2"
           >
             {savingImage ? "保存中..." : "画像で保存"}
@@ -254,13 +341,18 @@ export default function AdminViewPage() {
                       <span className="hidden sm:inline">
                         {formatDateWithWeekday(d)}
                       </span>
+                      {d === today && (
+                        <span className="block text-[9px] text-amber-600 font-normal mt-0.5">
+                          今日
+                        </span>
+                      )}
                     </th>
                   );
                 })}
               </tr>
             </thead>
             <tbody>
-              {casts.length === 0 ? (
+              {sortedCasts.length === 0 ? (
                 <tr>
                   <td
                     colSpan={dates.length + 1}
@@ -270,28 +362,86 @@ export default function AdminViewPage() {
                   </td>
                 </tr>
               ) : (
-                casts.map((cast) => (
+                sortedCasts.map((cast) => (
                   <tr key={cast.id} className="hover:bg-gray-50">
                     <td className="border-b border-r border-gray-200 px-2 py-2 text-[10px] sm:text-xs font-medium text-gray-900 sticky left-0 z-10 bg-white min-w-[72px] sm:min-w-[100px] border-r shadow-sm">
                       {cast.name}
                     </td>
-                    {dates.map((dateStr) => (
-                      <td
-                        key={dateStr}
-                        className="border-b border-r border-gray-200 px-2 py-2 text-center text-[10px] sm:text-xs text-gray-700"
-                      >
-                        {matrix[cast.id]?.[dateStr] || "—"}
-                      </td>
-                    ))}
+                    {dates.map((dateStr) => {
+                      const cell = matrix[cast.id]?.[dateStr];
+                      const timeDisplay = cell?.time || "—";
+                      const isToday = dateStr === today;
+                      const showReminderBadge =
+                        isToday && cell?.lastRemindedAt;
+                      const hasResponse = cell?.responseStatus != null;
+                      const showUnansweredAlert =
+                        showReminderBadge &&
+                        isOverAlertHours(cell?.lastRemindedAt ?? null) &&
+                        !hasResponse;
+
+                      // ステータスバッジ: 回答済みは🟢出勤/🟡遅刻/🔴欠勤、未返信は⚠️、送信済のみは✅
+                      const statusBadge = hasResponse
+                        ? cell!.responseStatus === "attending"
+                          ? "🟢出勤"
+                          : cell!.responseStatus === "late"
+                            ? "🟡遅刻"
+                            : "🔴欠勤"
+                        : showUnansweredAlert
+                          ? "⚠️未返信"
+                          : showReminderBadge
+                            ? "✅"
+                            : null;
+
+                      return (
+                        <td
+                          key={dateStr}
+                          className="border-b border-r border-gray-200 px-2 py-2 text-center text-[10px] sm:text-xs text-gray-700"
+                        >
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span>{timeDisplay}</span>
+                            {statusBadge && cell && (
+                              <span
+                                title={
+                                  showUnansweredAlert
+                                    ? `送信済（${new Date(cell.lastRemindedAt!).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}）／${ALERT_HOURS}時間以上経過・未返信`
+                                    : hasResponse
+                                      ? `回答済: ${statusBadge}`
+                                      : `送信済（${new Date(cell.lastRemindedAt!).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}）`
+                                }
+                                className={
+                                  showUnansweredAlert
+                                    ? "text-red-600 font-medium text-[9px] sm:text-[10px]"
+                                    : "text-gray-500 text-[9px] sm:text-[10px]"
+                                }
+                              >
+                                {statusBadge}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))
               )}
             </tbody>
           </table>
           </div>
+          {sortedCasts.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-gray-500">
+              <span title="リマインド送信済み">✅ 送信済</span>
+              <span
+                className="text-red-600"
+                title={`送信から${ALERT_HOURS}時間以上経過・未返信`}
+              >
+                ⚠️ 未返信
+              </span>
+              <span title="回答済み">🟢出勤 🟡遅刻 🔴欠勤</span>
+            </div>
+          )}
         </div>
 
-        {casts.length === 0 && (
+        {sortedCasts.length === 0 && (
           <p className="mt-6 text-sm text-amber-700 bg-amber-50 p-4 rounded-lg">
             キャストが登録されていません。先にキャストを追加してください。
           </p>

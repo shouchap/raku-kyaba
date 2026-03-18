@@ -8,6 +8,8 @@ type Cast = {
   name: string;
   store_id: string;
   line_user_id?: string;
+  is_admin?: boolean;
+  created_at?: string;
 };
 
 type Store = {
@@ -22,6 +24,7 @@ export default function AdminCastsPage() {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [editIsAdmin, setEditIsAdmin] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState<"success" | "error" | null>(null);
@@ -32,7 +35,7 @@ export default function AdminCastsPage() {
       const [castsRes, storesRes] = await Promise.all([
         supabase
           .from("casts")
-          .select("id, name, store_id, line_user_id")
+          .select("id, name, store_id, line_user_id, is_admin")
           .eq("is_active", true)
           .order("name"),
         supabase.from("stores").select("id, name").limit(1).single(),
@@ -54,11 +57,13 @@ export default function AdminCastsPage() {
   const handleStartEdit = (cast: Cast) => {
     setEditingId(cast.id);
     setEditName(cast.name.trim());
+    setEditIsAdmin(cast.is_admin ?? false);
   };
 
   const handleCancelEdit = () => {
     setEditingId(null);
     setEditName("");
+    setEditIsAdmin(false);
   };
 
   const handleSaveEdit = async () => {
@@ -73,11 +78,13 @@ export default function AdminCastsPage() {
     try {
       const { error } = await supabase
         .from("casts")
-        .update({ name: newName })
+        .update({ name: newName, is_admin: editIsAdmin })
         .eq("id", editingId);
       if (error) throw error;
       setCasts((prev) =>
-        prev.map((c) => (c.id === editingId ? { ...c, name: newName } : c))
+        prev.map((c) =>
+          c.id === editingId ? { ...c, name: newName, is_admin: editIsAdmin } : c
+        )
       );
       setMessage("success");
     } catch (err) {
@@ -87,6 +94,7 @@ export default function AdminCastsPage() {
       setSaving(false);
       setEditingId(null);
       setEditName("");
+      setEditIsAdmin(false);
     }
   };
 
@@ -144,18 +152,29 @@ export default function AdminCastsPage() {
                 >
                   {editingId === cast.id ? (
                     <>
-                      <input
-                        type="text"
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleSaveEdit();
-                          if (e.key === "Escape") handleCancelEdit();
-                        }}
-                        className="flex-1 min-w-0 min-h-[44px] px-3 py-2 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                        placeholder="名前"
-                        autoFocus
-                      />
+                      <div className="flex-1 min-w-0 flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveEdit();
+                            if (e.key === "Escape") handleCancelEdit();
+                          }}
+                          className="flex-1 min-w-0 min-h-[44px] px-3 py-2 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                          placeholder="名前"
+                          autoFocus
+                        />
+                        <label className="flex items-center gap-2 shrink-0 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={editIsAdmin}
+                            onChange={(e) => setEditIsAdmin(e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-300 text-amber-500 focus:ring-amber-500"
+                          />
+                          <span className="text-sm text-gray-700">管理者権限</span>
+                        </label>
+                      </div>
                       <button
                         type="button"
                         onClick={handleSaveEdit}
@@ -176,6 +195,11 @@ export default function AdminCastsPage() {
                   ) : (
                     <>
                       <span className="flex-1 min-w-0 font-medium text-gray-900 text-sm sm:text-base truncate">{cast.name}</span>
+                      {cast.is_admin && (
+                        <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium">
+                          👑 管理者
+                        </span>
+                      )}
                       <div className="flex gap-2 shrink-0">
                         <button
                           type="button"

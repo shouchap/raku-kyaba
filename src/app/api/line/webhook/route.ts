@@ -4,7 +4,7 @@ import { handle } from "hono/vercel";
 import { verifyLineSignature } from "@/lib/line-signature";
 import {
   sendReply,
-  sendPushMessage,
+  sendMulticastMessage,
   createAttendanceConfirmationFlexMessage,
 } from "@/lib/line-reply";
 import { createSupabaseClient } from "@/lib/supabase";
@@ -205,14 +205,8 @@ async function processWebhookEvent(
             messageEvent.replyToken,
             channelAccessToken
           );
-        } else if (channelAccessToken && messageEvent.replyToken) {
-          await sendReply(
-            messageEvent.replyToken,
-            channelAccessToken,
-            [createAttendanceConfirmationFlexMessage()]
-          );
-          console.log("[Webhook] 出勤確認Flex送信");
         }
+        // それ以外のテキストは無反応（自動返信なし）
       }
       break;
     }
@@ -247,6 +241,8 @@ const DEFAULT_ADMIN_NOTIFY_LATE =
   "【遅刻連絡】\n{name} さんから遅刻の連絡がありました。理由と到着予定時刻を確認してください。";
 const DEFAULT_ADMIN_NOTIFY_ABSENT =
   "【欠勤連絡】\n{name} さんから欠勤の連絡がありました。至急、連絡・シフト調整をお願いします。";
+const DEFAULT_ADMIN_NOTIFY_PRESENT =
+  "【出勤連絡】{name}さんから本日の出勤（予定通り）の連絡がありました。";
 
 type ReminderConfigValue = {
   reply_present?: string;
@@ -254,15 +250,21 @@ type ReminderConfigValue = {
   reply_absent?: string;
   admin_notify_late?: string;
   admin_notify_absent?: string;
+  admin_notify_present?: string;
+  admin_notify_new_cast?: string;
+  welcome_message?: string;
 };
+
+const DEFAULT_ADMIN_NOTIFY_NEW_CAST = "新しく {name} さんが登録されました！";
+const DEFAULT_WELCOME_MESSAGE =
+  "{name}さん、はじめまして。出勤・退勤の連絡はこのLINEから行えます。よろしくお願いいたします。";
 
 /** system_settings から reminder_config を取得し、返信・管理者通知メッセージを返す */
 async function getReminderReplyConfig(
   supabase: ReturnType<typeof createSupabaseClient>
 ): Promise<{
   replyMessages: Record<AttendancePostbackData, string>;
-  adminNotifyLate: string;
-  adminNotifyAbsent: string;
+  adminNotifyTemplates: Record<AttendancePostbackData, string>;
 }> {
   const { data, error } = await supabase
     .from("system_settings")
@@ -279,15 +281,77 @@ async function getReminderReplyConfig(
       late: config.reply_late?.trim() || DEFAULT_REPLY_MESSAGES.late,
       absent: config.reply_absent?.trim() || DEFAULT_REPLY_MESSAGES.absent,
     },
-    adminNotifyLate:
-      config.admin_notify_late?.trim() || DEFAULT_ADMIN_NOTIFY_LATE,
-    adminNotifyAbsent:
-      config.admin_notify_absent?.trim() || DEFAULT_ADMIN_NOTIFY_ABSENT,
+    // DRY: 出勤・遅刻・欠勤の管理者通知テンプレートを一括で保持
+    adminNotifyTemplates: {
+      attending:
+        config.admin_notify_present?.trim() || DEFAULT_ADMIN_NOTIFY_PRESENT,
+      late: config.admin_notify_late?.trim() || DEFAULT_ADMIN_NOTIFY_LATE,
+      absent: config.admin_notify_absent?.trim() || DEFAULT_ADMIN_NOTIFY_ABSENT,
+    },
+  };
+}
+
+/** 友だち追加時のメッセージ（新人通知・ウェルカム）を取得 */
+async function getFollowConfig(
+  supabase: ReturnType<typeof createSupabaseClient>
+): Promise<{
+  adminNotifyNewCast: string;
+  welcomeMessage: string;
+}> {
+  const { data, error } = await supabase
+    .from("system_settings")
+    .select("value")
+    .eq("key", "reminder_config")
+    .maybeSingle();
+
+  const config = (data?.value ?? {}) as ReminderConfigValue;
+
+  return {
+    adminNotifyNewCast:
+      config.admin_notify_new_cast?.trim() || DEFAULT_ADMIN_NOTIFY_NEW_CAST,
+    welcomeMessage:
+      config.welcome_message?.trim() || DEFAULT_WELCOME_MESSAGE,
   };
 }
 
 /**
+ * 管理者の LINE User ID 一覧を取得
+ * casts テーブルの is_admin=true かつ line_user_id が null でない者を優先。
+ * 該当者がいない場合は stores.admin_line_user_id にフォールバック。
+ */
+async function getAdminLineUserIds(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  storeId: string
+): Promise<string[]> {
+  const { data: adminCasts } = await supabase
+    .from("casts")
+    .select("line_user_id")
+    .eq("store_id", storeId)
+    .eq("is_admin", true)
+    .eq("is_active", true)
+    .not("line_user_id", "is", null);
+
+  const fromCasts = (adminCasts ?? [])
+    .map((r: { line_user_id?: string }) => r.line_user_id)
+    .filter((id): id is string => !!id && id.trim() !== "");
+
+  if (fromCasts.length > 0) return fromCasts;
+
+  const { data: store } = await supabase
+    .from("stores")
+    .select("admin_line_user_id")
+    .eq("id", storeId)
+    .single();
+
+  const legacyId = (store as { admin_line_user_id?: string | null })?.admin_line_user_id;
+  if (legacyId && String(legacyId).trim() !== "") return [legacyId];
+
+  return [];
+}
+
+/**
  * 友だち追加・ブロック解除時の処理
+ * DBの welcome_message / admin_notify_new_cast を使用
  */
 async function handleFollowEvent(
   lineUserId: string,
@@ -300,16 +364,20 @@ async function handleFollowEvent(
   const { displayName } = await getLineProfile(lineUserId, channelAccessToken);
   console.log("[Follow] プロフィール取得成功 displayName:", displayName);
 
+  const { adminNotifyNewCast, welcomeMessage } = await getFollowConfig(supabase);
+  const applyName = (template: string) =>
+    template.replace(/\{name\}/g, displayName || "キャスト");
+
   const { data: store, error: storeError } = await supabase
     .from("stores")
-    .select("id")
+    .select("id, admin_line_user_id")
     .limit(1)
     .single();
 
   if (storeError || !store) {
     console.error("[Follow] 店舗取得エラー:", storeError?.message);
     await sendReply(replyToken, channelAccessToken, [
-      { type: "text", text: `${displayName}さん、友だち追加ありがとうございます。` },
+      { type: "text", text: applyName(welcomeMessage) },
     ]);
     return;
   }
@@ -324,7 +392,7 @@ async function handleFollowEvent(
   if (selectError) {
     console.error("[Follow] SELECT エラー:", selectError);
     await sendReply(replyToken, channelAccessToken, [
-      { type: "text", text: `${displayName}さん、友だち追加ありがとうございます。` },
+      { type: "text", text: applyName(welcomeMessage) },
     ]);
     return;
   }
@@ -339,11 +407,25 @@ async function handleFollowEvent(
     if (insertError) {
       console.error("[Follow] INSERT エラー:", insertError);
       await sendReply(replyToken, channelAccessToken, [
-        { type: "text", text: `${displayName}さん、友だち追加ありがとうございます。` },
+        { type: "text", text: applyName(welcomeMessage) },
       ]);
       return;
     }
     console.log("[Follow] 新規キャスト登録完了");
+
+    // 新人登録時: 管理者へ一斉通知（multicast）
+    const adminIds = await getAdminLineUserIds(supabase, store.id);
+    if (adminIds.length > 0 && channelAccessToken) {
+      const adminMsg = applyName(adminNotifyNewCast);
+      try {
+        await sendMulticastMessage(adminIds, channelAccessToken, [
+          { type: "text", text: adminMsg },
+        ]);
+        console.log("[Follow] 管理者へ新人登録通知送信", adminIds.length, "名");
+      } catch (adminErr) {
+        console.error("[Follow] 管理者通知失敗:", adminErr);
+      }
+    }
   } else {
     const { error: updateError } = await supabase
       .from("casts")
@@ -354,8 +436,9 @@ async function handleFollowEvent(
     }
   }
 
-  const welcomeMessage = `${displayName}さん、はじめまして。出勤・退勤の連絡はこのLINEから行えます。よろしくお願いいたします。`;
-  await sendReply(replyToken, channelAccessToken, [{ type: "text", text: welcomeMessage }]);
+  await sendReply(replyToken, channelAccessToken, [
+    { type: "text", text: applyName(welcomeMessage) },
+  ]);
   console.log("[Follow] 処理完了");
 }
 
@@ -422,21 +505,30 @@ async function handleAttendanceResponse(
     const today = getTodayJst();
     const status = statusData;
 
-    // Step 3: DBから返信メッセージを取得
-    const { replyMessages, adminNotifyLate, adminNotifyAbsent } =
+    // Step 3: DBから返信・管理者通知メッセージを取得
+    const { replyMessages, adminNotifyTemplates } =
       await getReminderReplyConfig(supabase);
     const replyText = replyMessages[statusData] ?? "記録を受け付けました。";
 
-    // Step 4: DB更新 & LINE返信を並行実行
-    console.log("[Attendance] Step 4: DB更新 & LINE返信開始");
+    // Step 4: 該当日のスケジュールを取得（attendance_schedules 更新用）
+    const { data: schedule } = await supabase
+      .from("attendance_schedules")
+      .select("id")
+      .eq("store_id", cast.store_id)
+      .eq("cast_id", cast.id)
+      .eq("scheduled_date", today)
+      .maybeSingle();
 
-    const upsertPromise = supabase
+    const scheduleId = (schedule as { id?: string } | null)?.id ?? null;
+
+    // Step 5: DB更新を先に完了（順序担保: 更新完了後に返信・通知）
+    const upsertResult = await supabase
       .from("attendance_logs")
       .upsert(
         {
           store_id: cast.store_id,
           cast_id: cast.id,
-          attendance_schedule_id: null,
+          attendance_schedule_id: scheduleId,
           attended_date: today,
           status,
           responded_at: new Date().toISOString(),
@@ -448,37 +540,47 @@ async function handleAttendanceResponse(
         }
       );
 
-    const replyPromise = safeReply(replyText);
-
-    const [upsertResult] = await Promise.all([upsertPromise, replyPromise]);
-
     if (upsertResult.error) {
-      console.error("[Attendance] upsert エラー:", upsertResult.error);
+      console.error("[Attendance] attendance_logs upsert エラー:", upsertResult.error);
       await safeReply(ERROR_REPLY);
       return;
     }
 
-    console.log("[Attendance] 記録・返信完了");
+    // attendance_schedules の完了フラグ・ステータスを更新（管理画面・warn-unanswered で参照）
+    if (scheduleId) {
+      const { error: scheduleUpdateError } = await supabase
+        .from("attendance_schedules")
+        .update({
+          is_action_completed: true,
+          response_status: status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", scheduleId);
 
-    // 遅刻・欠勤時に管理者へ通知（DBのテンプレートを使用、{name}を置換）
-    if ((statusData === "late" || statusData === "absent") && channelAccessToken) {
-      const { data: store } = await supabase
-        .from("stores")
-        .select("admin_line_user_id")
-        .eq("id", cast.store_id)
-        .single();
+      if (scheduleUpdateError) {
+        console.error("[Attendance] attendance_schedules 更新エラー:", scheduleUpdateError);
+        // ログは記録済みのため、返信は続行
+      }
+    }
 
-      const adminUserId = store?.admin_line_user_id;
-      if (adminUserId) {
-        const template =
-          statusData === "late" ? adminNotifyLate : adminNotifyAbsent;
+    console.log("[Attendance] DB更新完了");
+
+    // Step 6: 返信（Reply API・無料。DB更新完了後に実行）
+    await safeReply(replyText);
+
+    // Step 7: 遅刻・欠勤時のみ管理者へ通知（出勤は管理画面で確認可能のため Push 不要）
+    if (channelAccessToken && (statusData === "late" || statusData === "absent")) {
+      const adminIds = await getAdminLineUserIds(supabase, cast.store_id);
+      if (adminIds.length > 0) {
+        const template = adminNotifyTemplates[statusData];
         const adminMessage = template.replace(/\{name\}/g, cast.name ?? "キャスト");
         try {
-          await sendPushMessage(adminUserId, channelAccessToken, [
+          await sendMulticastMessage(adminIds, channelAccessToken, [
             { type: "text", text: adminMessage },
           ]);
-          console.log("[Attendance] 管理者通知送信");
+          console.log("[Attendance] 管理者通知送信 count=" + adminIds.length);
         } catch (adminErr) {
+          // 管理者通知失敗はメイン処理（記録・返信）に影響させない
           console.error("[Attendance] 管理者通知失敗:", adminErr);
         }
       }
