@@ -18,18 +18,27 @@ export function getCurrentHourJst(): number {
 }
 
 /**
- * 日本時間（JST）の現在の「時」と「分」を返す
- * Cron が15分おきに動くことを想定した判定用
+ * 日本時間（JST）の現在時刻を HH:mm 形式で取得
+ * sv-SE ロケールは ISO 風 "HH:mm" を返すため、UTC 環境でも確実に JST を取得できる
  */
-export function getCurrentTimeJst(): { hour: number; minute: number } {
-  const formatter = new Intl.DateTimeFormat("ja-JP", {
+export function getCurrentTimeJstString(): string {
+  const formatter = new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Asia/Tokyo",
-    hour: "numeric",
-    minute: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
     hour12: false,
   });
-  const parts = formatter.formatToParts(new Date());
-  const hour = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10) || 0;
-  const minute = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10) || 0;
-  return { hour, minute };
+  return formatter.format(new Date());
+}
+
+/**
+ * 日本時間（JST）の現在の「時」と「分」を返す
+ * サーバーのデフォルトタイムゾーン（UTC）の影響を受けない
+ */
+export function getCurrentTimeJst(): { hour: number; minute: number } {
+  const timeStr = getCurrentTimeJstString();
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})/);
+  const hour = match ? parseInt(match[1], 10) : 0;
+  const minute = match ? parseInt(match[2], 10) : 0;
+  return { hour: Math.min(23, Math.max(0, hour)), minute: Math.min(59, Math.max(0, minute)) };
 }

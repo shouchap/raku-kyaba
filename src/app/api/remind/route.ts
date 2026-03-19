@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendPushMessage, sendMulticastMessage } from "@/lib/line-reply";
-import { getTodayJst } from "@/lib/date-utils";
+import { getTodayJst, getCurrentTimeJst, getCurrentTimeJstString } from "@/lib/date-utils";
 
 /** 管理者の line_user_id 一覧を取得（warn-unanswered と同様のロジック） */
 async function getAdminLineUserIds(
@@ -209,11 +209,40 @@ async function handleRemind(request: Request) {
     });
   }
 
-  // 3. Hobbyプラン（1日1回Cron）対応: 時刻枠チェックを削除。呼ばれたら未送信者へ送信。
-  if (isManual) {
-    console.log("[Remind] 手動テスト送信（manual=true）を開始します");
+  const sendTime = config.sendTime ?? "12:00";
+  const [configHourStr, configMinStr] = sendTime.split(":");
+  const configuredHour = parseInt(configHourStr ?? "12", 10);
+  const configuredMin = parseInt(configMinStr ?? "0", 10);
+  const configuredMinutesSinceMidnight = configuredHour * 60 + configuredMin;
+
+  // JST の現在時刻を確実に取得（sv-SE ロケールで UTC 環境の影響を排除）
+  const currentJstString = getCurrentTimeJstString();
+  const { hour: currentHour, minute: currentMin } = getCurrentTimeJst();
+  const currentMinutesSinceMidnight = currentHour * 60 + currentMin;
+
+  // デバッグ用ログ: 比較に使用する両方の時刻を出力
+  console.log(
+    `[Remind] 時刻比較: 現在のJST時刻（HH:mm）= ${currentJstString}、設定された送信時刻（HH:mm）= ${sendTime}`
+  );
+
+  // 3. 設定時刻チェック: manual 以外は「現在時刻 >= 設定時刻」の場合のみ送信
+  if (!isManual) {
+    if (currentMinutesSinceMidnight < configuredMinutesSinceMidnight) {
+      console.log(
+        `[Remind] 設定時間前のためスキップします（設定: ${sendTime}、現在: ${currentJstString} JST）`
+      );
+      return NextResponse.json({
+        ok: true,
+        message: `設定時間前のためスキップします（設定: ${sendTime}、現在: ${currentJstString} JST）`,
+        successCount: 0,
+        failureCount: 0,
+      });
+    }
+    console.log(
+      `[Remind] 設定時刻（${sendTime}）以降のためリマインド処理を開始します`
+    );
   } else {
-    console.log("[Remind] Cron起動によりリマインド処理を開始します");
+    console.log("[Remind] 手動テスト送信（manual=true）を開始します");
   }
 
   const today = getTodayJst();

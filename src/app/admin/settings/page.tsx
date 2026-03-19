@@ -3,15 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 
-/** 1時間刻みの時刻オプション（00:00〜23:00） */
-const HOUR_OPTIONS: string[] = [];
-for (let h = 0; h < 24; h++) {
-  HOUR_OPTIONS.push(`${String(h).padStart(2, "0")}:00`);
-}
+/** リマインド送信時刻は Vercel Cron（毎日 12:00 JST）に固定。DB の sendTime は常に 12:00 を保存 */
+const REMIND_SEND_TIME_FIXED = "12:00";
 
 type ReminderConfig = {
   enabled: boolean;
-  sendTime: string;
   messageTemplate: string;
   reply_present: string;
   reply_late: string;
@@ -24,7 +20,6 @@ type ReminderConfig = {
 
 const DEFAULT_CONFIG: ReminderConfig = {
   enabled: true,
-  sendTime: "12:00",
   messageTemplate:
     "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。",
   reply_present: "出勤を記録しました。本日もよろしくお願い致します。",
@@ -70,10 +65,6 @@ export default function AdminSettingsPage() {
         const v = data.value as Record<string, unknown>;
         setConfig({
           enabled: Boolean(v.enabled ?? DEFAULT_CONFIG.enabled),
-          sendTime:
-            (typeof v.sendTime === "string" ? v.sendTime : null) ??
-            (typeof v.send_time === "string" ? v.send_time : null) ??
-            DEFAULT_CONFIG.sendTime,
           messageTemplate:
             (typeof v.messageTemplate === "string" ? v.messageTemplate : null) ??
             (typeof v.template === "string" ? v.template : null) ??
@@ -126,7 +117,7 @@ export default function AdminSettingsPage() {
     try {
       const value: Record<string, unknown> = {
         enabled: config.enabled,
-        sendTime: config.sendTime,
+        sendTime: REMIND_SEND_TIME_FIXED,
         messageTemplate: config.messageTemplate.trim() || DEFAULT_CONFIG.messageTemplate,
         reply_present: config.reply_present.trim() || DEFAULT_CONFIG.reply_present,
         reply_late: config.reply_late.trim() || DEFAULT_CONFIG.reply_late,
@@ -222,31 +213,15 @@ export default function AdminSettingsPage() {
             </label>
           </div>
 
-          {/* 送信時間 */}
-          <div className="mb-6">
-            <label
-              htmlFor="sendTime"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              送信時間（日本時間）
-            </label>
-            <select
-              id="sendTime"
-              value={config.sendTime}
-              onChange={(e) =>
-                setConfig((c) => ({ ...c, sendTime: e.target.value }))
-              }
-              className="w-full max-w-[120px] min-h-[44px] px-4 py-2 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            >
-              {HOUR_OPTIONS.map((h) => (
-                <option key={h} value={h}>
-                  {h}
-                </option>
-              ))}
-            </select>
+          {/* 送信時刻は Vercel Cron 固定（12:00 JST）のため UI は廃止 */}
+          <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+            <p className="font-medium text-gray-800">リマインド送信時刻</p>
+            <p className="mt-1">
+              毎日 <span className="font-mono">{REMIND_SEND_TIME_FIXED}</span>（日本時間）に自動送信されます。変更はインフラ側（Vercel Cron）の設定が必要です。
+            </p>
           </div>
 
-          {/* リマインドメッセージテンプレート（送信時間のすぐ下） */}
+          {/* リマインドメッセージテンプレート */}
           <div className="mb-8">
             <label
               htmlFor="messageTemplate"
