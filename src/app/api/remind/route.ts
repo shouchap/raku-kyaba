@@ -315,6 +315,16 @@ async function handleRemind(request: Request) {
     return isDohan ? `${base}（同伴）` : base;
   };
 
+  /** 管理者一覧の並び替え用（当日出勤の早い順）。未パースは末尾 */
+  const minutesFromScheduledTime = (
+    time: string | null | undefined
+  ): number => {
+    if (!time) return Number.MAX_SAFE_INTEGER;
+    const m = String(time).match(/^(\d{1,2}):(\d{2})/);
+    if (!m) return Number.MAX_SAFE_INTEGER;
+    return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+  };
+
   // 4. テンプレートの {name} / {time} を置換（置換前に文字列の存在をチェック）
   const applyTemplate = (
     tpl: string,
@@ -414,35 +424,44 @@ async function handleRemind(request: Request) {
     },
   });
 
-  // 各キャストへ Push 送信（並列処理、1件失敗しても他は続行）
-  // 送信成功後に last_reminded_at を更新して二重送信を防止
+  // 各キャストへ Push 送信（2フェーズで壁時計を短縮）
+  // 1) LINE Push のみ Promise.allSettled で全件同時に実行
+  // 2) 送信成功分のみ Promise.all で last_reminded_at を並列更新（二重送信防止）
   const nowIso = new Date().toISOString();
-  const results = await Promise.allSettled(
+  const lineResults = await Promise.allSettled(
     schedules.map(async (schedule) => {
-      try {
-        const rawCasts = schedule.casts as
-          | { name: string; line_user_id: string }
-          | { name: string; line_user_id: string }[]
-          | null;
-        const casts = Array.isArray(rawCasts) ? rawCasts[0] : rawCasts;
-        if (!casts?.line_user_id) {
-          throw new Error(`No line_user_id for schedule ${schedule.id}`);
-        }
-        const name = casts.name ?? "キャスト";
-        const scheduledTime = formatTime(schedule.scheduled_time, schedule.is_dohan);
-        const bodyText = applyTemplate(messageTemplate, name, scheduledTime);
-        const message = createAttendanceFlexMessage(bodyText);
+      const rawCasts = schedule.casts as
+        | { name: string; line_user_id: string }
+        | { name: string; line_user_id: string }[]
+        | null;
+      const casts = Array.isArray(rawCasts) ? rawCasts[0] : rawCasts;
+      if (!casts?.line_user_id) {
+        throw new Error(`No line_user_id for schedule ${schedule.id}`);
+      }
+      const name = casts.name ?? "キャスト";
+      const scheduledTime = formatTime(schedule.scheduled_time, schedule.is_dohan);
+      const bodyText = applyTemplate(messageTemplate, name, scheduledTime);
+      const message = createAttendanceFlexMessage(bodyText);
 
-        console.log(
-          "[Remind] 送信先:",
-          name,
-          "| 組み立てメッセージ:",
-          bodyText
-        );
+      console.log(
+        "[Remind] 送信先:",
+        name,
+        "| 組み立てメッセージ:",
+        bodyText
+      );
 
-        await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);
+      await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);
+      return schedule;
+    })
+  );
 
-        // 送信成功: last_reminded_at を更新（二重送信防止）
+  const lineSucceeded = lineResults
+    .map((r) => (r.status === "fulfilled" ? r.value : null))
+    .filter((s): s is (typeof schedules)[number] => s != null);
+
+  if (lineSucceeded.length > 0) {
+    await Promise.all(
+      lineSucceeded.map(async (schedule) => {
         const { error: updateError } = await supabase
           .from("attendance_schedules")
           .update({ last_reminded_at: nowIso })
@@ -453,8 +472,18 @@ async function handleRemind(request: Request) {
             updateError
           );
         }
-      } catch (err) {
-        console.error("[Remind] Full Error details:", err);
+      })
+    );
+  }
+
+  const successCount = lineSucceeded.length;
+  const failureCount = lineResults.filter((r) => r.status === "rejected").length;
+
+  if (failureCount > 0) {
+    lineResults.forEach((r, i) => {
+      if (r.status === "rejected") {
+        console.error("[Remind] Full Error details:", r.reason);
+        const schedule = schedules[i];
         const raw = schedule.casts as
           | { name?: string; line_user_id?: string }
           | { name?: string; line_user_id?: string }[]
@@ -463,21 +492,8 @@ async function handleRemind(request: Request) {
         const lineUserId = cast?.line_user_id ?? "unknown";
         logError(
           `LINE Push 送信失敗 scheduleId=${schedule.id} lineUserId=${lineUserId}`,
-          err
+          r.reason
         );
-        throw err;
-      }
-    })
-  );
-
-  const successCount = results.filter((r) => r.status === "fulfilled").length;
-  const failureCount = results.filter((r) => r.status === "rejected").length;
-
-  if (failureCount > 0) {
-    results.forEach((r, i) => {
-      if (r.status === "rejected") {
-        console.error("[Remind] Full Error details:", r.reason);
-        logError(`送信失敗 [index=${i}]`, r.reason);
       }
     });
   }
@@ -485,17 +501,22 @@ async function handleRemind(request: Request) {
   console.log(`[Remind] 送信完了 success=${successCount} failure=${failureCount}`);
 
   // 送信成功したキャストの名前・時刻・同伴を抽出し、管理者へ1通の完了報告を送信
-  const sentItems = results
-    .map((r, i) => (r.status === "fulfilled" ? schedules[i] : null))
-    .filter((s): s is (typeof schedules)[number] => s != null)
+  // 出勤時刻の早い順（分単位で昇順）、表示から「〜」は付けない
+  const sentItems = lineSucceeded
     .map((s) => {
       const raw = s.casts as { name?: string } | { name?: string }[] | null;
       const c = Array.isArray(raw) ? raw[0] : raw;
       const name = c?.name ?? "キャスト";
       const baseTime = formatTime(s.scheduled_time, false);
-      const timeDisplay = `${baseTime}〜${s.is_dohan ? " 同伴" : ""}`.trim();
-      return { name, timeDisplay };
-    });
+      const timeDisplay = `${baseTime}${s.is_dohan ? " 同伴" : ""}`.trim();
+      return {
+        name,
+        timeDisplay,
+        sortMinutes: minutesFromScheduledTime(s.scheduled_time),
+      };
+    })
+    .sort((a, b) => a.sortMinutes - b.sortMinutes)
+    .map(({ name, timeDisplay }) => ({ name, timeDisplay }));
 
   if (sentItems.length > 0 && channelAccessToken) {
     const storeId = schedules[0]?.store_id;
