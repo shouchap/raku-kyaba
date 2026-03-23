@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendPushMessage, sendMulticastMessage } from "@/lib/line-reply";
-import { getTodayJst, getCurrentTimeJst, getCurrentTimeJstString } from "@/lib/date-utils";
+import { getTodayJst } from "@/lib/date-utils";
 
 /** 管理者の line_user_id 一覧を取得（warn-unanswered と同様のロジック） */
 async function getAdminLineUserIds(
@@ -104,10 +104,9 @@ function logError(context: string, err: unknown): void {
  * 本日出勤予定のキャストへリマインド（Flex Message）を送信するAPI
  *
  * GET /api/remind で呼び出し。
- * system_settings の reminder_config に従い、有効時かつ送信時刻一致時のみ送信。
+ * system_settings の reminder_config で enabled が true のとき、
+ * 認証（CRON_SECRET）通過後は本日未送信分を送信する（実行時刻はスケジューラ側で制御）。
  * メッセージは白背景カード型の Flex Message（Club GOLD 出勤確認）。
- *
- * GET /api/remind?manual=true でテスト送信（時刻チェックをスキップして即送信）
  */
 export async function GET(request: Request) {
   try {
@@ -126,10 +125,7 @@ export async function GET(request: Request) {
 }
 
 async function handleRemind(request: Request) {
-  const url = new URL(request.url);
-  const isManual = url.searchParams.get("manual") === "true";
-
-  // GitHub Actions からのアクセス許可: Authorization Bearer が CRON_SECRET と一致すれば処理継続
+  // Authorization Bearer が CRON_SECRET と一致すれば処理継続
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret && cronSecret.trim() !== "") {
     const authHeader = request.headers.get("authorization");
@@ -209,41 +205,7 @@ async function handleRemind(request: Request) {
     });
   }
 
-  const sendTime = config.sendTime ?? "12:00";
-  const [configHourStr, configMinStr] = sendTime.split(":");
-  const configuredHour = parseInt(configHourStr ?? "12", 10);
-  const configuredMin = parseInt(configMinStr ?? "0", 10);
-  const configuredMinutesSinceMidnight = configuredHour * 60 + configuredMin;
-
-  // JST の現在時刻を確実に取得（sv-SE ロケールで UTC 環境の影響を排除）
-  const currentJstString = getCurrentTimeJstString();
-  const { hour: currentHour, minute: currentMin } = getCurrentTimeJst();
-  const currentMinutesSinceMidnight = currentHour * 60 + currentMin;
-
-  // デバッグ用ログ: 比較に使用する両方の時刻を出力
-  console.log(
-    `[Remind] 時刻比較: 現在のJST時刻（HH:mm）= ${currentJstString}、設定された送信時刻（HH:mm）= ${sendTime}`
-  );
-
-  // 3. 設定時刻チェック: manual 以外は「現在時刻 >= 設定時刻」の場合のみ送信
-  if (!isManual) {
-    if (currentMinutesSinceMidnight < configuredMinutesSinceMidnight) {
-      console.log(
-        `[Remind] 設定時間前のためスキップします（設定: ${sendTime}、現在: ${currentJstString} JST）`
-      );
-      return NextResponse.json({
-        ok: true,
-        message: `設定時間前のためスキップします（設定: ${sendTime}、現在: ${currentJstString} JST）`,
-        successCount: 0,
-        failureCount: 0,
-      });
-    }
-    console.log(
-      `[Remind] 設定時刻（${sendTime}）以降のためリマインド処理を開始します`
-    );
-  } else {
-    console.log("[Remind] 手動テスト送信（manual=true）を開始します");
-  }
+  console.log("[Remind] リマインド処理を開始します（内部の送信時刻チェックは行いません）");
 
   // DB の scheduled_date は「日本のカレンダー上の今日」と一致させる（UTC の日付は使わない）
   const today = getTodayJst();
