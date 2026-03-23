@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: "/admin/view", label: "シフト一覧" },
   { href: "/admin/schedule", label: "単日登録" },
   { href: "/admin/casts", label: "キャスト管理" },
+  { href: "/admin/report", label: "月間レポート" },
   { href: "/admin/settings", label: "システム設定" },
 ] as const;
 

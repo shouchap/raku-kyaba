@@ -245,7 +245,12 @@ async function handleRemind(request: Request) {
     console.log("[Remind] 手動テスト送信（manual=true）を開始します");
   }
 
+  // DB の scheduled_date は「日本のカレンダー上の今日」と一致させる（UTC の日付は使わない）
   const today = getTodayJst();
+  console.log(
+    `[Remind] 対象日（JST）scheduled_date=${today}（UTC時刻=${new Date().toISOString()}）`
+  );
+
   // config.messageTemplate が undefined でも絶対にクラッシュしないガード
   const rawTemplate =
     (config.messageTemplate && String(config.messageTemplate).trim()) ||

@@ -553,6 +553,8 @@ async function handleAttendanceResponse(
         .update({
           is_action_completed: true,
           response_status: status,
+          is_absent: status === "absent",
+          is_late: status === "late",
           updated_at: new Date().toISOString(),
         })
         .eq("id", scheduleId);

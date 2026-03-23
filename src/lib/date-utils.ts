@@ -1,8 +1,29 @@
 /**
- * 日本時間（JST）の「今日」を YYYY-MM-DD で返す
+ * 日本時間（Asia/Tokyo）における「今日」を YYYY-MM-DD で返す。
+ *
+ * Vercel 等の UTC 環境では `new Date()` のローカル日付や
+ * `toISOString().split("T")[0]`（UTC 日付）を使うと1日ずれるため、
+ * Intl の timeZone 指定で組み立てる（ロケール文字列の parse は行わない）。
  */
 export function getTodayJst(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+
+  const year = parts.find((p) => p.type === "year")?.value;
+  const month = parts.find((p) => p.type === "month")?.value;
+  const day = parts.find((p) => p.type === "day")?.value;
+
+  if (year && month && day) {
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  // 極端なフォールバック（通常は到達しない）
+  return now.toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
 }
 
 /**
