@@ -27,6 +27,12 @@ export default function AdminSchedulePage() {
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("20:00");
   const [isDohan, setIsDohan] = useState(false);
+  /** 登録と同時に Cron と同一の出勤確認 Flex を Push 送信 */
+  const [sendImmediateLine, setSendImmediateLine] = useState(false);
+  const [lineFeedback, setLineFeedback] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
 
   useEffect(() => {
     async function fetchData() {
@@ -53,6 +59,7 @@ export default function AdminSchedulePage() {
     setScheduledDate("");
     setScheduledTime("20:00");
     setIsDohan(false);
+    setSendImmediateLine(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -61,19 +68,47 @@ export default function AdminSchedulePage() {
 
     setSubmitting(true);
     setMessage(null);
+    setLineFeedback(null);
 
     try {
-      const { error } = await supabase.from("attendance_schedules").insert({
-        store_id: store.id,
-        cast_id: castId,
-        scheduled_date: scheduledDate,
-        scheduled_time: scheduledTime,
-        is_dohan: isDohan,
+      const res = await fetch("/api/admin/schedule-register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId: store.id,
+          castId,
+          scheduledDate,
+          scheduledTime,
+          isDohan,
+          sendImmediateLine,
+        }),
       });
 
-      if (error) throw error;
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        lineSent?: boolean;
+        lineWarning?: string;
+      };
+
+      if (!res.ok) {
+        throw new Error(json.error ?? "登録に失敗しました");
+      }
 
       setMessage("success");
+
+      if (json.lineWarning) {
+        setLineFeedback({
+          ok: false,
+          text: json.lineWarning,
+        });
+      } else if (sendImmediateLine && json.lineSent) {
+        setLineFeedback({
+          ok: true,
+          text: "出勤確認LINEを送信しました。",
+        });
+      }
+
       resetForm();
     } catch (err) {
       console.error(err);
@@ -189,11 +224,33 @@ export default function AdminSchedulePage() {
               登録しました
             </p>
           )}
+          {lineFeedback && (
+            <p
+              className={`text-sm ${lineFeedback.ok ? "text-green-700" : "text-amber-800"}`}
+            >
+              {lineFeedback.text}
+            </p>
+          )}
           {message === "error" && (
             <p className="text-red-600 text-sm">
               登録に失敗しました。入力内容を確認してください。
             </p>
           )}
+
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={sendImmediateLine}
+              onChange={(e) => setSendImmediateLine(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700 leading-snug">
+              登録と同時に出勤確認LINEを送信する
+              <span className="block text-xs text-gray-500 mt-0.5">
+                Cron（/api/remind）と同じ Flex（出勤・遅刻・欠勤ボタン）を即時 Push します
+              </span>
+            </span>
+          </label>
 
           <button
             type="submit"

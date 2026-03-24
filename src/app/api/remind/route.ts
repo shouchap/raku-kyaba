@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendPushMessage, sendMulticastMessage } from "@/lib/line-reply";
+import {
+  applyReminderMessageTemplate,
+  buildAttendanceRemindFlexMessage,
+  formatRemindScheduledTime,
+} from "@/lib/attendance-remind-flex";
 import { getTodayJst } from "@/lib/date-utils";
 
 /** 管理者の line_user_id 一覧を取得（warn-unanswered と同様のロジック） */
@@ -271,17 +276,6 @@ async function handleRemind(request: Request) {
     });
   }
 
-  // "20:00:00" -> "20:00" 形式に整形。is_dohan が true の場合は「（同伴）」を追記
-  const formatTime = (
-    time: string | null | undefined,
-    isDohan?: boolean | null
-  ): string => {
-    if (!time) return "営業時間";
-    const match = String(time).match(/^(\d{1,2}):(\d{2})/);
-    const base = match ? `${match[1]}:${match[2]}` : "営業時間";
-    return isDohan ? `${base}（同伴）` : base;
-  };
-
   /** 管理者一覧の並び替え用（当日出勤の早い順）。未パースは末尾 */
   const minutesFromScheduledTime = (
     time: string | null | undefined
@@ -292,106 +286,7 @@ async function handleRemind(request: Request) {
     return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
   };
 
-  // 4. テンプレートの {name} / {time} を置換（置換前に文字列の存在をチェック）
-  const applyTemplate = (
-    tpl: string,
-    name: string,
-    time: string
-  ): string => {
-    const safeTpl =
-      tpl && typeof tpl === "string" ? tpl : "【Club GOLD】本日は {time} 出勤予定です。";
-    return safeTpl
-      .replace(/\{name\}/g, name ?? "キャスト")
-      .replace(/\{time\}/g, time ?? "営業時間");
-  };
-
-  /**
-   * 出勤確認用 Flex Message を生成
-   * 白背景のカード型、ヘッダーにゴールド、本文はDBテンプレート、ボタンは縦並び
-   */
-  const createAttendanceFlexMessage = (bodyText: string) => ({
-    type: "flex" as const,
-    altText: `${bodyText.slice(0, 60)}${bodyText.length > 60 ? "…" : ""}\n下のボタンから選択してください。`,
-    contents: {
-      type: "bubble",
-      header: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-          {
-            type: "separator",
-            color: "#D4AF37",
-          },
-          {
-            type: "text",
-            text: "Club GOLD 出勤確認",
-            color: "#D4AF37",
-            size: "sm",
-            weight: "bold",
-            margin: "sm",
-          },
-        ],
-      },
-      body: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-          {
-            type: "text",
-            text: bodyText,
-            wrap: true,
-            size: "md",
-            color: "#333333",
-          },
-        ],
-      },
-      footer: {
-        type: "box",
-        layout: "vertical",
-        spacing: "sm",
-        contents: [
-          {
-            type: "button",
-            style: "primary",
-            color: "#2196F3",
-            height: "sm",
-            action: {
-              type: "postback",
-              label: "出勤",
-              data: "attending",
-              displayText: "出勤",
-            },
-          },
-          {
-            type: "button",
-            style: "primary",
-            color: "#FFC107",
-            height: "sm",
-            action: {
-              type: "postback",
-              label: "遅刻",
-              data: "late",
-              displayText: "遅刻",
-            },
-          },
-          {
-            type: "button",
-            style: "primary",
-            color: "#FF5252",
-            height: "sm",
-            action: {
-              type: "postback",
-              label: "欠勤",
-              data: "absent",
-              displayText: "欠勤",
-            },
-          },
-        ],
-      },
-    },
-  });
-
-  // 各キャストへ Push 送信（2フェーズで壁時計を短縮）
+  // 4. 各キャストへ Push 送信（2フェーズで壁時計を短縮）
   // 1) LINE Push のみ Promise.allSettled で全件同時に実行
   // 2) 送信成功分のみ Promise.all で last_reminded_at を並列更新（二重送信防止）
   const nowIso = new Date().toISOString();
@@ -406,9 +301,16 @@ async function handleRemind(request: Request) {
         throw new Error(`No line_user_id for schedule ${schedule.id}`);
       }
       const name = casts.name ?? "キャスト";
-      const scheduledTime = formatTime(schedule.scheduled_time, schedule.is_dohan);
-      const bodyText = applyTemplate(messageTemplate, name, scheduledTime);
-      const message = createAttendanceFlexMessage(bodyText);
+      const scheduledTime = formatRemindScheduledTime(
+        schedule.scheduled_time,
+        schedule.is_dohan
+      );
+      const bodyText = applyReminderMessageTemplate(
+        messageTemplate,
+        name,
+        scheduledTime
+      );
+      const message = buildAttendanceRemindFlexMessage(bodyText);
 
       console.log(
         "[Remind] 送信先:",
@@ -474,7 +376,7 @@ async function handleRemind(request: Request) {
       const raw = s.casts as { name?: string } | { name?: string }[] | null;
       const c = Array.isArray(raw) ? raw[0] : raw;
       const name = c?.name ?? "キャスト";
-      const baseTime = formatTime(s.scheduled_time, false);
+      const baseTime = formatRemindScheduledTime(s.scheduled_time, false);
       const timeDisplay = `${baseTime}${s.is_dohan ? " 同伴" : ""}`.trim();
       return {
         name,

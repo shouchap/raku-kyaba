@@ -2,11 +2,7 @@ import { NextResponse } from "next/server";
 import { Hono } from "hono";
 import { handle } from "hono/vercel";
 import { verifyLineSignature } from "@/lib/line-signature";
-import {
-  sendReply,
-  sendMulticastMessage,
-  createAttendanceConfirmationFlexMessage,
-} from "@/lib/line-reply";
+import { sendReply, sendMulticastMessage } from "@/lib/line-reply";
 import { createSupabaseClient } from "@/lib/supabase";
 import { getTodayJst } from "@/lib/date-utils";
 import type {
