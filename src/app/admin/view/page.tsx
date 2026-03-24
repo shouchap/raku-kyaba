@@ -94,7 +94,10 @@ function parseTimeToMinutes(timeStr: string | null | undefined): number | null {
 }
 
 export default function AdminViewPage() {
-  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
+  const supabase = useMemo(
+    () => createBrowserSupabaseClient({ fetchNoStore: true }),
+    []
+  );
   const [casts, setCasts] = useState<Cast[]>([]);
   const [store, setStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);

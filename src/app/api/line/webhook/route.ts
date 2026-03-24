@@ -20,6 +20,9 @@ const app = new Hono();
 
 const ERROR_REPLY = "申し訳ございません。エラーが発生しました。しばらく経ってから再度お試しください。";
 const CAST_NOT_FOUND_REPLY = "キャストが登録されていません。管理者にご連絡ください。";
+/** 本日分の attendance_schedules が無い場合（管理画面に反映できないため成功返信しない） */
+const NO_SCHEDULE_FOR_TODAY_REPLY =
+  "本日の出勤予定がシステムに登録されていません。管理者にご連絡ください。";
 
 /** テキスト「出勤」「欠勤」「遅刻」を AttendancePostbackData に変換（両方の入力形式に対応） */
 function textToAttendanceData(text: string): AttendancePostbackData | null {
@@ -459,8 +462,10 @@ async function getLineProfile(
 
 /**
  * 出勤回答の記録・返信
- * - キャスト未登録時はユーザーにメッセージを返す（反応なしを防止）
- * - エラー時は try-catch で捕捉し返信
+ * - 管理画面のシフト表は attendance_schedules.response_status を参照するため、
+ *   本日のスケジュール行が無い場合は「成功」返信をしない。
+ * - attendance_logs の upsert と attendance_schedules の更新がともに成功した場合のみ
+ *   設定メッセージ（出勤予定確認等）を返信する。
  */
 async function handleAttendanceResponse(
   lineUserId: string,
@@ -480,8 +485,6 @@ async function handleAttendanceResponse(
   try {
     console.log("[Attendance] 処理開始 lineUserId:", lineUserId, "status:", statusData);
 
-    // Step 2: キャスト検索開始
-    console.log("[Attendance] Step 2: キャスト検索開始");
     const { data: cast, error: castError } = await supabase
       .from("casts")
       .select("id, store_id, name")
@@ -504,14 +507,10 @@ async function handleAttendanceResponse(
 
     const today = getTodayJst();
     const status = statusData;
+    console.log("[Attendance] JST 対象日 scheduled_date=", today);
 
-    // Step 3: DBから返信・管理者通知メッセージを取得
-    const { replyMessages, adminNotifyTemplates } =
-      await getReminderReplyConfig(supabase);
-    const replyText = replyMessages[statusData] ?? "記録を受け付けました。";
-
-    // Step 4: 該当日のスケジュールを取得（attendance_schedules 更新用）
-    const { data: schedule } = await supabase
+    // 本日のスケジュール行（管理画面のセルと同一キー）。無ければ response_status を更新できない
+    const { data: schedule, error: scheduleFetchError } = await supabase
       .from("attendance_schedules")
       .select("id")
       .eq("store_id", cast.store_id)
@@ -519,9 +518,28 @@ async function handleAttendanceResponse(
       .eq("scheduled_date", today)
       .maybeSingle();
 
-    const scheduleId = (schedule as { id?: string } | null)?.id ?? null;
+    if (scheduleFetchError) {
+      console.error("[Attendance] スケジュール取得エラー:", scheduleFetchError);
+      await safeReply(ERROR_REPLY);
+      return;
+    }
 
-    // Step 5: DB更新を先に完了（順序担保: 更新完了後に返信・通知）
+    const scheduleId = schedule?.id ?? null;
+    if (!scheduleId) {
+      console.warn(
+        "[Attendance] 本日の attendance_schedules なし（反映不可）:",
+        today,
+        "cast_id=",
+        cast.id
+      );
+      await safeReply(NO_SCHEDULE_FOR_TODAY_REPLY);
+      return;
+    }
+
+    const { replyMessages, adminNotifyTemplates } =
+      await getReminderReplyConfig(supabase);
+    const replyText = replyMessages[statusData] ?? "記録を受け付けました。";
+
     const upsertResult = await supabase
       .from("attendance_logs")
       .upsert(
@@ -546,31 +564,38 @@ async function handleAttendanceResponse(
       return;
     }
 
-    // attendance_schedules の完了フラグ・ステータスを更新（管理画面・warn-unanswered で参照）
-    if (scheduleId) {
-      const { error: scheduleUpdateError } = await supabase
-        .from("attendance_schedules")
-        .update({
-          is_action_completed: true,
-          response_status: status,
-          is_absent: status === "absent",
-          is_late: status === "late",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", scheduleId);
+    const { data: updatedRows, error: scheduleUpdateError } = await supabase
+      .from("attendance_schedules")
+      .update({
+        is_action_completed: true,
+        response_status: status,
+        is_absent: status === "absent",
+        is_late: status === "late",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", scheduleId)
+      .select("id");
 
-      if (scheduleUpdateError) {
-        console.error("[Attendance] attendance_schedules 更新エラー:", scheduleUpdateError);
-        // ログは記録済みのため、返信は続行
-      }
+    if (scheduleUpdateError) {
+      console.error("[Attendance] attendance_schedules 更新エラー:", scheduleUpdateError);
+      await safeReply(ERROR_REPLY);
+      return;
     }
 
-    console.log("[Attendance] DB更新完了");
+    if (!updatedRows?.length) {
+      console.error(
+        "[Attendance] attendance_schedules 更新0件 id=",
+        scheduleId,
+        "（空振りのため成功返信しない）"
+      );
+      await safeReply(ERROR_REPLY);
+      return;
+    }
 
-    // Step 6: 返信（Reply API・無料。DB更新完了後に実行）
+    console.log("[Attendance] DB更新完了 scheduleId=", scheduleId);
+
     await safeReply(replyText);
 
-    // Step 7: 遅刻・欠勤時のみ管理者へ通知（出勤は管理画面で確認可能のため Push 不要）
     if (channelAccessToken && (statusData === "late" || statusData === "absent")) {
       const adminIds = await getAdminLineUserIds(supabase, cast.store_id);
       if (adminIds.length > 0) {
@@ -582,7 +607,6 @@ async function handleAttendanceResponse(
           ]);
           console.log("[Attendance] 管理者通知送信 count=" + adminIds.length);
         } catch (adminErr) {
-          // 管理者通知失敗はメイン処理（記録・返信）に影響させない
           console.error("[Attendance] 管理者通知失敗:", adminErr);
         }
       }
@@ -590,7 +614,6 @@ async function handleAttendanceResponse(
   } catch (err) {
     console.error("[Attendance] 処理エラー:", err);
     await safeReply(ERROR_REPLY);
-    throw err;
   }
 }
 
