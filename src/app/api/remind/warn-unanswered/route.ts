@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendMulticastMessage } from "@/lib/line-reply";
 import { getTodayJst } from "@/lib/date-utils";
+import { getCurrentStoreId } from "@/lib/current-store";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,8 @@ type OverdueSchedule = {
  */
 async function fetchOverdueUnansweredSchedules(
   supabase: SupabaseClient,
-  today: string
+  today: string,
+  storeId: string
 ): Promise<OverdueSchedule[]> {
   const cutoff = new Date(Date.now() - ALERT_HOURS * 60 * 60 * 1000).toISOString();
 
@@ -48,6 +50,7 @@ async function fetchOverdueUnansweredSchedules(
   const { data: schedules, error: schedError } = await supabase
     .from("attendance_schedules")
     .select("id, cast_id, store_id, scheduled_date, last_reminded_at, admin_warned_at, is_action_completed, casts(name)")
+    .eq("store_id", storeId)
     .eq("scheduled_date", today)
     .not("last_reminded_at", "is", null)
     .lt("last_reminded_at", cutoff)
@@ -66,6 +69,7 @@ async function fetchOverdueUnansweredSchedules(
   const { data: logs } = await supabase
     .from("attendance_logs")
     .select("cast_id, attended_date")
+    .eq("store_id", storeId)
     .in("cast_id", castIds)
     .eq("attended_date", today);
 
@@ -201,8 +205,25 @@ export async function GET() {
   const supabase = createClient(supabaseUrl, supabaseKey);
   const today = getTodayJst();
 
+  let tenantStoreId: string;
   try {
-    const overdue = await fetchOverdueUnansweredSchedules(supabase, today);
+    tenantStoreId = getCurrentStoreId();
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: "Tenant not configured",
+        details: e instanceof Error ? e.message : String(e),
+      },
+      { status: 500 }
+    );
+  }
+
+  try {
+    const overdue = await fetchOverdueUnansweredSchedules(
+      supabase,
+      today,
+      tenantStoreId
+    );
 
     if (overdue.length === 0) {
       console.log("[WarnUnanswered] 該当者なし");

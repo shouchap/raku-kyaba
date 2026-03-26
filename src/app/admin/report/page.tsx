@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
+import { getCurrentStoreIdOrNull } from "@/lib/current-store";
 import { getTodayJst } from "@/lib/date-utils";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
@@ -222,14 +223,24 @@ function AdminReportContent() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const tenantId = getCurrentStoreIdOrNull();
+    if (!tenantId) {
+      setError("NEXT_PUBLIC_DEFAULT_STORE_ID が未設定です");
+      setCasts([]);
+      setStore(null);
+      setSchedules([]);
+      setLoading(false);
+      return;
+    }
     try {
       const [castsRes, storesRes] = await Promise.all([
         supabase
           .from("casts")
           .select("id, name, store_id")
+          .eq("store_id", tenantId)
           .eq("is_active", true)
           .order("name"),
-        supabase.from("stores").select("id, name").limit(1).single(),
+        supabase.from("stores").select("id, name").eq("id", tenantId).single(),
       ]);
 
       if (castsRes.error) throw castsRes.error;

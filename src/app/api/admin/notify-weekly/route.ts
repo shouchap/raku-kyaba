@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendPushMessage } from "@/lib/line-reply";
+import { getCurrentStoreId } from "@/lib/current-store";
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -70,6 +71,19 @@ export async function POST(request: Request) {
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
+  let storeId: string;
+  try {
+    storeId = getCurrentStoreId();
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: "Tenant not configured",
+        details: e instanceof Error ? e.message : String(e),
+      },
+      { status: 500 }
+    );
+  }
+
   // 7日間の日付配列
   const dates: string[] = [];
   const base = new Date(startDate + "T12:00:00");
@@ -79,25 +93,11 @@ export async function POST(request: Request) {
     dates.push(d.toISOString().slice(0, 10));
   }
 
-  // 店舗ID（最初の1件）
-  const { data: store, error: storeError } = await supabase
-    .from("stores")
-    .select("id")
-    .limit(1)
-    .single();
-
-  if (storeError || !store) {
-    return NextResponse.json(
-      { error: "Store not found" },
-      { status: 500 }
-    );
-  }
-
   // 全キャスト（LINE連携あり）を取得（休みの人にも通知するため）
   const { data: allCasts, error: castsError } = await supabase
     .from("casts")
     .select("id, name, line_user_id")
-    .eq("store_id", store.id)
+    .eq("store_id", storeId)
     .eq("is_active", true)
     .not("line_user_id", "is", null);
 
@@ -122,7 +122,7 @@ export async function POST(request: Request) {
   const { data: schedules, error: scheduleError } = await supabase
     .from("attendance_schedules")
     .select("cast_id, scheduled_date, scheduled_time, is_dohan, casts(name, line_user_id)")
-    .eq("store_id", store.id)
+    .eq("store_id", storeId)
     .in("scheduled_date", dates);
 
   if (scheduleError) {

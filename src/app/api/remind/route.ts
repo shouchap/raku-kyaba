@@ -7,6 +7,7 @@ import {
   formatRemindScheduledTime,
 } from "@/lib/attendance-remind-flex";
 import { getTodayJst } from "@/lib/date-utils";
+import { getCurrentStoreId } from "@/lib/current-store";
 
 /** 管理者の line_user_id 一覧を取得（warn-unanswered と同様のロジック） */
 async function getAdminLineUserIds(
@@ -164,10 +165,24 @@ async function handleRemind(request: Request) {
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // 1. system_settings から reminder_config を取得
+  let storeId: string;
+  try {
+    storeId = getCurrentStoreId();
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: "Tenant not configured",
+        details: e instanceof Error ? e.message : String(e),
+      },
+      { status: 500 }
+    );
+  }
+
+  // 1. system_settings から reminder_config を取得（テナント単位）
   const { data: settingsRow, error: settingsError } = await supabase
     .from("system_settings")
     .select("value")
+    .eq("store_id", storeId)
     .eq("key", "reminder_config")
     .maybeSingle();
 
@@ -233,6 +248,7 @@ async function handleRemind(request: Request) {
   const { data: rawSchedules, error } = await supabase
     .from("attendance_schedules")
     .select("id, cast_id, store_id, scheduled_date, scheduled_time, is_dohan, last_reminded_at, casts(name, line_user_id)")
+    .eq("store_id", storeId)
     .eq("scheduled_date", today)
     .not("scheduled_time", "is", null);
 

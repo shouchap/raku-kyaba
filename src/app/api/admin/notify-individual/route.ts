@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendPushMessage } from "@/lib/line-reply";
+import { getCurrentStoreId } from "@/lib/current-store";
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -77,6 +78,19 @@ export async function POST(request: Request) {
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
+  let expectedStoreId: string;
+  try {
+    expectedStoreId = getCurrentStoreId();
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: "Tenant not configured",
+        details: e instanceof Error ? e.message : String(e),
+      },
+      { status: 500 }
+    );
+  }
+
   // 7日間の日付配列
   const dates: string[] = [];
   const base = new Date(startDate + "T12:00:00");
@@ -99,6 +113,10 @@ export async function POST(request: Request) {
       { error: "Cast not found or inactive" },
       { status: 404 }
     );
+  }
+
+  if (cast.store_id !== expectedStoreId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const lineUserId = cast.line_user_id;

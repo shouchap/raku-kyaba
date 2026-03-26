@@ -8,6 +8,7 @@ import {
   formatRemindScheduledTime,
 } from "@/lib/attendance-remind-flex";
 import { fetchReminderMessageTemplate } from "@/lib/reminder-config";
+import { assertStoreIdMatchesRequest } from "@/lib/current-store";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,12 @@ export async function POST(request: Request) {
     );
   }
 
+  try {
+    assertStoreIdMatchesRequest(storeId);
+  } catch {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { data: insertRow, error: insertError } = await supabase
     .from("attendance_schedules")
     .insert({
@@ -166,7 +173,7 @@ export async function POST(request: Request) {
 
   let messageTemplate: string;
   try {
-    messageTemplate = await fetchReminderMessageTemplate(supabase);
+    messageTemplate = await fetchReminderMessageTemplate(supabase, storeId);
   } catch (e) {
     console.error("[schedule-register] template fetch:", e);
     messageTemplate =

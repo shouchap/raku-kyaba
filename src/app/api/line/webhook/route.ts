@@ -5,6 +5,7 @@ import { verifyLineSignature } from "@/lib/line-signature";
 import { sendReply, sendMulticastMessage } from "@/lib/line-reply";
 import { createSupabaseClient } from "@/lib/supabase";
 import { getTodayJst } from "@/lib/date-utils";
+import { getCurrentStoreIdOrNull } from "@/lib/current-store";
 import type {
   LineWebhookBody,
   LineMessageEvent,
@@ -280,7 +281,8 @@ const DEFAULT_WELCOME_MESSAGE =
 
 /** system_settings から reminder_config を取得し、返信・管理者通知メッセージを返す */
 async function getReminderReplyConfig(
-  supabase: ReturnType<typeof createSupabaseClient>
+  supabase: ReturnType<typeof createSupabaseClient>,
+  storeId: string
 ): Promise<{
   replyMessages: Record<AttendancePostbackData, string>;
   adminNotifyTemplates: Record<AttendancePostbackData, string>;
@@ -288,6 +290,7 @@ async function getReminderReplyConfig(
   const { data, error } = await supabase
     .from("system_settings")
     .select("value")
+    .eq("store_id", storeId)
     .eq("key", "reminder_config")
     .maybeSingle();
 
@@ -312,7 +315,8 @@ async function getReminderReplyConfig(
 
 /** 友だち追加時のメッセージ（新人通知・ウェルカム）を取得 */
 async function getFollowConfig(
-  supabase: ReturnType<typeof createSupabaseClient>
+  supabase: ReturnType<typeof createSupabaseClient>,
+  storeId: string
 ): Promise<{
   adminNotifyNewCast: string;
   welcomeMessage: string;
@@ -320,6 +324,7 @@ async function getFollowConfig(
   const { data, error } = await supabase
     .from("system_settings")
     .select("value")
+    .eq("store_id", storeId)
     .eq("key", "reminder_config")
     .maybeSingle();
 
@@ -383,14 +388,38 @@ async function handleFollowEvent(
   const { displayName } = await getLineProfile(lineUserId, channelAccessToken);
   console.log("[Follow] プロフィール取得成功 displayName:", displayName);
 
-  const { adminNotifyNewCast, welcomeMessage } = await getFollowConfig(supabase);
+  const fromEnv = getCurrentStoreIdOrNull();
+  let storeId: string | null = fromEnv;
+  if (!storeId) {
+    const { data: firstStore } = await supabase
+      .from("stores")
+      .select("id")
+      .limit(1)
+      .maybeSingle();
+    storeId = firstStore?.id ?? null;
+  }
+  if (!storeId) {
+    console.error("[Follow] 店舗IDを解決できません（NEXT_PUBLIC_DEFAULT_STORE_ID または stores）");
+    await sendReply(replyToken, channelAccessToken, [
+      {
+        type: "text",
+        text: DEFAULT_WELCOME_MESSAGE.replace(/\{name\}/g, displayName || "キャスト"),
+      },
+    ]);
+    return;
+  }
+
+  const { adminNotifyNewCast, welcomeMessage } = await getFollowConfig(
+    supabase,
+    storeId
+  );
   const applyName = (template: string) =>
     template.replace(/\{name\}/g, displayName || "キャスト");
 
   const { data: store, error: storeError } = await supabase
     .from("stores")
     .select("id, admin_line_user_id")
-    .limit(1)
+    .eq("id", storeId)
     .single();
 
   if (storeError || !store) {
@@ -754,7 +783,7 @@ async function handleAttendanceResponse(
       return;
     }
 
-    const { replyMessages } = await getReminderReplyConfig(supabase);
+    const { replyMessages } = await getReminderReplyConfig(supabase, cast.store_id);
     const replyTextAttending =
       replyMessages[statusData] ?? "記録を受け付けました。";
 

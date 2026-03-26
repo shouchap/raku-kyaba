@@ -7,11 +7,13 @@ const DEFAULT_REMINDER_MESSAGE_TEMPLATE =
  * system_settings.reminder_config からメッセージテンプレートを取得（/api/remind と共通）
  */
 export async function fetchReminderMessageTemplate(
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  storeId: string
 ): Promise<string> {
   const { data: settingsRow } = await supabase
     .from("system_settings")
     .select("value")
+    .eq("store_id", storeId)
     .eq("key", "reminder_config")
     .maybeSingle();
 

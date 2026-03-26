@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
+import { getCurrentStoreIdOrNull } from "@/lib/current-store";
 import { getTodayJst } from "@/lib/date-utils";
 
 /** 未返信アラートを出すまでの経過時間（時間） */
@@ -105,6 +106,7 @@ export default function AdminViewPage() {
   const [capturing, setCapturing] = useState(false);
   const [matrix, setMatrix] = useState<Record<string, Record<string, CellData>>>({});
   const captureRef = useRef<HTMLDivElement>(null);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   const today = useMemo(() => getTodayJst(), []); // 日本時間の今日
   const [baseDate, setBaseDate] = useState(today);
@@ -144,14 +146,22 @@ export default function AdminViewPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    const storeId = getCurrentStoreIdOrNull();
+    if (!storeId) {
+      setConfigError("NEXT_PUBLIC_DEFAULT_STORE_ID が未設定です");
+      setLoading(false);
+      return;
+    }
+    setConfigError(null);
     try {
       const [castsRes, storesRes] = await Promise.all([
         supabase
           .from("casts")
           .select("id, name, store_id")
+          .eq("store_id", storeId)
           .eq("is_active", true)
           .order("name"),
-        supabase.from("stores").select("id, name").limit(1).single(),
+        supabase.from("stores").select("id, name").eq("id", storeId).single(),
       ]);
 
       if (castsRes.data) setCasts(castsRes.data as Cast[]);
@@ -268,6 +278,14 @@ export default function AdminViewPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <p className="text-gray-500 text-sm sm:text-base">読み込み中...</p>
+      </div>
+    );
+  }
+
+  if (configError) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <p className="text-red-600 text-sm sm:text-base text-center">{configError}</p>
       </div>
     );
   }
