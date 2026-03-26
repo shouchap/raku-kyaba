@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { createBrowserSupabaseClient } from "@/lib/supabase-client";
+import { useCallback, useEffect, useState } from "react";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 
 /** 00:00〜23:00（1時間刻み） */
@@ -42,7 +41,6 @@ const DEFAULT_CONFIG: ReminderConfig = {
 
 export default function AdminSettingsPage() {
   const activeStoreId = useActiveStoreId();
-  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -57,21 +55,27 @@ export default function AdminSettingsPage() {
     setLoading(true);
     const storeId = activeStoreId;
     try {
-      const [settingsRes, timeRes] = await Promise.all([
-        supabase
-          .from("system_settings")
-          .select("value")
-          .eq("store_id", storeId)
-          .eq("key", "reminder_config")
-          .maybeSingle(),
-        fetch(`/api/admin/store-remind-time?storeId=${encodeURIComponent(storeId)}`),
-      ]);
+      const res = await fetch(
+        `/api/admin/settings?storeId=${encodeURIComponent(storeId)}`
+      );
+      if (!res.ok) {
+        console.error("[Settings] Fetch error:", res.status, await res.text());
+        return;
+      }
+      const data = (await res.json()) as {
+        remind_time?: string;
+        reminder_config?: Record<string, unknown>;
+      };
 
-      const { data, error } = settingsRes;
-      if (error) {
-        console.error("[Settings] Fetch error:", error);
-      } else if (data?.value && typeof data.value === "object") {
-        const v = data.value as Record<string, unknown>;
+      if (
+        typeof data.remind_time === "string" &&
+        REMIND_TIME_OPTIONS.includes(data.remind_time)
+      ) {
+        setRemindTime(data.remind_time);
+      }
+
+      const v = data.reminder_config;
+      if (v && typeof v === "object" && !Array.isArray(v)) {
         setConfig({
           enabled: Boolean(v.enabled ?? DEFAULT_CONFIG.enabled),
           messageTemplate:
@@ -108,19 +112,12 @@ export default function AdminSettingsPage() {
               : DEFAULT_CONFIG.welcome_message,
         });
       }
-
-      if (timeRes.ok) {
-        const t = (await timeRes.json()) as { remind_time?: string };
-        if (typeof t.remind_time === "string" && REMIND_TIME_OPTIONS.includes(t.remind_time)) {
-          setRemindTime(t.remind_time);
-        }
-      }
     } catch (err) {
       console.error("[Settings] Error:", err);
     } finally {
       setLoading(false);
     }
-  }, [supabase, activeStoreId]);
+  }, [activeStoreId]);
 
   useEffect(() => {
     fetchConfig();
@@ -144,26 +141,34 @@ export default function AdminSettingsPage() {
         welcome_message: config.welcome_message.trim() || DEFAULT_CONFIG.welcome_message,
       };
 
-      const [upSettings, timeRes] = await Promise.all([
-        supabase.from("system_settings").upsert(
-          { store_id: activeStoreId, key: "reminder_config", value },
-          { onConflict: "store_id,key" }
-        ),
-        fetch("/api/admin/store-remind-time", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            storeId: activeStoreId,
-            remind_time: remindTime,
-          }),
+      const res = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId: activeStoreId,
+          remind_time: remindTime,
+          reminder_config: value,
         }),
-      ]);
+      });
 
-      if (upSettings.error) throw upSettings.error;
-      if (!timeRes.ok) {
-        const errBody = await timeRes.json().catch(() => ({}));
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        details?: string;
+      };
+
+      if (!res.ok) {
         throw new Error(
-          typeof errBody.error === "string" ? errBody.error : "送信時刻の保存に失敗しました"
+          typeof payload.error === "string"
+            ? payload.details
+              ? `${payload.error}: ${payload.details}`
+              : payload.error
+            : "保存に失敗しました"
+        );
+      }
+      if (payload.ok !== true) {
+        throw new Error(
+          typeof payload.error === "string" ? payload.error : "保存に失敗しました"
         );
       }
       setMessage("success");
