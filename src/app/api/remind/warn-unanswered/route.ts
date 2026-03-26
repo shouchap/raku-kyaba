@@ -12,7 +12,7 @@ import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendMulticastMessage } from "@/lib/line-reply";
 import { getTodayJst } from "@/lib/date-utils";
-import { getCurrentStoreId } from "@/lib/current-store";
+import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 
 export const dynamic = "force-dynamic";
 
@@ -181,7 +181,7 @@ async function markSchedulesAsWarned(
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabaseUrl =
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const supabaseKey =
@@ -207,7 +207,7 @@ export async function GET() {
 
   let tenantStoreId: string;
   try {
-    tenantStoreId = getCurrentStoreId();
+    tenantStoreId = resolveActiveStoreIdFromRequest(request);
   } catch (e) {
     return NextResponse.json(
       {

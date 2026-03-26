@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
-import { getCurrentStoreIdOrNull } from "@/lib/current-store";
+import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 
 type Cast = {
   id: string;
@@ -19,6 +19,7 @@ type Store = {
 };
 
 export default function AdminCastsPage() {
+  const activeStoreId = useActiveStoreId();
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [casts, setCasts] = useState<Cast[]>([]);
   const [store, setStore] = useState<Store | null>(null);
@@ -29,17 +30,10 @@ export default function AdminCastsPage() {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState<"success" | "error" | null>(null);
-  const [configError, setConfigError] = useState<string | null>(null);
 
   const fetchCasts = useCallback(async () => {
     setLoading(true);
-    const storeId = getCurrentStoreIdOrNull();
-    if (!storeId) {
-      setConfigError("NEXT_PUBLIC_DEFAULT_STORE_ID が未設定です");
-      setLoading(false);
-      return;
-    }
-    setConfigError(null);
+    const storeId = activeStoreId;
     try {
       const [castsRes, storesRes] = await Promise.all([
         supabase
@@ -58,7 +52,7 @@ export default function AdminCastsPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, activeStoreId]);
 
   useEffect(() => {
     fetchCasts();
@@ -85,14 +79,12 @@ export default function AdminCastsPage() {
     }
     setSaving(true);
     setMessage(null);
-    const storeId = getCurrentStoreIdOrNull();
-    if (!storeId) return;
     try {
       const { error } = await supabase
         .from("casts")
         .update({ name: newName, is_admin: editIsAdmin })
         .eq("id", editingId)
-        .eq("store_id", storeId);
+        .eq("store_id", activeStoreId);
       if (error) throw error;
       setCasts((prev) =>
         prev.map((c) =>
@@ -118,14 +110,12 @@ export default function AdminCastsPage() {
     if (!ok) return;
     setDeletingId(cast.id);
     setMessage(null);
-    const storeId = getCurrentStoreIdOrNull();
-    if (!storeId) return;
     try {
       const { error } = await supabase
         .from("casts")
         .delete()
         .eq("id", cast.id)
-        .eq("store_id", storeId);
+        .eq("store_id", activeStoreId);
       if (error) throw error;
       setCasts((prev) => prev.filter((c) => c.id !== cast.id));
       setMessage("success");
@@ -141,14 +131,6 @@ export default function AdminCastsPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <p className="text-gray-500 text-sm sm:text-base">読み込み中...</p>
-      </div>
-    );
-  }
-
-  if (configError) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <p className="text-red-600 text-sm sm:text-base text-center">{configError}</p>
       </div>
     );
   }

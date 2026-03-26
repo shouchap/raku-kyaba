@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendPushMessage } from "@/lib/line-reply";
-import { getCurrentStoreId } from "@/lib/current-store";
+import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
 
   let expectedStoreId: string;
   try {
-    expectedStoreId = getCurrentStoreId();
+    expectedStoreId = resolveActiveStoreIdFromRequest(request);
   } catch (e) {
     return NextResponse.json(
       {

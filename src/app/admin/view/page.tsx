@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
-import { getCurrentStoreIdOrNull } from "@/lib/current-store";
+import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { getTodayJst } from "@/lib/date-utils";
 
 /** 未返信アラートを出すまでの経過時間（時間） */
@@ -95,6 +95,7 @@ function parseTimeToMinutes(timeStr: string | null | undefined): number | null {
 }
 
 export default function AdminViewPage() {
+  const activeStoreId = useActiveStoreId();
   const supabase = useMemo(
     () => createBrowserSupabaseClient({ fetchNoStore: true }),
     []
@@ -106,7 +107,6 @@ export default function AdminViewPage() {
   const [capturing, setCapturing] = useState(false);
   const [matrix, setMatrix] = useState<Record<string, Record<string, CellData>>>({});
   const captureRef = useRef<HTMLDivElement>(null);
-  const [configError, setConfigError] = useState<string | null>(null);
 
   const today = useMemo(() => getTodayJst(), []); // 日本時間の今日
   const [baseDate, setBaseDate] = useState(today);
@@ -146,13 +146,7 @@ export default function AdminViewPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const storeId = getCurrentStoreIdOrNull();
-    if (!storeId) {
-      setConfigError("NEXT_PUBLIC_DEFAULT_STORE_ID が未設定です");
-      setLoading(false);
-      return;
-    }
-    setConfigError(null);
+    const storeId = activeStoreId;
     try {
       const [castsRes, storesRes] = await Promise.all([
         supabase
@@ -171,7 +165,7 @@ export default function AdminViewPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, activeStoreId]);
 
   const loadSchedules = useCallback(
     async (storeId: string) => {
@@ -278,14 +272,6 @@ export default function AdminViewPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <p className="text-gray-500 text-sm sm:text-base">読み込み中...</p>
-      </div>
-    );
-  }
-
-  if (configError) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <p className="text-red-600 text-sm sm:text-base text-center">{configError}</p>
       </div>
     );
   }

@@ -1,35 +1,75 @@
 /**
- * 現在のテナント（店舗）識別子。
+ * アクティブ店舗（テナント）の解決。
  *
- * 当面は `NEXT_PUBLIC_DEFAULT_STORE_ID`（Club GOLD 等の UUID）で固定。
- * 将来は Supabase Auth の user_metadata / profiles の store_id に差し替え可能。
+ * - ブラウザ Cookie `raku_active_store_id`（スーパー管理者の切り替え）
+ * - 未設定時は `NEXT_PUBLIC_DEFAULT_STORE_ID`
  *
- * クライアント・サーバー両方で import 可（NEXT_PUBLIC_* はビルド時に埋め込まれる）。
+ * サーバー（Route Handler / Middleware）では `resolveActiveStoreIdFromRequest` または
+ * `getActiveStoreIdFromServerCookies` を使用。クライアントでは ActiveStoreContext の
+ * `useActiveStoreId()` を使用。
  */
 
-/** 未設定時は null（画面でエラー表示に使う） */
-export function getCurrentStoreIdOrNull(): string | null {
+export const ACTIVE_STORE_COOKIE_NAME = "raku_active_store_id";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isValidStoreId(value: string | null | undefined): value is string {
+  return !!value && UUID_RE.test(String(value).trim());
+}
+
+/** 環境変数のみ（Cookie なし）。ビルド時に埋め込まれる */
+export function getDefaultStoreIdOrNull(): string | null {
   const id = process.env.NEXT_PUBLIC_DEFAULT_STORE_ID?.trim();
   return id && id.length > 0 ? id : null;
 }
 
 /**
- * 必須で店舗 ID が欲しい API / サーバー処理用。
- * 未設定の場合は例外（デプロイ設定ミスを早期に検知）
+ * @deprecated クライアントでは `useActiveStoreId()` を使う。サーバーでは `getActiveStoreIdFromServerCookies`。
+ * 互換のため default のみ返す箇所向け。
  */
-export function getCurrentStoreId(): string {
-  const id = getCurrentStoreIdOrNull();
+export function getCurrentStoreIdOrNull(): string | null {
+  return getDefaultStoreIdOrNull();
+}
+
+/** Cookie ヘッダー文字列からアクティブ店舗 UUID を取得 */
+export function parseActiveStoreIdFromCookieHeader(
+  cookieHeader: string | null
+): string | null {
+  if (!cookieHeader?.trim()) return null;
+  const parts = cookieHeader.split(";").map((s) => s.trim());
+  const prefix = `${ACTIVE_STORE_COOKIE_NAME}=`;
+  for (const p of parts) {
+    if (p.startsWith(prefix)) {
+      const raw = decodeURIComponent(p.slice(prefix.length));
+      if (isValidStoreId(raw)) return raw.trim();
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Route Handler / Edge 向け: Request の Cookie から解決し、なければ環境変数。
+ */
+export function resolveActiveStoreIdFromRequest(request: Request): string {
+  const fromCookie = parseActiveStoreIdFromCookieHeader(request.headers.get("cookie"));
+  const fromEnv = getDefaultStoreIdOrNull();
+  const id = fromCookie || fromEnv;
   if (!id) {
     throw new Error(
-      "NEXT_PUBLIC_DEFAULT_STORE_ID が未設定です。SaaS ではアクティブ店舗の UUID を設定してください。"
+      "アクティブ店舗を解決できません。Cookie または NEXT_PUBLIC_DEFAULT_STORE_ID を設定してください。"
     );
   }
   return id;
 }
 
-/** API でクライアントから渡された storeId が環境のテナントと一致するか検証 */
-export function assertStoreIdMatchesRequest(requestStoreId: string | undefined | null): void {
-  const expected = getCurrentStoreId();
+/** リクエストボディの storeId が、Cookie/環境で解決したテナントと一致するか検証 */
+export function assertStoreIdMatchesRequest(
+  request: Request,
+  requestStoreId: string | undefined | null
+): void {
+  const expected = resolveActiveStoreIdFromRequest(request);
   const got = requestStoreId?.trim();
   if (!got || got !== expected) {
     throw new Error("Forbidden: store_id mismatch");

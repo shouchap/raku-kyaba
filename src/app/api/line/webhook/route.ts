@@ -5,7 +5,7 @@ import { verifyLineSignature } from "@/lib/line-signature";
 import { sendReply, sendMulticastMessage } from "@/lib/line-reply";
 import { createSupabaseClient } from "@/lib/supabase";
 import { getTodayJst } from "@/lib/date-utils";
-import { getCurrentStoreIdOrNull } from "@/lib/current-store";
+import { getDefaultStoreIdOrNull } from "@/lib/current-store";
 import type {
   LineWebhookBody,
   LineMessageEvent,
@@ -388,7 +388,7 @@ async function handleFollowEvent(
   const { displayName } = await getLineProfile(lineUserId, channelAccessToken);
   console.log("[Follow] プロフィール取得成功 displayName:", displayName);
 
-  const fromEnv = getCurrentStoreIdOrNull();
+  const fromEnv = getDefaultStoreIdOrNull();
   let storeId: string | null = fromEnv;
   if (!storeId) {
     const { data: firstStore } = await supabase

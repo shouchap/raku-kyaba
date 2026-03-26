@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
-import { getCurrentStoreIdOrNull } from "@/lib/current-store";
+import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 
 /** リマインド送信時刻は Vercel Cron（毎日 12:00 JST）に固定。DB の sendTime は常に 12:00 を保存 */
 const REMIND_SEND_TIME_FIXED = "12:00";
@@ -38,6 +38,7 @@ const DEFAULT_CONFIG: ReminderConfig = {
 };
 
 export default function AdminSettingsPage() {
+  const activeStoreId = useActiveStoreId();
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -47,17 +48,10 @@ export default function AdminSettingsPage() {
     "success" | "error" | "test_success" | "test_error" | null
   >(null);
   const [config, setConfig] = useState<ReminderConfig>(DEFAULT_CONFIG);
-  const [configError, setConfigError] = useState<string | null>(null);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
-    const storeId = getCurrentStoreIdOrNull();
-    if (!storeId) {
-      setConfigError("NEXT_PUBLIC_DEFAULT_STORE_ID が未設定です");
-      setLoading(false);
-      return;
-    }
-    setConfigError(null);
+    const storeId = activeStoreId;
     try {
       const { data, error } = await supabase
         .from("system_settings")
@@ -114,7 +108,7 @@ export default function AdminSettingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, activeStoreId]);
 
   useEffect(() => {
     fetchConfig();
@@ -124,12 +118,6 @@ export default function AdminSettingsPage() {
     e.preventDefault();
     setSaving(true);
     setMessage(null);
-    const storeId = getCurrentStoreIdOrNull();
-    if (!storeId) {
-      setSaving(false);
-      setMessage("error");
-      return;
-    }
     try {
       const value: Record<string, unknown> = {
         enabled: config.enabled,
@@ -147,7 +135,7 @@ export default function AdminSettingsPage() {
       const { error } = await supabase
         .from("system_settings")
         .upsert(
-          { store_id: storeId, key: "reminder_config", value },
+          { store_id: activeStoreId, key: "reminder_config", value },
           { onConflict: "store_id,key" }
         );
 
@@ -188,14 +176,6 @@ export default function AdminSettingsPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <p className="text-gray-500 text-sm sm:text-base">読み込み中...</p>
-      </div>
-    );
-  }
-
-  if (configError) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <p className="text-red-600 text-sm sm:text-base text-center">{configError}</p>
       </div>
     );
   }

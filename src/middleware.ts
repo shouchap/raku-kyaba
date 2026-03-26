@@ -42,6 +42,23 @@ export async function middleware(request: NextRequest) {
     if (!user) {
       return NextResponse.redirect(new URL("/", request.url));
     }
+
+    // スーパー管理者専用: 店舗マスタ（SUPER_ADMIN_EMAILS 未設定時は制限なし）
+    if (pathname.startsWith("/admin/stores")) {
+      const raw = process.env.SUPER_ADMIN_EMAILS?.trim();
+      if (raw) {
+        const list = raw
+          .split(",")
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean);
+        if (list.length > 0) {
+          const email = user.email?.toLowerCase();
+          if (!email || !list.includes(email)) {
+            return NextResponse.redirect(new URL("/admin/weekly", request.url));
+          }
+        }
+      }
+    }
   }
 
   // トップページ: ログイン済みは /admin/weekly へ

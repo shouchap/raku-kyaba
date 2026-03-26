@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
-import { getCurrentStoreIdOrNull } from "@/lib/current-store";
+import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { getTodayJst } from "@/lib/date-utils";
 import { TIME_OPTIONS } from "@/lib/time-options";
 
@@ -54,6 +54,7 @@ function formatTimeForInput(time: string | null | undefined): string {
 }
 
 export default function AdminWeeklyPage() {
+  const activeStoreId = useActiveStoreId();
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [casts, setCasts] = useState<Cast[]>([]);
   const [store, setStore] = useState<Store | null>(null);
@@ -63,7 +64,6 @@ export default function AdminWeeklyPage() {
   const [notifyingCastId, setNotifyingCastId] = useState<string | null>(null);
   const [notifyStatus, setNotifyStatus] = useState<"idle" | "sending" | "done">("idle");
   const [message, setMessage] = useState<"success" | "error" | null>(null);
-  const [configError, setConfigError] = useState<string | null>(null);
 
   const today = useMemo(() => getTodayJst(), []);
   const [baseDate, setBaseDate] = useState(today);
@@ -88,13 +88,7 @@ export default function AdminWeeklyPage() {
   // データ取得（キャスト・店舗・既存シフト）
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const storeId = getCurrentStoreIdOrNull();
-    if (!storeId) {
-      setConfigError("NEXT_PUBLIC_DEFAULT_STORE_ID が未設定です");
-      setLoading(false);
-      return;
-    }
-    setConfigError(null);
+    const storeId = activeStoreId;
     try {
       const [castsRes, storesRes] = await Promise.all([
         supabase
@@ -114,7 +108,7 @@ export default function AdminWeeklyPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, activeStoreId]);
 
   // 既存シフトの読み込み（scheduled_time と is_dohan を取得）
   const loadExistingSchedules = useCallback(
@@ -304,14 +298,6 @@ export default function AdminWeeklyPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <p className="text-gray-500">読み込み中...</p>
-      </div>
-    );
-  }
-
-  if (configError) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <p className="text-red-600 text-sm sm:text-base text-center">{configError}</p>
       </div>
     );
   }

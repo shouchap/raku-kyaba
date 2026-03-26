@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
-import { getCurrentStoreIdOrNull } from "@/lib/current-store";
+import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { getTodayJst } from "@/lib/date-utils";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
@@ -158,6 +158,7 @@ function buildCastReports(
 }
 
 function AdminReportContent() {
+  const activeStoreId = useActiveStoreId();
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -223,15 +224,7 @@ function AdminReportContent() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const tenantId = getCurrentStoreIdOrNull();
-    if (!tenantId) {
-      setError("NEXT_PUBLIC_DEFAULT_STORE_ID が未設定です");
-      setCasts([]);
-      setStore(null);
-      setSchedules([]);
-      setLoading(false);
-      return;
-    }
+    const tenantId = activeStoreId;
     try {
       const [castsRes, storesRes] = await Promise.all([
         supabase
@@ -282,7 +275,7 @@ function AdminReportContent() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, start, end]);
+  }, [supabase, start, end, activeStoreId]);
 
   useEffect(() => {
     fetchData();

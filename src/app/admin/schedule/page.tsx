@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
-import { getCurrentStoreIdOrNull } from "@/lib/current-store";
+import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { TIME_OPTIONS_REQUIRED } from "@/lib/time-options";
 
 type Cast = {
@@ -17,13 +17,13 @@ type Store = {
 };
 
 export default function AdminSchedulePage() {
+  const activeStoreId = useActiveStoreId();
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [casts, setCasts] = useState<Cast[]>([]);
   const [store, setStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<"success" | "error" | null>(null);
-  const [configError, setConfigError] = useState<string | null>(null);
 
   const [castId, setCastId] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
@@ -38,13 +38,7 @@ export default function AdminSchedulePage() {
 
   useEffect(() => {
     async function fetchData() {
-      const storeId = getCurrentStoreIdOrNull();
-      if (!storeId) {
-        setConfigError("NEXT_PUBLIC_DEFAULT_STORE_ID が未設定です");
-        setLoading(false);
-        return;
-      }
-      setConfigError(null);
+      const storeId = activeStoreId;
       try {
         const [castsRes, storesRes] = await Promise.all([
           supabase
@@ -66,7 +60,7 @@ export default function AdminSchedulePage() {
       }
     }
     fetchData();
-  }, [supabase]);
+  }, [supabase, activeStoreId]);
 
   const resetForm = () => {
     setCastId("");
@@ -136,14 +130,6 @@ export default function AdminSchedulePage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <p className="text-gray-500 text-sm sm:text-base">読み込み中...</p>
-      </div>
-    );
-  }
-
-  if (configError) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <p className="text-red-600 text-sm sm:text-base text-center">{configError}</p>
       </div>
     );
   }

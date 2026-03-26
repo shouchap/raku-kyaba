@@ -97,7 +97,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    assertStoreIdMatchesRequest(storeId);
+    assertStoreIdMatchesRequest(request, storeId);
   } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

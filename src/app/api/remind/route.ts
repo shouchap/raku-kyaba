@@ -7,7 +7,7 @@ import {
   formatRemindScheduledTime,
 } from "@/lib/attendance-remind-flex";
 import { getTodayJst } from "@/lib/date-utils";
-import { getCurrentStoreId } from "@/lib/current-store";
+import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 
 /** 管理者の line_user_id 一覧を取得（warn-unanswered と同様のロジック） */
 async function getAdminLineUserIds(
@@ -167,7 +167,7 @@ async function handleRemind(request: Request) {
 
   let storeId: string;
   try {
-    storeId = getCurrentStoreId();
+    storeId = resolveActiveStoreIdFromRequest(request);
   } catch (e) {
     return NextResponse.json(
       {
