@@ -4,8 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 
-/** リマインド送信時刻は Vercel Cron（毎日 12:00 JST）に固定。DB の sendTime は常に 12:00 を保存 */
-const REMIND_SEND_TIME_FIXED = "12:00";
+/** 00:00〜23:00（1時間刻み） */
+const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => {
+  const hh = String(h).padStart(2, "0");
+  return `${hh}:00`;
+});
 
 type ReminderConfig = {
   enabled: boolean;
@@ -48,24 +51,26 @@ export default function AdminSettingsPage() {
     "success" | "error" | "test_success" | "test_error" | null
   >(null);
   const [config, setConfig] = useState<ReminderConfig>(DEFAULT_CONFIG);
+  const [remindTime, setRemindTime] = useState("07:00");
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     const storeId = activeStoreId;
     try {
-      const { data, error } = await supabase
-        .from("system_settings")
-        .select("value")
-        .eq("store_id", storeId)
-        .eq("key", "reminder_config")
-        .maybeSingle();
+      const [settingsRes, timeRes] = await Promise.all([
+        supabase
+          .from("system_settings")
+          .select("value")
+          .eq("store_id", storeId)
+          .eq("key", "reminder_config")
+          .maybeSingle(),
+        fetch(`/api/admin/store-remind-time?storeId=${encodeURIComponent(storeId)}`),
+      ]);
 
+      const { data, error } = settingsRes;
       if (error) {
         console.error("[Settings] Fetch error:", error);
-        return;
-      }
-
-      if (data?.value && typeof data.value === "object") {
+      } else if (data?.value && typeof data.value === "object") {
         const v = data.value as Record<string, unknown>;
         setConfig({
           enabled: Boolean(v.enabled ?? DEFAULT_CONFIG.enabled),
@@ -103,6 +108,13 @@ export default function AdminSettingsPage() {
               : DEFAULT_CONFIG.welcome_message,
         });
       }
+
+      if (timeRes.ok) {
+        const t = (await timeRes.json()) as { remind_time?: string };
+        if (typeof t.remind_time === "string" && REMIND_TIME_OPTIONS.includes(t.remind_time)) {
+          setRemindTime(t.remind_time);
+        }
+      }
     } catch (err) {
       console.error("[Settings] Error:", err);
     } finally {
@@ -121,7 +133,7 @@ export default function AdminSettingsPage() {
     try {
       const value: Record<string, unknown> = {
         enabled: config.enabled,
-        sendTime: REMIND_SEND_TIME_FIXED,
+        sendTime: remindTime,
         messageTemplate: config.messageTemplate.trim() || DEFAULT_CONFIG.messageTemplate,
         reply_present: config.reply_present.trim() || DEFAULT_CONFIG.reply_present,
         reply_late: config.reply_late.trim() || DEFAULT_CONFIG.reply_late,
@@ -132,14 +144,28 @@ export default function AdminSettingsPage() {
         welcome_message: config.welcome_message.trim() || DEFAULT_CONFIG.welcome_message,
       };
 
-      const { error } = await supabase
-        .from("system_settings")
-        .upsert(
+      const [upSettings, timeRes] = await Promise.all([
+        supabase.from("system_settings").upsert(
           { store_id: activeStoreId, key: "reminder_config", value },
           { onConflict: "store_id,key" }
-        );
+        ),
+        fetch("/api/admin/store-remind-time", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            storeId: activeStoreId,
+            remind_time: remindTime,
+          }),
+        }),
+      ]);
 
-      if (error) throw error;
+      if (upSettings.error) throw upSettings.error;
+      if (!timeRes.ok) {
+        const errBody = await timeRes.json().catch(() => ({}));
+        throw new Error(
+          typeof errBody.error === "string" ? errBody.error : "送信時刻の保存に失敗しました"
+        );
+      }
       setMessage("success");
     } catch (err) {
       console.error("[Settings] Save error:", err);
@@ -217,11 +243,27 @@ export default function AdminSettingsPage() {
             </label>
           </div>
 
-          {/* 送信時刻は Vercel Cron 固定（12:00 JST）のため UI は廃止 */}
-          <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
-            <p className="font-medium text-gray-800">リマインド送信時刻</p>
-            <p className="mt-1">
-              毎日 <span className="font-mono">{REMIND_SEND_TIME_FIXED}</span>（日本時間）に自動送信されます。変更はインフラ側（Vercel Cron）の設定が必要です。
+          <div className="mb-6">
+            <label
+              htmlFor="remindTime"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              リマインド送信時刻（日本時間）
+            </label>
+            <select
+              id="remindTime"
+              value={remindTime}
+              onChange={(e) => setRemindTime(e.target.value)}
+              className="w-full max-w-xs min-h-[48px] px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            >
+              {REMIND_TIME_OPTIONS.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-2">
+              設定した時刻（分は常に :00）の日本時間に、本日未送信の店舗だけが対象でリマインドが送信されます。保存すると店舗マスタに反映されます。
             </p>
           </div>
 

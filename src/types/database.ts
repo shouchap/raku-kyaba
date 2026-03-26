@@ -18,13 +18,22 @@ export interface Database {
           line_channel_access_token: string | null;
           line_bot_user_id: string | null;
           admin_line_user_id: string | null;
+          /** JST リマインド送信時刻 HH:00 */
+          remind_time: string;
+          /** 最後に日次リマインドを完了した日（JST YYYY-MM-DD） */
+          last_reminded_date: string | null;
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["stores"]["Row"], "id" | "created_at" | "updated_at"> & {
+        Insert: Omit<
+          Database["public"]["Tables"]["stores"]["Row"],
+          "id" | "created_at" | "updated_at" | "remind_time" | "last_reminded_date"
+        > & {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          remind_time?: string;
+          last_reminded_date?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["stores"]["Insert"]>;
       };
