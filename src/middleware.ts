@@ -1,5 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import {
+  ACTIVE_STORE_COOKIE_NAME,
+  getActiveStoreCookieOptions,
+} from "@/lib/current-store";
+import { getStoreAdminStoreIdFromUser } from "@/lib/roles";
 import { isSuperAdminUser } from "@/lib/super-admin";
 
 /**
@@ -48,6 +53,18 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/admin/stores")) {
       if (!isSuperAdminUser(user)) {
         return NextResponse.redirect(new URL("/admin/weekly", request.url));
+      }
+    }
+
+    // 店長アカウント: user_metadata の店舗にテナント Cookie を同期（スーパー管理者はセレクター優先のため上書きしない）
+    if (!isSuperAdminUser(user)) {
+      const tenantId = getStoreAdminStoreIdFromUser(user);
+      if (tenantId) {
+        response.cookies.set(
+          ACTIVE_STORE_COOKIE_NAME,
+          tenantId,
+          getActiveStoreCookieOptions()
+        );
       }
     }
   }

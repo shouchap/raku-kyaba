@@ -75,3 +75,20 @@ export function assertStoreIdMatchesRequest(
     throw new Error("Forbidden: store_id mismatch");
   }
 }
+
+/** アクティブ店舗 Cookie 用オプション（Middleware / set-active-store 共通） */
+export function getActiveStoreCookieOptions(): {
+  path: string;
+  maxAge: number;
+  sameSite: "lax";
+  httpOnly: boolean;
+  secure: boolean;
+} {
+  return {
+    path: "/",
+    maxAge: 60 * 60 * 24 * 400,
+    sameSite: "lax",
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  };
+}

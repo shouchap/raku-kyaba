@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import {
   ACTIVE_STORE_COOKIE_NAME,
+  getActiveStoreCookieOptions,
   isValidStoreId,
 } from "@/lib/current-store";
 import { createServiceRoleClient } from "@/lib/supabase-service";
@@ -81,13 +82,7 @@ export async function POST(request: Request) {
   }
 
   const res = NextResponse.json({ ok: true, storeId });
-  res.cookies.set(ACTIVE_STORE_COOKIE_NAME, storeId, {
-    path: "/",
-    maxAge: 60 * 60 * 24 * 400,
-    sameSite: "lax",
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-  });
+  res.cookies.set(ACTIVE_STORE_COOKIE_NAME, storeId, getActiveStoreCookieOptions());
 
   return res;
 }
