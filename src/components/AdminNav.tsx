@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 
 const NAV_ITEMS = [
-  { href: "/admin/weekly", label: "TOP" },
+  { href: "/admin/weekly", label: "シフト入力" },
   { href: "/admin/view", label: "シフト一覧" },
   { href: "/admin/schedule", label: "単日登録" },
   { href: "/admin/casts", label: "キャスト管理" },
