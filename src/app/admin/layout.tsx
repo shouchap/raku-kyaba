@@ -4,7 +4,7 @@ import { ActiveStoreProvider } from "@/contexts/ActiveStoreContext";
 import { tryGetActiveStoreIdFromServerCookies } from "@/lib/current-store-server";
 import { createServiceRoleClient } from "@/lib/supabase-service";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { isSuperAdminEmail } from "@/lib/super-admin";
+import { isSuperAdminUser } from "@/lib/super-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +26,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    isSuperAdmin = isSuperAdminEmail(user?.email);
+    isSuperAdmin = isSuperAdminUser(user);
   } catch {
     // ignore
   }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createServiceRoleClient } from "@/lib/supabase-service";
-import { isSuperAdminEmail } from "@/lib/super-admin";
+import { isSuperAdminUser } from "@/lib/super-admin";
 import { isValidStoreId } from "@/lib/current-store";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +62,7 @@ export async function PATCH(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!isSuperAdminEmail(user.email)) {
+  if (!isSuperAdminUser(user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -151,7 +151,7 @@ export async function GET(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!isSuperAdminEmail(user.email)) {
+  if (!isSuperAdminUser(user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

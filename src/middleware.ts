@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isSuperAdminUser } from "@/lib/super-admin";
 
 /**
  * Supabase Auth を使った認証ガード
@@ -43,20 +44,10 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL("/", request.url));
     }
 
-    // スーパー管理者専用: 店舗マスタ（SUPER_ADMIN_EMAILS 未設定時は制限なし）
+    // スーパー管理者専用: 店舗マスタ（許可リスト未設定時は制限なし）
     if (pathname.startsWith("/admin/stores")) {
-      const raw = process.env.SUPER_ADMIN_EMAILS?.trim();
-      if (raw) {
-        const list = raw
-          .split(",")
-          .map((s) => s.trim().toLowerCase())
-          .filter(Boolean);
-        if (list.length > 0) {
-          const email = user.email?.toLowerCase();
-          if (!email || !list.includes(email)) {
-            return NextResponse.redirect(new URL("/admin/weekly", request.url));
-          }
-        }
+      if (!isSuperAdminUser(user)) {
+        return NextResponse.redirect(new URL("/admin/weekly", request.url));
       }
     }
   }
