@@ -48,6 +48,7 @@ export default function AdminSettingsPage() {
   const [message, setMessage] = useState<
     "success" | "error" | "test_success" | "test_error" | null
   >(null);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [config, setConfig] = useState<ReminderConfig>(DEFAULT_CONFIG);
   const [remindTime, setRemindTime] = useState("07:00");
 
@@ -127,6 +128,7 @@ export default function AdminSettingsPage() {
     e.preventDefault();
     setSaving(true);
     setMessage(null);
+    setSaveWarning(null);
     try {
       const value: Record<string, unknown> = {
         enabled: config.enabled,
@@ -155,14 +157,23 @@ export default function AdminSettingsPage() {
         ok?: boolean;
         error?: string;
         details?: string;
+        code?: string;
+        hint?: string;
+        warning?: string;
+        remind_time_persisted?: boolean;
       };
 
       if (!res.ok) {
         throw new Error(
           typeof payload.error === "string"
-            ? payload.details
-              ? `${payload.error}: ${payload.details}`
-              : payload.error
+            ? [
+                payload.error,
+                payload.details,
+                payload.code ? `code=${payload.code}` : "",
+                payload.hint ? `hint=${payload.hint}` : "",
+              ]
+                .filter(Boolean)
+                .join(" — ")
             : "保存に失敗しました"
         );
       }
@@ -170,6 +181,9 @@ export default function AdminSettingsPage() {
         throw new Error(
           typeof payload.error === "string" ? payload.error : "保存に失敗しました"
         );
+      }
+      if (typeof payload.warning === "string" && payload.warning.trim()) {
+        setSaveWarning(payload.warning.trim());
       }
       setMessage("success");
     } catch (err) {
@@ -476,9 +490,14 @@ export default function AdminSettingsPage() {
         </form>
 
         {message === "success" && (
-          <p className="mt-4 text-green-600 text-sm font-medium">
-            保存しました
-          </p>
+          <div className="mt-4 space-y-2">
+            <p className="text-green-600 text-sm font-medium">保存しました</p>
+            {saveWarning && (
+              <p className="text-amber-800 text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                {saveWarning}
+              </p>
+            )}
+          </div>
         )}
         {message === "test_success" && (
           <p className="mt-4 text-green-600 text-sm font-medium">
