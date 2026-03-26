@@ -7,11 +7,18 @@ import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 
 const GOLD = "#D4AF37";
 
-/** ユーザー名に内部ドメインを付加（前後の空白を自動削除） */
-function toInternalEmail(username: string): string {
-  const trimmed = String(username ?? "").trim().toLowerCase();
+/**
+ * Supabase の signInWithPassword 用メールを決定する。
+ * - `@` を含む → 外部メール等としてそのまま（前後のみ trim）
+ * - 含まない → 内部ユーザー名として小文字化し `@raku-kyaba.internal` を付加
+ */
+function resolveLoginEmail(input: string): string {
+  const trimmed = String(input ?? "").trim();
   if (!trimmed) return "";
-  return `${trimmed}@raku-kyaba.internal`;
+  if (trimmed.includes("@")) {
+    return trimmed;
+  }
+  return `${trimmed.toLowerCase()}@raku-kyaba.internal`;
 }
 
 export default function LoginPage() {
@@ -31,9 +38,9 @@ export default function LoginPage() {
     const trimmedUsername = username.trim();
     const trimmedPassword = password.trim();
 
-    const email = toInternalEmail(trimmedUsername);
+    const email = resolveLoginEmail(trimmedUsername);
     if (!email) {
-      setError("ユーザー名を入力してください。");
+      setError("ユーザー名またはメールアドレスを入力してください。");
       setLoading(false);
       return;
     }
@@ -123,20 +130,20 @@ export default function LoginPage() {
                 htmlFor="username"
                 className="block text-sm text-[#D4AF37]/90 mb-2 font-light tracking-wider"
               >
-                ユーザー名
+                ユーザー名 / メールアドレス
               </label>
               <input
                 id="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="gold"
+                placeholder="gold または example@gmail.com"
                 className="w-full px-4 py-3 min-h-[44px] text-base bg-black/80 border border-[#D4AF37]/50 rounded focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]/50 text-white placeholder-gray-500 transition-colors"
                 autoComplete="username"
                 disabled={loading}
               />
               <p className="text-xs text-[#D4AF37]/50 mt-1">
-                ※ @raku-kyaba.internal は自動付加されます
+                ※ @ が無い場合のみ @raku-kyaba.internal が付きます
               </p>
             </div>
 
