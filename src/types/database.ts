@@ -22,18 +22,21 @@ export interface Database {
           remind_time: string;
           /** 最後に日次リマインドを完了した日（JST YYYY-MM-DD） */
           last_reminded_date: string | null;
+          /** キャストからのシフト提出を受け付けるか */
+          allow_shift_submission: boolean;
           created_at: string;
           updated_at: string;
         };
         Insert: Omit<
           Database["public"]["Tables"]["stores"]["Row"],
-          "id" | "created_at" | "updated_at" | "remind_time" | "last_reminded_date"
+          "id" | "created_at" | "updated_at" | "remind_time" | "last_reminded_date" | "allow_shift_submission"
         > & {
           id?: string;
           created_at?: string;
           updated_at?: string;
           remind_time?: string;
           last_reminded_date?: string | null;
+          allow_shift_submission?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["stores"]["Insert"]>;
       };

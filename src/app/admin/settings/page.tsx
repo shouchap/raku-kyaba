@@ -51,6 +51,7 @@ export default function AdminSettingsPage() {
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [config, setConfig] = useState<ReminderConfig>(DEFAULT_CONFIG);
   const [remindTime, setRemindTime] = useState("07:00");
+  const [allowShiftSubmission, setAllowShiftSubmission] = useState(false);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -65,6 +66,7 @@ export default function AdminSettingsPage() {
       }
       const data = (await res.json()) as {
         remind_time?: string;
+        allow_shift_submission?: boolean;
         reminder_config?: Record<string, unknown>;
       };
 
@@ -74,6 +76,7 @@ export default function AdminSettingsPage() {
       ) {
         setRemindTime(data.remind_time);
       }
+      setAllowShiftSubmission(data.allow_shift_submission === true);
 
       const v = data.reminder_config;
       if (v && typeof v === "object" && !Array.isArray(v)) {
@@ -150,6 +153,7 @@ export default function AdminSettingsPage() {
           storeId: activeStoreId,
           remind_time: remindTime,
           reminder_config: value,
+          allow_shift_submission: allowShiftSubmission,
         }),
       });
 
@@ -284,6 +288,24 @@ export default function AdminSettingsPage() {
             <p className="text-xs text-gray-500 mt-2">
               設定した時刻（分は常に :00）の日本時間に、本日未送信の店舗だけが対象でリマインドが送信されます。保存すると店舗マスタに反映されます。
               本番では毎時 GET /api/remind を呼ぶスケジューラが必要です（例: Google Cloud Scheduler、Vercel Pro の crons など）。
+            </p>
+          </div>
+
+          <div className="mb-8 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-4">
+            <h3 className="text-sm font-medium text-gray-800 mb-3">シフト提出</h3>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={allowShiftSubmission}
+                onChange={(e) => setAllowShiftSubmission(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700 leading-snug">
+                キャストからのシフト提出を受け付ける
+              </span>
+            </label>
+            <p className="text-xs text-gray-500 mt-2 pl-8">
+              ON のときのみ、週間シフト一覧画面に「来週のシフトを提出する」導線（開発中）を表示します。
             </p>
           </div>
 

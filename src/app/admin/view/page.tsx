@@ -18,6 +18,7 @@ type Cast = {
 type Store = {
   id: string;
   name: string;
+  allow_shift_submission?: boolean | null;
 };
 
 /** セル表示用データ */
@@ -155,7 +156,11 @@ export default function AdminViewPage() {
           .eq("store_id", storeId)
           .eq("is_active", true)
           .order("name"),
-        supabase.from("stores").select("id, name").eq("id", storeId).single(),
+        supabase
+          .from("stores")
+          .select("id, name, allow_shift_submission")
+          .eq("id", storeId)
+          .single(),
       ]);
 
       if (castsRes.data) setCasts(castsRes.data as Cast[]);
@@ -287,6 +292,23 @@ export default function AdminViewPage() {
             {store?.name ?? "店舗"}
           </p>
         </div>
+
+        {store?.allow_shift_submission === true && (
+          <div className="mb-4 sm:mb-6 rounded-xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50 p-4 shadow-sm">
+            <p className="text-xs text-amber-900/80 mb-3 text-center font-medium">
+              シフト提出（プレビュー）
+            </p>
+            <div className="flex justify-center">
+              <a
+                href="#"
+                onClick={(e) => e.preventDefault()}
+                className="inline-flex min-h-[48px] items-center justify-center rounded-xl bg-amber-600 px-6 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-amber-700 active:bg-amber-800 touch-manipulation"
+              >
+                [開発中] 来週のシフトを提出する
+              </a>
+            </div>
+          </div>
+        )}
 
         {/* 基準日選択 */}
         <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-end gap-4">

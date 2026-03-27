@@ -85,15 +85,36 @@ export async function GET(request: Request) {
       );
     }
 
-    /** remind_time カラム未適用の DB では select が失敗するためフォールバック */
+    /** remind_time / allow_shift_submission（カラム未適用時はフォールバック） */
     let remindTime = "07:00";
-    const storeRes = await admin.from("stores").select("remind_time").eq("id", storeId).maybeSingle();
+    let allowShiftSubmission = false;
+    const storeRes = await admin
+      .from("stores")
+      .select("remind_time, allow_shift_submission")
+      .eq("id", storeId)
+      .maybeSingle();
 
     if (storeRes.error) {
-      logPostgrestError("GET stores.remind_time", storeRes.error);
-      if (isUndefinedColumnError(storeRes.error, "remind_time")) {
+      logPostgrestError("GET stores columns", storeRes.error);
+      if (
+        isUndefinedColumnError(storeRes.error, "remind_time") ||
+        isUndefinedColumnError(storeRes.error, "allow_shift_submission")
+      ) {
+        const fallback = await admin.from("stores").select("remind_time").eq("id", storeId).maybeSingle();
+        if (fallback.error && !isUndefinedColumnError(fallback.error, "remind_time")) {
+          return NextResponse.json(
+            {
+              error: "Failed to load store",
+              details: fallback.error.message,
+              code: fallback.error.code,
+            },
+            { status: 500 }
+          );
+        }
+        const rt = (fallback.data as { remind_time?: string } | null)?.remind_time;
+        if (typeof rt === "string" && rt.trim()) remindTime = rt.trim();
         console.warn(
-          "[api/admin/settings] GET: stores.remind_time column missing; apply migration 012. Using default 07:00."
+          "[api/admin/settings] GET: stores.remind_time or allow_shift_submission missing; using defaults."
         );
       } else {
         return NextResponse.json(
@@ -106,12 +127,18 @@ export async function GET(request: Request) {
         );
       }
     } else {
-      const rt = (storeRes.data as { remind_time?: string } | null)?.remind_time;
+      const row = storeRes.data as {
+        remind_time?: string | null;
+        allow_shift_submission?: boolean | null;
+      } | null;
+      const rt = row?.remind_time;
       if (typeof rt === "string" && rt.trim()) remindTime = rt.trim();
+      allowShiftSubmission = row?.allow_shift_submission === true;
     }
 
     return NextResponse.json({
       remind_time: remindTime,
+      allow_shift_submission: allowShiftSubmission,
       reminder_config:
         settingsRes.data?.value && typeof settingsRes.data.value === "object"
           ? settingsRes.data.value
@@ -133,6 +160,8 @@ type PatchBody = {
   storeId?: string;
   remind_time?: string;
   reminder_config?: Record<string, unknown>;
+  /** 未指定の場合は DB の allow_shift_submission を更新しない */
+  allow_shift_submission?: boolean;
 };
 
 /**
@@ -162,6 +191,7 @@ export async function PATCH(request: Request) {
   const storeId = body.storeId?.trim() ?? "";
   const remindTime = body.remind_time?.trim() ?? "";
   const reminderConfig = body.reminder_config;
+  const allowShiftSubmissionProvided = typeof body.allow_shift_submission === "boolean";
 
   if (!storeId || !isValidStoreId(storeId)) {
     return NextResponse.json({ error: "Valid storeId is required" }, { status: 400 });
@@ -237,13 +267,18 @@ export async function PATCH(request: Request) {
     }
 
     const nowIso = new Date().toISOString();
-    const storeRes = await admin
-      .from("stores")
-      .update({ remind_time: remindTime, updated_at: nowIso })
-      .eq("id", storeId);
+    const storePayload: Record<string, string | boolean> = {
+      remind_time: remindTime,
+      updated_at: nowIso,
+    };
+    if (allowShiftSubmissionProvided) {
+      storePayload.allow_shift_submission = body.allow_shift_submission as boolean;
+    }
+
+    const storeRes = await admin.from("stores").update(storePayload).eq("id", storeId);
 
     if (storeRes.error) {
-      logPostgrestError("PATCH stores remind_time", storeRes.error);
+      logPostgrestError("PATCH stores", storeRes.error);
       if (isUndefinedColumnError(storeRes.error, "remind_time")) {
         console.warn(
           "[api/admin/settings] PATCH: stores.remind_time column missing; apply supabase/migrations/012_store_remind_time_and_claim.sql. reminder_config was saved."
@@ -256,9 +291,35 @@ export async function PATCH(request: Request) {
             "reminder_config は保存しましたが、stores.remind_time カラムがありません。マイグレーション 012 を Supabase に適用してください。",
         });
       }
+      if (isUndefinedColumnError(storeRes.error, "allow_shift_submission")) {
+        console.warn(
+          "[api/admin/settings] PATCH: allow_shift_submission column missing. reminder_config and remind_time may need separate migration."
+        );
+        const retry = await admin
+          .from("stores")
+          .update({ remind_time: remindTime, updated_at: nowIso })
+          .eq("id", storeId);
+        if (retry.error) {
+          return NextResponse.json(
+            {
+              error: "Failed to update store",
+              details: retry.error.message,
+              code: retry.error.code,
+            },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json({
+          ok: true,
+          remind_time: remindTime,
+          remind_time_persisted: true,
+          warning:
+            "その他の設定は保存しましたが、stores.allow_shift_submission カラムがありません。DB にカラムを追加してください。",
+        });
+      }
       return NextResponse.json(
         {
-          error: "Failed to update store remind_time",
+          error: "Failed to update store",
           details: storeRes.error.message,
           code: storeRes.error.code,
           hint: storeRes.error.hint,
@@ -271,6 +332,7 @@ export async function PATCH(request: Request) {
       ok: true,
       remind_time: remindTime,
       remind_time_persisted: true,
+      allow_shift_submission: allowShiftSubmissionProvided ? (body.allow_shift_submission as boolean) : undefined,
     });
   } catch (e) {
     logPostgrestError("PATCH unexpected", e);
