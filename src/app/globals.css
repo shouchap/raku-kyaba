@@ -47,3 +47,8 @@
     padding-right: env(safe-area-inset-right);
   }
 }
+
+/* 管理画面・ログイン共通: 読みやすいベース */
+body {
+  -webkit-tap-highlight-color: transparent;
+}

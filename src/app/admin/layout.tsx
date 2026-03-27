@@ -33,8 +33,8 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   if (!activeStoreId) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <p className="text-red-600 text-sm text-center max-w-md">
+      <div className="min-h-dvh flex items-center justify-center bg-slate-50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <p className="max-w-md text-center text-sm text-red-600">
           アクティブ店舗を特定できません。環境変数 NEXT_PUBLIC_DEFAULT_STORE_ID
           を設定するか、管理者に連絡してください。
         </p>
@@ -44,14 +44,14 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   return (
     <ActiveStoreProvider activeStoreId={activeStoreId}>
-      <div className="min-h-screen bg-gray-50">
+      <div className="flex min-h-dvh min-h-[100dvh] flex-col bg-slate-50 text-slate-900">
         <AdminNav
           stores={stores}
           activeStoreId={activeStoreId}
           isSuperAdmin={isSuperAdmin}
         />
-        <main className="py-4 sm:py-6 px-3 sm:px-4">
-          <div className="mx-auto max-w-4xl rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden min-h-[50vh]">
+        <main className="flex-1 w-full px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pt-6 lg:px-8 lg:pt-8">
+          <div className="mx-auto w-full max-w-6xl overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm sm:rounded-2xl min-h-[min(50vh,calc(100dvh-10rem))]">
             {children}
           </div>
         </main>
