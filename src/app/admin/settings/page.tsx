@@ -283,7 +283,7 @@ export default function AdminSettingsPage() {
             </select>
             <p className="text-xs text-gray-500 mt-2">
               設定した時刻（分は常に :00）の日本時間に、本日未送信の店舗だけが対象でリマインドが送信されます。保存すると店舗マスタに反映されます。
-              本番では毎時 GET /api/remind を呼ぶスケジューラが必要です（Vercel Pro なら crons で毎時可。Hobby は .github/workflows/remind-cron.yml の例を参照）。
+              本番では毎時 GET /api/remind を呼ぶスケジューラが必要です（例: Google Cloud Scheduler、Vercel Pro の crons など）。
             </p>
           </div>
 
