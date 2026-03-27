@@ -113,6 +113,39 @@ function logError(context: string, err: unknown): void {
   if (extra) console.error(`[Remind] ${context} details:`, extra);
 }
 
+type LineTokenSource = "store" | "env" | "none";
+
+/**
+ * DB のトークンが null / 空 / 空白のみなら必ず環境変数にフォールバック。
+ * ログにはトークン本体を出さず source と長さのみ。
+ */
+function resolveLineChannelAccessToken(
+  lineChannelAccessTokenFromDb: string | null | undefined
+): { token: string; source: LineTokenSource; storeRawLength: number } {
+  const raw = lineChannelAccessTokenFromDb;
+  const asString = raw == null ? "" : String(raw).trim();
+  const storeRawLength = raw == null ? 0 : String(raw).length;
+
+  if (asString.length > 0) {
+    return { token: asString, source: "store", storeRawLength };
+  }
+
+  const fromEnv = process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() ?? "";
+  if (fromEnv.length > 0) {
+    return { token: fromEnv, source: "env", storeRawLength };
+  }
+
+  return { token: "", source: "none", storeRawLength };
+}
+
+function logResolvedLineToken(storeId: string, resolved: ReturnType<typeof resolveLineChannelAccessToken>): void {
+  const envPresent = (process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() ?? "").length > 0;
+  console.log(
+    `[Remind] LINE channel access token storeId=${storeId} source=${resolved.source} ` +
+      `resolvedTokenLength=${resolved.token.length} storeColumnRawLength=${resolved.storeRawLength} env_LINE_CHANNEL_ACCESS_TOKEN_present=${envPresent}`
+  );
+}
+
 /** stores.remind_time（HH:00）から時（0〜23）を取得 */
 function parseRemindHourJst(remindTime: string | null | undefined): number | null {
   const s = String(remindTime ?? "").trim();
@@ -214,12 +247,16 @@ async function runRemindForStore(
     }
   }
 
-  const channelAccessToken =
-    (store.line_channel_access_token && String(store.line_channel_access_token).trim()) ||
-    process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() ||
-    "";
+  const resolvedToken = resolveLineChannelAccessToken(store.line_channel_access_token);
+  logResolvedLineToken(storeId, resolvedToken);
+  const channelAccessToken = resolvedToken.token;
   if (!channelAccessToken) {
-    logError(`LINE チャネルアクセストークンなし store=${storeId}`, new Error("missing token"));
+    logError(
+      `LINE チャネルアクセストークンなし store=${storeId}`,
+      new Error(
+        "stores.line_channel_access_token が空か未設定で、環境変数 LINE_CHANNEL_ACCESS_TOKEN も未設定です"
+      )
+    );
     return { storeId, skipped: "no_line_token", successCount: 0, failureCount: 0, totalCandidates: 0 };
   }
 
