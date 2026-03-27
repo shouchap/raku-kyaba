@@ -27,6 +27,19 @@ export function getTodayJst(): string {
 }
 
 /**
+ * JST の暦日 YYYY-MM-DD に日数を加算（日本の日付としての加算）。
+ * 正午 JST を基準にしてタイムゾーンずれを避ける。
+ */
+export function addCalendarDaysJst(ymd: string, delta: number): string {
+  const d = new Date(ymd + "T12:00:00+09:00");
+  d.setDate(d.getDate() + delta);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
  * 日本時間（JST）の現在の「時」（0〜23）を返す
  */
 export function getCurrentHourJst(): number {

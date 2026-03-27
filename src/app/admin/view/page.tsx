@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { toPng } from "html-to-image";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { getTodayJst } from "@/lib/date-utils";
+import { SubmitSuccessToast } from "./SubmitSuccessToast";
 
 /** 未返信アラートを出すまでの経過時間（時間） */
 const ALERT_HOURS = 6;
@@ -283,6 +285,9 @@ export default function AdminViewPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-4 sm:py-6 px-3 sm:px-6">
+      <Suspense fallback={null}>
+        <SubmitSuccessToast />
+      </Suspense>
       <div className="max-w-4xl mx-auto">
         <div className="mb-4 sm:mb-6">
           <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
@@ -299,13 +304,12 @@ export default function AdminViewPage() {
               シフト提出（プレビュー）
             </p>
             <div className="flex justify-center">
-              <a
-                href="#"
-                onClick={(e) => e.preventDefault()}
+              <Link
+                href={`/admin/view/submit?storeId=${encodeURIComponent(activeStoreId)}`}
                 className="inline-flex min-h-[48px] items-center justify-center rounded-xl bg-amber-600 px-6 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-amber-700 active:bg-amber-800 touch-manipulation"
               >
                 [開発中] 来週のシフトを提出する
-              </a>
+              </Link>
             </div>
           </div>
         )}

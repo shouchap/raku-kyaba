@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { headers } from "next/headers";
 import AdminNav from "@/components/AdminNav";
 import { ActiveStoreProvider } from "@/contexts/ActiveStoreContext";
 import { tryGetActiveStoreIdFromServerCookies } from "@/lib/current-store-server";
@@ -9,6 +10,17 @@ import { isSuperAdminUser } from "@/lib/super-admin";
 export const dynamic = "force-dynamic";
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
+  const h = await headers();
+  const pathname = h.get("x-pathname") ?? "";
+  /** パスワードなしのシフト提出（middleware でも公開）。ナビ・店舗 Cookie に依存しない */
+  if (pathname.startsWith("/admin/view/submit")) {
+    return (
+      <div className="min-h-dvh min-h-[100dvh] bg-slate-50 text-slate-900">
+        {children}
+      </div>
+    );
+  }
+
   const activeStoreId = await tryGetActiveStoreIdFromServerCookies();
 
   let stores: { id: string; name: string }[] = [];

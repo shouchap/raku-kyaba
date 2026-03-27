@@ -13,7 +13,13 @@ import { isSuperAdminUser } from "@/lib/super-admin";
  * - /: ログイン済み時は /admin/weekly へリダイレクト
  */
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  const pathname = request.nextUrl.pathname;
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-pathname", pathname);
+
+  let response = NextResponse.next({
+    request: { headers: requestHeaders },
+  });
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey =
@@ -41,30 +47,30 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const pathname = request.nextUrl.pathname;
-
-  // /admin 以下: 未ログインはトップへ
+  // /admin 以下: 未ログインはトップへ（パブリックなシフト提出のみ例外）
   if (pathname.startsWith("/admin")) {
-    if (!user) {
+    if (!user && !pathname.startsWith("/admin/view/submit")) {
       return NextResponse.redirect(new URL("/", request.url));
     }
 
-    // スーパー管理者専用: 店舗マスタ（許可リスト未設定時は制限なし）
-    if (pathname.startsWith("/admin/stores")) {
-      if (!isSuperAdminUser(user)) {
-        return NextResponse.redirect(new URL("/admin/weekly", request.url));
+    if (user) {
+      // スーパー管理者専用: 店舗マスタ（許可リスト未設定時は制限なし）
+      if (pathname.startsWith("/admin/stores")) {
+        if (!isSuperAdminUser(user)) {
+          return NextResponse.redirect(new URL("/admin/weekly", request.url));
+        }
       }
-    }
 
-    // 店長アカウント: user_metadata の店舗にテナント Cookie を同期（スーパー管理者はセレクター優先のため上書きしない）
-    if (!isSuperAdminUser(user)) {
-      const tenantId = getStoreAdminStoreIdFromUser(user);
-      if (tenantId) {
-        response.cookies.set(
-          ACTIVE_STORE_COOKIE_NAME,
-          tenantId,
-          getActiveStoreCookieOptions()
-        );
+      // 店長アカウント: user_metadata の店舗にテナント Cookie を同期（スーパー管理者はセレクター優先のため上書きしない）
+      if (!isSuperAdminUser(user)) {
+        const tenantId = getStoreAdminStoreIdFromUser(user);
+        if (tenantId) {
+          response.cookies.set(
+            ACTIVE_STORE_COOKIE_NAME,
+            tenantId,
+            getActiveStoreCookieOptions()
+          );
+        }
       }
     }
   }
