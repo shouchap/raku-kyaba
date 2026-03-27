@@ -47,6 +47,7 @@ function parsePostbackData(data: unknown): AttendancePostbackData | null {
  * LINE Webhook エンドポイント（本番環境・Vercel完全対応版）
  *
  * - 504タイムアウト防止: 必ず NextResponse.json({ message: "OK" }) を返す
+ * - マルチ店舗: `destination`（ボットユーザーID）で stores を引き、チャンネルシークレット・トークンを解決（無ければ環境変数へフォールバック）
  * - テキスト・ポストバック両対応: 出勤/欠勤/遅刻（「出勤」「遅刻」「欠勤」の完全一致テキスト含む）
  * - 遅刻・欠勤後の自由テキストは late_reason / absent_reason に保存（キャストへは無言）
  * - 日本時間: getTodayJst() で日付を正しく処理
@@ -58,6 +59,7 @@ app.post("*", async (c) => {
 
   try {
     console.log("[Webhook] リクエスト受信開始");
+    const supabase = createSupabaseClient();
 
     // -------------------------------------------------------------------------
     // 1. 生ボディの取得
@@ -72,25 +74,7 @@ app.post("*", async (c) => {
     }
 
     // -------------------------------------------------------------------------
-    // 2. 署名検証
-    // -------------------------------------------------------------------------
-    const signature = c.req.header("x-line-signature") ?? null;
-    const channelSecret = process.env.LINE_CHANNEL_SECRET;
-
-    if (!channelSecret) {
-      console.error("[Webhook] LINE_CHANNEL_SECRET 未設定");
-      return okResponse();
-    }
-
-    const isValid = await verifyLineSignature(rawBody, signature, channelSecret);
-    if (!isValid) {
-      console.warn("[Webhook] 署名検証失敗");
-      return c.json({ error: "Invalid signature" }, 401);
-    }
-    console.log("[Webhook] Step 1: 署名検証完了");
-
-    // -------------------------------------------------------------------------
-    // 3. ボディのパース
+    // 2. ボディのパース（destination 解決のため先にパース）
     // -------------------------------------------------------------------------
     let body: LineWebhookBody;
     try {
@@ -99,6 +83,54 @@ app.post("*", async (c) => {
       console.error("[Webhook] JSONパース失敗:", err);
       return okResponse();
     }
+
+    // -------------------------------------------------------------------------
+    // 3. 送信先ボットID（destination）で店舗の鍵を解決 → なければ環境変数
+    // -------------------------------------------------------------------------
+    const botUserId = body.destination?.trim() ?? "";
+    let channelSecret: string | undefined = process.env.LINE_CHANNEL_SECRET;
+    let channelAccessToken: string | undefined =
+      process.env.LINE_CHANNEL_ACCESS_TOKEN ?? undefined;
+
+    if (botUserId) {
+      const { data: storeData, error: storeLookupErr } = await supabase
+        .from("stores")
+        .select("line_channel_secret, line_channel_access_token")
+        .eq("line_bot_user_id", botUserId)
+        .maybeSingle();
+
+      if (storeLookupErr) {
+        console.warn("[Webhook] stores 参照エラー（環境変数へフォールバック）:", storeLookupErr.message);
+      }
+
+      const sec = storeData?.line_channel_secret?.trim();
+      const tok = storeData?.line_channel_access_token?.trim();
+      if (sec && tok) {
+        channelSecret = sec;
+        channelAccessToken = tok;
+        console.log(`[Webhook] ボットID ${botUserId} に紐づく店舗設定をDBから取得しました`);
+      } else {
+        console.log(
+          `[Webhook] ボットID ${botUserId} のDB設定が不完全なため環境変数へフォールバックします`
+        );
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. 署名検証（解決したシークレットで rawBody を検証）
+    // -------------------------------------------------------------------------
+    const signature = c.req.header("x-line-signature") ?? null;
+    if (!channelSecret?.trim()) {
+      console.error("[Webhook] チャンネルシークレットが取得できません（DB・環境変数とも）");
+      return okResponse();
+    }
+
+    const isValid = await verifyLineSignature(rawBody, signature, channelSecret);
+    if (!isValid) {
+      console.warn("[Webhook] 署名検証失敗");
+      return c.json({ error: "Invalid signature" }, 401);
+    }
+    console.log("[Webhook] 署名検証完了");
 
     const events = body.events;
     if (!events || !Array.isArray(events) || events.length === 0) {
@@ -109,13 +141,10 @@ app.post("*", async (c) => {
     console.log("[Webhook] イベント数:", events.length, "| 先頭イベントtype:", events[0]?.type ?? "(none)");
 
     // -------------------------------------------------------------------------
-    // 4. イベント処理
+    // 5. イベント処理
     // -------------------------------------------------------------------------
-    const supabase = createSupabaseClient();
-    const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN ?? undefined;
-
-    if (!channelAccessToken) {
-      console.error("[Webhook] LINE_CHANNEL_ACCESS_TOKEN 未設定");
+    if (!channelAccessToken?.trim()) {
+      console.error("[Webhook] LINE_CHANNEL_ACCESS_TOKEN が取得できません（DB・環境変数とも）");
     }
 
     for (let i = 0; i < events.length; i++) {
@@ -150,7 +179,7 @@ app.post("*", async (c) => {
       }
     }
 
-    console.log("[Webhook] Step 4: 全処理完了（レスポンス送信）");
+    console.log("[Webhook] 全処理完了（レスポンス送信）");
     return okResponse();
   } catch (err) {
     console.error("[Webhook] 予期しないエラー:", err);
