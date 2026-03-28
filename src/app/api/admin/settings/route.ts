@@ -1,12 +1,34 @@
 import { NextResponse } from "next/server";
+import type { User } from "@supabase/supabase-js";
 import { createServiceRoleClient } from "@/lib/supabase-service";
-import { isValidStoreId } from "@/lib/current-store";
+import { isValidStoreId, parseActiveStoreIdFromCookieHeader } from "@/lib/current-store";
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
+import { isSuperAdminUser } from "@/lib/super-admin";
 import { isUndefinedColumnError, logPostgrestError } from "@/lib/postgrest-error";
 
 export const dynamic = "force-dynamic";
 
 const REMIND_TIME_RE = /^([01][0-9]|2[0-3]):00$/;
+
+/**
+ * 店長など: リクエストの storeId は Cookie のアクティブ店舗と一致すること（UI と API のテナントずれ防止）
+ * スーパー管理者は店舗切替のため query/body の storeId をそのまま許可
+ */
+function storeIdForbiddenUnlessMatchesCookie(
+  request: Request,
+  user: User,
+  storeId: string
+): NextResponse | null {
+  if (isSuperAdminUser(user)) return null;
+  const cookieStoreId = parseActiveStoreIdFromCookieHeader(request.headers.get("cookie"));
+  if (cookieStoreId && storeId !== cookieStoreId) {
+    return NextResponse.json(
+      { error: "storeId must match active store (cookie)" },
+      { status: 403 }
+    );
+  }
+  return null;
+}
 
 function serviceRoleEnvErrorResponse(): NextResponse {
   const hasUrl = Boolean(
@@ -43,6 +65,9 @@ export async function GET(request: Request) {
   if (!canUserEditStore(user, storeId)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const getCookieMismatch = storeIdForbiddenUnlessMatchesCookie(request, user, storeId);
+  if (getCookieMismatch) return getCookieMismatch;
 
   if (
     !(process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim() ||
@@ -168,7 +193,7 @@ type PatchBody = {
  * 店舗の remind_time と reminder_config を一括保存（サービスロール）
  * PATCH /api/admin/settings
  *
- * 1) system_settings を先に upsert（マイグレーション 011 前提）
+ * 1) system_settings は (store_id, key) 単位で SELECT → UPDATE / INSERT（一意制約の差異で upsert が失敗するのを避ける）
  * 2) stores.remind_time を更新（012 未適用なら警告ログのうえ reminder_config のみ成功として返す）
  */
 export async function PATCH(request: Request) {
@@ -210,6 +235,9 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const patchCookieMismatch = storeIdForbiddenUnlessMatchesCookie(request, user, storeId);
+  if (patchCookieMismatch) return patchCookieMismatch;
+
   if (
     !(process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim() ||
     !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
@@ -244,29 +272,66 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const settingsRes = await admin.from("system_settings").upsert(
-      {
-        store_id: storeId,
-        key: "reminder_config",
-        value: valueJson,
-      },
-      { onConflict: "store_id,key" }
-    );
+    const nowIso = new Date().toISOString();
 
-    if (settingsRes.error) {
-      logPostgrestError("PATCH system_settings upsert", settingsRes.error);
+    const { data: existingRow, error: existingErr } = await admin
+      .from("system_settings")
+      .select("id")
+      .eq("store_id", storeId)
+      .eq("key", "reminder_config")
+      .maybeSingle();
+
+    if (existingErr) {
+      logPostgrestError("PATCH system_settings select", existingErr);
       return NextResponse.json(
         {
-          error: "Failed to save reminder_config",
-          details: settingsRes.error.message,
-          code: settingsRes.error.code,
-          hint: settingsRes.error.hint,
+          error: "Failed to load reminder_config row",
+          details: existingErr.message,
+          code: existingErr.code,
         },
         { status: 500 }
       );
     }
 
-    const nowIso = new Date().toISOString();
+    if (existingRow?.id) {
+      const { error: updateErr } = await admin
+        .from("system_settings")
+        .update({ value: valueJson, updated_at: nowIso })
+        .eq("id", existingRow.id);
+
+      if (updateErr) {
+        logPostgrestError("PATCH system_settings update", updateErr);
+        return NextResponse.json(
+          {
+            error: "Failed to save reminder_config",
+            details: updateErr.message,
+            code: updateErr.code,
+            hint: updateErr.hint,
+          },
+          { status: 500 }
+        );
+      }
+    } else {
+      const { error: insertErr } = await admin.from("system_settings").insert({
+        store_id: storeId,
+        key: "reminder_config",
+        value: valueJson,
+      });
+
+      if (insertErr) {
+        logPostgrestError("PATCH system_settings insert", insertErr);
+        return NextResponse.json(
+          {
+            error: "Failed to save reminder_config",
+            details: insertErr.message,
+            code: insertErr.code,
+            hint: insertErr.hint,
+          },
+          { status: 500 }
+        );
+      }
+    }
+
     const storePayload: Record<string, string | boolean> = {
       remind_time: remindTime,
       updated_at: nowIso,
