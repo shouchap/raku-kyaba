@@ -34,6 +34,16 @@ const RESERVATION_DETAIL_EMPTY_TEXT =
 const ATTENDING_ALREADY_DONE_REPLY =
   "既に出勤連絡を受け付けています。本日もよろしくお願い致します。";
 
+/** 理由・予約まで完了した後の追記テキスト用（DB 更新・管理者通知は行わない） */
+const COMPLETED_FOLLOWUP_REPLY =
+  "本日の連絡は既に受付済みです。追加の連絡や時間変更の相談がある場合は、このシステムではなく、店舗（店長）のLINEへ直接ご連絡ください🙇‍♀️";
+
+/** 出勤コマンド等はフォールバックで消費せず後段の Postback 相当処理へ */
+function isAttendanceCommandText(text: string): boolean {
+  const t = String(text ?? "").trim();
+  return t === "出勤" || t === "欠勤" || t === "遅刻" || t === "公休" || t === "半休";
+}
+
 export const PENDING_RESERVATION_ASK = "reservation_ask";
 export const PENDING_RESERVATION_DETAIL = "reservation_detail";
 
@@ -175,6 +185,8 @@ type ScheduleReasonRow = {
   absent_reason: string | null;
   public_holiday_reason: string | null;
   half_holiday_reason: string | null;
+  pending_line_flow?: string | null;
+  is_action_completed?: boolean | null;
   updated_at: string | null;
   created_at: string | null;
 };
@@ -276,6 +288,58 @@ export async function tryHandleReservationDetailText(
 /**
  * 来客の有無を聞く段階で自由テキストが来た場合、クイックリプライを再提示する。
  */
+/**
+ * 本日分の受付が完了済み（理由・予約ヒアリングも終了）のあと送られたテキストへ、店長直接連絡を案内するのみ。
+ * DB の上書き・管理者通知は行わない。
+ */
+export async function tryHandleCompletedFollowupText(
+  lineUserId: string,
+  rawText: string,
+  supabase: ReturnType<typeof createSupabaseClient>,
+  replyToken: string | undefined,
+  channelAccessToken: string | undefined
+): Promise<boolean> {
+  const t = String(rawText ?? "").trim();
+  if (!t) return false;
+  if (isAttendanceCommandText(t)) return false;
+
+  const tenantStoreId = getDefaultStoreIdOrNull();
+  if (!tenantStoreId || !replyToken || !channelAccessToken) return false;
+
+  const { data: cast } = await supabase
+    .from("casts")
+    .select("id, store_id")
+    .eq("line_user_id", lineUserId)
+    .eq("store_id", tenantStoreId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (!cast) return false;
+
+  const todayJst = getTodayJst();
+  const { data: row } = await supabase
+    .from("attendance_schedules")
+    .select(
+      "id, is_absent, is_late, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, pending_line_flow, is_action_completed"
+    )
+    .eq("store_id", cast.store_id)
+    .eq("cast_id", cast.id)
+    .eq("scheduled_date", todayJst)
+    .maybeSingle();
+
+  if (!row?.id) return false;
+
+  const sched = row as ScheduleReasonRow;
+
+  if (sched.pending_line_flow) return false;
+  if (!sched.response_status) return false;
+  if (rowNeedsReasonInput(sched)) return false;
+  if (sched.is_action_completed !== true) return false;
+
+  await sendReply(replyToken, channelAccessToken, [{ type: "text", text: COMPLETED_FOLLOWUP_REPLY }]);
+  return true;
+}
+
 export async function tryHandleReservationAskInvalidText(
   lineUserId: string,
   rawText: string,
@@ -344,7 +408,7 @@ export async function tryHandleLateAbsentReasonText(
     const { data: scheduleRows, error: schedErr } = await supabase
       .from("attendance_schedules")
       .select(
-        "id, is_absent, is_late, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, updated_at, created_at"
+        "id, is_absent, is_late, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, pending_line_flow, is_action_completed, updated_at, created_at"
       )
       .eq("store_id", cast.store_id)
       .eq("cast_id", cast.id)
@@ -370,6 +434,10 @@ export async function tryHandleLateAbsentReasonText(
     });
 
     const schedule = candidates[0];
+    if (!rowNeedsReasonInput(schedule)) {
+      return false;
+    }
+
     const reasonKind = pickReasonKind(schedule);
     const text = String(rawText ?? "").trim();
     if (!text) return true;
@@ -381,6 +449,9 @@ export async function tryHandleLateAbsentReasonText(
 
     const updates: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
+      pending_line_flow: null,
+      pending_line_updated_at: null,
+      is_action_completed: true,
     };
 
     if (reasonKind === "absent") updates.absent_reason = text;

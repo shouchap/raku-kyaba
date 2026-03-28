@@ -18,6 +18,7 @@ import {
   tryHandleLateAbsentReasonText,
   tryHandleReservationDetailText,
   tryHandleReservationAskInvalidText,
+  tryHandleCompletedFollowupText,
 } from "@/lib/line-webhook-attendance";
 
 const app = new Hono();
@@ -261,6 +262,17 @@ async function processWebhookEvent(
         );
 
         if (consumedAsReason) {
+          break;
+        }
+
+        const consumedCompletedFollowup = await tryHandleCompletedFollowupText(
+          userId,
+          text,
+          supabase,
+          messageEvent.replyToken,
+          channelAccessToken
+        );
+        if (consumedCompletedFollowup) {
           break;
         }
 
