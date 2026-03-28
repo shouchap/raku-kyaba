@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/remind/pre-open-report",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
