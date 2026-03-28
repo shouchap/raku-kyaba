@@ -9,6 +9,9 @@ const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => {
   return `${hh}:00`;
 });
 
+/** 営業前サマリー送信 JST 時（stores.pre_open_report_hour_jst）。空文字は NULL（送信しない） */
+const PRE_OPEN_HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => h);
+
 type ReminderConfig = {
   enabled: boolean;
   messageTemplate: string;
@@ -54,6 +57,8 @@ export default function AdminSettingsPage() {
   const [allowShiftSubmission, setAllowShiftSubmission] = useState(false);
   const [enablePublicHoliday, setEnablePublicHoliday] = useState(false);
   const [enableHalfHoliday, setEnableHalfHoliday] = useState(false);
+  /** 空文字 = 送信しない（NULL）、"0"〜"23" = その時台に送信 */
+  const [preOpenReportHourJst, setPreOpenReportHourJst] = useState("");
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -69,6 +74,7 @@ export default function AdminSettingsPage() {
       const data = (await res.json()) as {
         remind_time?: string;
         allow_shift_submission?: boolean;
+        pre_open_report_hour_jst?: number | null;
         enable_public_holiday?: boolean;
         enable_half_holiday?: boolean;
         reminder_config?: Record<string, unknown>;
@@ -83,6 +89,13 @@ export default function AdminSettingsPage() {
       setAllowShiftSubmission(data.allow_shift_submission === true);
       setEnablePublicHoliday(data.enable_public_holiday === true);
       setEnableHalfHoliday(data.enable_half_holiday === true);
+
+      const p = data.pre_open_report_hour_jst;
+      if (typeof p === "number" && Number.isInteger(p) && p >= 0 && p <= 23) {
+        setPreOpenReportHourJst(String(p));
+      } else {
+        setPreOpenReportHourJst("");
+      }
 
       const v = data.reminder_config;
       if (v && typeof v === "object" && !Array.isArray(v)) {
@@ -162,6 +175,8 @@ export default function AdminSettingsPage() {
           allow_shift_submission: allowShiftSubmission,
           enable_public_holiday: enablePublicHoliday,
           enable_half_holiday: enableHalfHoliday,
+          pre_open_report_hour_jst:
+            preOpenReportHourJst === "" ? null : parseInt(preOpenReportHourJst, 10),
         }),
       });
 
@@ -343,6 +358,32 @@ export default function AdminSettingsPage() {
             </label>
             <p className="text-xs text-gray-500 mt-2 pl-8">
               どちらもオフの場合は、出勤・遅刻・欠勤の3ボタンのみが表示されます。業態に合わせて店舗ごとに設定してください。
+            </p>
+          </div>
+
+          <div className="mb-8 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-4">
+            <h3 className="text-sm font-medium text-gray-800 mb-3">営業前サマリー（日報）</h3>
+            <label
+              htmlFor="preOpenReportHour"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              送信時刻（日本時間）
+            </label>
+            <select
+              id="preOpenReportHour"
+              value={preOpenReportHourJst}
+              onChange={(e) => setPreOpenReportHourJst(e.target.value)}
+              className="w-full max-w-xs min-h-[48px] px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            >
+              <option value="">送信しない</option>
+              {PRE_OPEN_HOUR_OPTIONS.map((h) => (
+                <option key={h} value={String(h)}>
+                  {h}時
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-2">
+              選択した時刻（毎時0分・JST）に営業前サマリーが送信されるようスケジューラ側で処理されます。「送信しない」の場合は店舗マスタ上は未設定（NULL）です。
             </p>
           </div>
 

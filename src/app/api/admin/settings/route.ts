@@ -11,6 +11,12 @@ export const dynamic = "force-dynamic";
 const REMIND_TIME_RE = /^([01][0-9]|2[0-3]):00$/;
 const REMINDER_CONFIG_KEY = "reminder_config" as const;
 
+function parsePreOpenReportHourJst(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 23) return v;
+  return null;
+}
+
 /**
  * 店長など: リクエストの storeId は Cookie のアクティブ店舗と一致すること（UI と API のテナントずれ防止）
  * スーパー管理者は店舗切替のため query/body の storeId をそのまま許可
@@ -147,18 +153,70 @@ export async function GET(request: Request) {
       settingsRow = fullSettings.data as typeof settingsRow;
     }
 
-    /** remind_time / allow_shift_submission（カラム未適用時はフォールバック） */
+    /** remind_time / allow_shift_submission / pre_open_report_hour_jst（カラム未適用時はフォールバック） */
     let remindTime = "07:00";
     let allowShiftSubmission = false;
+    let preOpenReportHourJst: number | null = null;
+
     const storeRes = await admin
       .from("stores")
-      .select("remind_time, allow_shift_submission")
+      .select("remind_time, allow_shift_submission, pre_open_report_hour_jst")
       .eq("id", storeId)
       .maybeSingle();
 
     if (storeRes.error) {
       logPostgrestError("GET stores columns", storeRes.error);
-      if (
+      if (isUndefinedColumnError(storeRes.error, "pre_open_report_hour_jst")) {
+        const withoutPreOpen = await admin
+          .from("stores")
+          .select("remind_time, allow_shift_submission")
+          .eq("id", storeId)
+          .maybeSingle();
+        if (withoutPreOpen.error) {
+          logPostgrestError("GET stores (no pre_open)", withoutPreOpen.error);
+          if (
+            isUndefinedColumnError(withoutPreOpen.error, "remind_time") ||
+            isUndefinedColumnError(withoutPreOpen.error, "allow_shift_submission")
+          ) {
+            const fallback = await admin.from("stores").select("remind_time").eq("id", storeId).maybeSingle();
+            if (fallback.error && !isUndefinedColumnError(fallback.error, "remind_time")) {
+              return NextResponse.json(
+                {
+                  error: "Failed to load store",
+                  details: fallback.error.message,
+                  code: fallback.error.code,
+                },
+                { status: 500 }
+              );
+            }
+            const rt = (fallback.data as { remind_time?: string } | null)?.remind_time;
+            if (typeof rt === "string" && rt.trim()) remindTime = rt.trim();
+            console.warn(
+              "[api/admin/settings] GET: stores.pre_open_report_hour_jst 未適用。他カラムも一部不足の可能性あり。"
+            );
+          } else {
+            return NextResponse.json(
+              {
+                error: "Failed to load store",
+                details: withoutPreOpen.error.message,
+                code: withoutPreOpen.error.code,
+              },
+              { status: 500 }
+            );
+          }
+        } else {
+          const row = withoutPreOpen.data as {
+            remind_time?: string | null;
+            allow_shift_submission?: boolean | null;
+          } | null;
+          const rt = row?.remind_time;
+          if (typeof rt === "string" && rt.trim()) remindTime = rt.trim();
+          allowShiftSubmission = row?.allow_shift_submission === true;
+          console.warn(
+            "[api/admin/settings] GET: stores.pre_open_report_hour_jst 未適用。営業前サマリー時刻は null として返します。"
+          );
+        }
+      } else if (
         isUndefinedColumnError(storeRes.error, "remind_time") ||
         isUndefinedColumnError(storeRes.error, "allow_shift_submission")
       ) {
@@ -192,15 +250,18 @@ export async function GET(request: Request) {
       const row = storeRes.data as {
         remind_time?: string | null;
         allow_shift_submission?: boolean | null;
+        pre_open_report_hour_jst?: number | null;
       } | null;
       const rt = row?.remind_time;
       if (typeof rt === "string" && rt.trim()) remindTime = rt.trim();
       allowShiftSubmission = row?.allow_shift_submission === true;
+      preOpenReportHourJst = parsePreOpenReportHourJst(row?.pre_open_report_hour_jst);
     }
 
     return NextResponse.json({
       remind_time: remindTime,
       allow_shift_submission: allowShiftSubmission,
+      pre_open_report_hour_jst: preOpenReportHourJst,
       enable_public_holiday: settingsRow?.enable_public_holiday === true,
       enable_half_holiday: settingsRow?.enable_half_holiday === true,
       reminder_config:
@@ -226,6 +287,8 @@ type PatchBody = {
   reminder_config?: Record<string, unknown>;
   /** 未指定の場合は DB の allow_shift_submission を更新しない */
   allow_shift_submission?: boolean;
+  /** 未指定の場合は stores.pre_open_report_hour_jst を更新しない。null は送信しない（NULL） */
+  pre_open_report_hour_jst?: number | null;
   /** 未指定の場合は system_settings の該当カラムを更新しない（016 未適用時は無視） */
   enable_public_holiday?: boolean;
   enable_half_holiday?: boolean;
@@ -259,9 +322,22 @@ export async function PATCH(request: Request) {
   const remindTime = body.remind_time?.trim() ?? "";
   const reminderConfig = body.reminder_config;
   const allowShiftSubmissionProvided = typeof body.allow_shift_submission === "boolean";
+  const preOpenReportHourProvided = Object.prototype.hasOwnProperty.call(
+    body,
+    "pre_open_report_hour_jst"
+  );
 
   if (!storeId || !isValidStoreId(storeId)) {
     return NextResponse.json({ error: "Valid storeId is required" }, { status: 400 });
+  }
+  if (preOpenReportHourProvided) {
+    const v = body.pre_open_report_hour_jst;
+    if (v !== null && (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 23)) {
+      return NextResponse.json(
+        { error: "pre_open_report_hour_jst must be null or an integer 0–23" },
+        { status: 400 }
+      );
+    }
   }
   if (!REMIND_TIME_RE.test(remindTime)) {
     return NextResponse.json(
@@ -430,18 +506,70 @@ export async function PATCH(request: Request) {
       }
     }
 
-    const storePayload: Record<string, string | boolean> = {
+    const storePayload: Record<string, string | boolean | number | null> = {
       remind_time: remindTime,
       updated_at: nowIso,
     };
     if (allowShiftSubmissionProvided) {
       storePayload.allow_shift_submission = body.allow_shift_submission as boolean;
     }
+    if (preOpenReportHourProvided) {
+      storePayload.pre_open_report_hour_jst = body.pre_open_report_hour_jst as number | null;
+    }
 
     const storeRes = await admin.from("stores").update(storePayload).eq("id", storeId);
 
     if (storeRes.error) {
       logPostgrestError("PATCH stores", storeRes.error);
+      if (preOpenReportHourProvided && isUndefinedColumnError(storeRes.error, "pre_open_report_hour_jst")) {
+        console.warn(
+          "[api/admin/settings] PATCH: stores.pre_open_report_hour_jst 未適用。他項目のみ再試行します。"
+        );
+        const retryPayload: Record<string, string | boolean | number | null> = {
+          remind_time: remindTime,
+          updated_at: nowIso,
+        };
+        if (allowShiftSubmissionProvided) {
+          retryPayload.allow_shift_submission = body.allow_shift_submission as boolean;
+        }
+        const retryRes = await admin.from("stores").update(retryPayload).eq("id", storeId);
+        if (retryRes.error) {
+          logPostgrestError("PATCH stores retry without pre_open", retryRes.error);
+          if (isUndefinedColumnError(retryRes.error, "remind_time")) {
+            console.warn(
+              "[api/admin/settings] PATCH: stores.remind_time column missing; apply supabase/migrations/012_store_remind_time_and_claim.sql. reminder_config was saved."
+            );
+            return NextResponse.json({
+              ok: true,
+              remind_time: remindTime,
+              remind_time_persisted: false,
+              warning:
+                "reminder_config は保存しましたが、stores.remind_time カラムがありません。マイグレーション 012 を Supabase に適用してください。",
+            });
+          }
+          return NextResponse.json(
+            {
+              error: "Failed to update store",
+              details: retryRes.error.message,
+              code: retryRes.error.code,
+              hint: retryRes.error.hint,
+            },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json({
+          ok: true,
+          remind_time: remindTime,
+          remind_time_persisted: true,
+          allow_shift_submission: allowShiftSubmissionProvided
+            ? (body.allow_shift_submission as boolean)
+            : undefined,
+          pre_open_report_hour_jst: body.pre_open_report_hour_jst as number | null,
+          pre_open_report_hour_persisted: false,
+          warning:
+            "その他の設定は保存しましたが、stores.pre_open_report_hour_jst カラムがありません。マイグレーションを適用してください。",
+        });
+      }
       if (isUndefinedColumnError(storeRes.error, "remind_time")) {
         console.warn(
           "[api/admin/settings] PATCH: stores.remind_time column missing; apply supabase/migrations/012_store_remind_time_and_claim.sql. reminder_config was saved."
@@ -458,10 +586,14 @@ export async function PATCH(request: Request) {
         console.warn(
           "[api/admin/settings] PATCH: allow_shift_submission column missing. reminder_config and remind_time may need separate migration."
         );
-        const retry = await admin
-          .from("stores")
-          .update({ remind_time: remindTime, updated_at: nowIso })
-          .eq("id", storeId);
+        const retryPayloadNoAllow: Record<string, string | number | null> = {
+          remind_time: remindTime,
+          updated_at: nowIso,
+        };
+        if (preOpenReportHourProvided) {
+          retryPayloadNoAllow.pre_open_report_hour_jst = body.pre_open_report_hour_jst as number | null;
+        }
+        const retry = await admin.from("stores").update(retryPayloadNoAllow).eq("id", storeId);
         if (retry.error) {
           return NextResponse.json(
             {
@@ -476,6 +608,9 @@ export async function PATCH(request: Request) {
           ok: true,
           remind_time: remindTime,
           remind_time_persisted: true,
+          pre_open_report_hour_jst: preOpenReportHourProvided
+            ? (body.pre_open_report_hour_jst as number | null)
+            : undefined,
           warning:
             "その他の設定は保存しましたが、stores.allow_shift_submission カラムがありません。DB にカラムを追加してください。",
         });
@@ -496,6 +631,9 @@ export async function PATCH(request: Request) {
       remind_time: remindTime,
       remind_time_persisted: true,
       allow_shift_submission: allowShiftSubmissionProvided ? (body.allow_shift_submission as boolean) : undefined,
+      pre_open_report_hour_jst: preOpenReportHourProvided
+        ? (body.pre_open_report_hour_jst as number | null)
+        : undefined,
     });
   } catch (e) {
     logPostgrestError("PATCH unexpected", e);
