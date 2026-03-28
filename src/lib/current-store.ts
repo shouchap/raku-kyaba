@@ -4,12 +4,34 @@
  * - ブラウザ Cookie `raku_active_store_id`（スーパー管理者の切り替え）
  * - 未設定時は `NEXT_PUBLIC_DEFAULT_STORE_ID`
  *
+ * LINE Webhook など「リクエストごとに店舗が決まる」サーバー処理では
+ * `runWithWebhookStoreContext(storeId, fn)` で囲み、
+ * `getDefaultStoreIdOrNull()` がその店舗 ID を返すようにできる（環境変数より優先）。
+ *
  * サーバー（Route Handler / Middleware）では `resolveActiveStoreIdFromRequest` または
  * `getActiveStoreIdFromServerCookies` を使用。クライアントでは ActiveStoreContext の
  * `useActiveStoreId()` を使用。
  */
 
+import { AsyncLocalStorage } from "async_hooks";
+
 export const ACTIVE_STORE_COOKIE_NAME = "raku_active_store_id";
+
+/** LINE Webhook 処理中のみ: この文脈の storeId が getDefaultStoreIdOrNull() を上書きする */
+type WebhookStoreOverride = { storeId: string | null };
+
+export const webhookStoreContext = new AsyncLocalStorage<WebhookStoreOverride>();
+
+/**
+ * Webhook ハンドラ内で、destination に対応する店舗 ID を `getDefaultStoreIdOrNull()` に反映する。
+ * @param storeId DB で解決した店舗 UUID。null のときは上書きせず従来どおり環境変数のみ。
+ */
+export function runWithWebhookStoreContext<T>(
+  storeId: string | null,
+  fn: () => Promise<T>
+): Promise<T> {
+  return webhookStoreContext.run({ storeId }, fn);
+}
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -18,8 +40,16 @@ export function isValidStoreId(value: string | null | undefined): value is strin
   return !!value && UUID_RE.test(String(value).trim());
 }
 
-/** 環境変数のみ（Cookie なし）。ビルド時に埋め込まれる */
+/**
+ * デフォルト店舗 ID（Cookie なし）。
+ * - `runWithWebhookStoreContext` 内では、引数で渡した店舗 ID を最優先（マルチテナント Webhook 用）
+ * - それ以外は `NEXT_PUBLIC_DEFAULT_STORE_ID`
+ */
 export function getDefaultStoreIdOrNull(): string | null {
+  const ctx = webhookStoreContext.getStore();
+  if (ctx != null && ctx.storeId != null && isValidStoreId(ctx.storeId)) {
+    return ctx.storeId;
+  }
   const id = process.env.NEXT_PUBLIC_DEFAULT_STORE_ID?.trim();
   return id && id.length > 0 ? id : null;
 }

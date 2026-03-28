@@ -5,7 +5,7 @@ import { verifyLineSignature } from "@/lib/line-signature";
 import { sendReply, sendMulticastMessage } from "@/lib/line-reply";
 import { createSupabaseClient } from "@/lib/supabase";
 import { getTodayJst } from "@/lib/date-utils";
-import { getDefaultStoreIdOrNull } from "@/lib/current-store";
+import { getDefaultStoreIdOrNull, runWithWebhookStoreContext } from "@/lib/current-store";
 import type {
   LineWebhookBody,
   LineMessageEvent,
@@ -88,6 +88,8 @@ app.post("*", async (c) => {
     // 3. 送信先ボットID（destination）で店舗の鍵を解決 → なければ環境変数
     // -------------------------------------------------------------------------
     const botUserId = body.destination?.trim() ?? "";
+    /** destination に対応する店舗（マルチテナントでキャスト解決に使用） */
+    let resolvedStoreId: string | null = null;
     let channelSecret: string | undefined = process.env.LINE_CHANNEL_SECRET;
     let channelAccessToken: string | undefined =
       process.env.LINE_CHANNEL_ACCESS_TOKEN ?? undefined;
@@ -95,12 +97,17 @@ app.post("*", async (c) => {
     if (botUserId) {
       const { data: storeData, error: storeLookupErr } = await supabase
         .from("stores")
-        .select("line_channel_secret, line_channel_access_token")
+        .select("id, line_channel_secret, line_channel_access_token")
         .eq("line_bot_user_id", botUserId)
         .maybeSingle();
 
       if (storeLookupErr) {
         console.warn("[Webhook] stores 参照エラー（環境変数へフォールバック）:", storeLookupErr.message);
+      }
+
+      resolvedStoreId = storeData?.id ?? null;
+      if (resolvedStoreId) {
+        console.log(`[Webhook] destination に対応する store_id=${resolvedStoreId}`);
       }
 
       const sec = storeData?.line_channel_secret?.trim();
@@ -147,37 +154,39 @@ app.post("*", async (c) => {
       console.error("[Webhook] LINE_CHANNEL_ACCESS_TOKEN が取得できません（DB・環境変数とも）");
     }
 
-    for (let i = 0; i < events.length; i++) {
-      const event = events[i];
-      const eventType = event?.type ?? "(unknown)";
-      const webhookId = event?.webhookEventId ?? `idx-${i}`;
+    await runWithWebhookStoreContext(resolvedStoreId, async () => {
+      for (let i = 0; i < events.length; i++) {
+        const event = events[i];
+        const eventType = event?.type ?? "(unknown)";
+        const webhookId = event?.webhookEventId ?? `idx-${i}`;
 
-      console.log(`[Webhook] Event[${i}] type=${eventType} webhookEventId=${webhookId}`);
+        console.log(`[Webhook] Event[${i}] type=${eventType} webhookEventId=${webhookId}`);
 
-      if (!event || typeof event.type !== "string") {
-        console.warn("[Webhook] 不正なイベントをスキップ:", JSON.stringify(event));
-        continue;
-      }
+        if (!event || typeof event.type !== "string") {
+          console.warn("[Webhook] 不正なイベントをスキップ:", JSON.stringify(event));
+          continue;
+        }
 
-      try {
-        await processWebhookEvent(event, body.destination, supabase, channelAccessToken);
-      } catch (err) {
-        console.error("[Webhook] イベント処理エラー:", webhookId, err);
+        try {
+          await processWebhookEvent(event, body.destination, supabase, channelAccessToken);
+        } catch (err) {
+          console.error("[Webhook] イベント処理エラー:", webhookId, err);
 
-        // エラー時もユーザーに返信を試みる
-        const replyToken = (event as { replyToken?: string }).replyToken;
-        if (replyToken && channelAccessToken) {
-          try {
-            await sendReply(replyToken, channelAccessToken, [
-              { type: "text", text: ERROR_REPLY },
-            ]);
-            console.log("[Webhook] エラー返信を送信");
-          } catch (replyErr) {
-            console.error("[Webhook] エラー返信も失敗:", replyErr);
+          // エラー時もユーザーに返信を試みる
+          const replyToken = (event as { replyToken?: string }).replyToken;
+          if (replyToken && channelAccessToken) {
+            try {
+              await sendReply(replyToken, channelAccessToken, [
+                { type: "text", text: ERROR_REPLY },
+              ]);
+              console.log("[Webhook] エラー返信を送信");
+            } catch (replyErr) {
+              console.error("[Webhook] エラー返信も失敗:", replyErr);
+            }
           }
         }
       }
-    }
+    });
 
     console.log("[Webhook] 全処理完了（レスポンス送信）");
     return okResponse();
@@ -190,6 +199,8 @@ app.post("*", async (c) => {
 /**
  * 単一Webhookイベントの処理
  * - ポストバック（ボタンタップ）とテキストメッセージの両方で出勤/欠勤/遅刻に対応
+ * - キャストは line_user_id + store_id で特定（同一LINEユーザーが複数店舗に所属可能。DB は UNIQUE(store_id, line_user_id)）
+ * - store_id は親ハンドラの runWithWebhookStoreContext(destination→stores.id) により getDefaultStoreIdOrNull() から解決
  */
 async function processWebhookEvent(
   event: LineWebhookBody["events"][number],
@@ -417,8 +428,7 @@ async function handleFollowEvent(
   const { displayName } = await getLineProfile(lineUserId, channelAccessToken);
   console.log("[Follow] プロフィール取得成功 displayName:", displayName);
 
-  const fromEnv = getDefaultStoreIdOrNull();
-  let storeId: string | null = fromEnv;
+  let storeId: string | null = getDefaultStoreIdOrNull();
   if (!storeId) {
     const { data: firstStore } = await supabase
       .from("stores")
@@ -579,12 +589,18 @@ async function tryHandleLateAbsentReasonText(
       utcNow,
     });
 
+    const tenantStoreId = getDefaultStoreIdOrNull();
+    if (!tenantStoreId) {
+      console.log("[Reason] 店舗IDを解決できないため理由モードをスキップ");
+      return false;
+    }
+
     const { data: cast, error: castError } = await supabase
       .from("casts")
       .select("id, store_id, name")
       .eq("line_user_id", lineUserId)
+      .eq("store_id", tenantStoreId)
       .eq("is_active", true)
-      .limit(1)
       .maybeSingle();
 
     if (castError) {
@@ -761,12 +777,19 @@ async function handleAttendanceResponse(
   try {
     console.log("[Attendance] 処理開始 lineUserId:", lineUserId, "status:", statusData);
 
+    const tenantStoreId = getDefaultStoreIdOrNull();
+    if (!tenantStoreId) {
+      console.warn("[Attendance] 店舗IDを解決できません（Webhook の destination または NEXT_PUBLIC_DEFAULT_STORE_ID）");
+      await safeReply(ERROR_REPLY);
+      return;
+    }
+
     const { data: cast, error: castError } = await supabase
       .from("casts")
       .select("id, store_id, name")
       .eq("line_user_id", lineUserId)
+      .eq("store_id", tenantStoreId)
       .eq("is_active", true)
-      .limit(1)
       .maybeSingle();
 
     if (castError) {
@@ -776,7 +799,7 @@ async function handleAttendanceResponse(
     }
 
     if (!cast) {
-      console.warn("[Attendance] キャスト未登録 lineUserId:", lineUserId);
+      console.warn("[Attendance] キャスト未登録 lineUserId:", lineUserId, "store_id:", tenantStoreId);
       await safeReply(CAST_NOT_FOUND_REPLY);
       return;
     }
