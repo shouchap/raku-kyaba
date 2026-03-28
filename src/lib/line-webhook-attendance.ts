@@ -34,10 +34,6 @@ const RESERVATION_DETAIL_EMPTY_TEXT =
 const ATTENDING_ALREADY_DONE_REPLY =
   "既に出勤連絡を受け付けています。本日もよろしくお願い致します。";
 
-/** 理由・予約まで完了した後の追記テキスト用（DB 更新・管理者通知は行わない） */
-const COMPLETED_FOLLOWUP_REPLY =
-  "本日の連絡は既に受付済みです。追加の連絡や時間変更の相談がある場合は、このシステムではなく、店舗（店長）のLINEへ直接ご連絡ください🙇‍♀️";
-
 /** 出勤コマンド等はフォールバックで消費せず後段の Postback 相当処理へ */
 function isAttendanceCommandText(text: string): boolean {
   const t = String(text ?? "").trim();
@@ -289,14 +285,14 @@ export async function tryHandleReservationDetailText(
  * 来客の有無を聞く段階で自由テキストが来た場合、クイックリプライを再提示する。
  */
 /**
- * 本日分の受付が完了済み（理由・予約ヒアリングも終了）のあと送られたテキストへ、店長直接連絡を案内するのみ。
- * DB の上書き・管理者通知は行わない。
+ * 本日分の受付が完了済み（理由・予約ヒアリングも終了）のあと送られた追記テキスト。
+ * キャストへは返信しない（無言）。DB の理由カラムは更新しない。管理者へ Push で受信を通知する。
  */
 export async function tryHandleCompletedFollowupText(
   lineUserId: string,
   rawText: string,
   supabase: ReturnType<typeof createSupabaseClient>,
-  replyToken: string | undefined,
+  _replyToken: string | undefined,
   channelAccessToken: string | undefined
 ): Promise<boolean> {
   const t = String(rawText ?? "").trim();
@@ -304,11 +300,11 @@ export async function tryHandleCompletedFollowupText(
   if (isAttendanceCommandText(t)) return false;
 
   const tenantStoreId = getDefaultStoreIdOrNull();
-  if (!tenantStoreId || !replyToken || !channelAccessToken) return false;
+  if (!tenantStoreId || !channelAccessToken?.trim()) return false;
 
   const { data: cast } = await supabase
     .from("casts")
-    .select("id, store_id")
+    .select("id, store_id, name")
     .eq("line_user_id", lineUserId)
     .eq("store_id", tenantStoreId)
     .eq("is_active", true)
@@ -336,7 +332,25 @@ export async function tryHandleCompletedFollowupText(
   if (rowNeedsReasonInput(sched)) return false;
   if (sched.is_action_completed !== true) return false;
 
-  await sendReply(replyToken, channelAccessToken, [{ type: "text", text: COMPLETED_FOLLOWUP_REPLY }]);
+  const displayName = (cast.name ?? "キャスト").trim() || "キャスト";
+  const excerpt = t.length > 3000 ? `${t.slice(0, 3000)}…` : t;
+  const adminMessage =
+    `📩 【公式LINE受信】\n` +
+    `${displayName}さんから追加のメッセージが届きました。\n` +
+    `LINE公式アカウントのチャット画面から確認・手動返信をお願いします。\n\n` +
+    `内容：『${excerpt}』`;
+
+  const adminIds = await getAdminLineUserIds(supabase, cast.store_id);
+  if (adminIds.length > 0) {
+    try {
+      await sendMulticastMessage(adminIds, channelAccessToken, [{ type: "text", text: adminMessage }]);
+    } catch (e) {
+      console.error("[CompletedFollowup] 管理者 Push 失敗:", e);
+    }
+  } else {
+    console.warn("[CompletedFollowup] 管理者宛 line_user_id なし store_id=", cast.store_id);
+  }
+
   return true;
 }
 
