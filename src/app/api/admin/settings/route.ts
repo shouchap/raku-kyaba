@@ -9,6 +9,7 @@ import { isUndefinedColumnError, logPostgrestError } from "@/lib/postgrest-error
 export const dynamic = "force-dynamic";
 
 const REMIND_TIME_RE = /^([01][0-9]|2[0-3]):00$/;
+const REMINDER_CONFIG_KEY = "reminder_config" as const;
 
 /**
  * 店長など: リクエストの storeId は Cookie のアクティブ店舗と一致すること（UI と API のテナントずれ防止）
@@ -95,7 +96,7 @@ export async function GET(request: Request) {
       .from("system_settings")
       .select("value")
       .eq("store_id", storeId)
-      .eq("key", "reminder_config")
+      .eq("key", REMINDER_CONFIG_KEY)
       .maybeSingle();
 
     if (settingsRes.error) {
@@ -276,9 +277,9 @@ export async function PATCH(request: Request) {
 
     const { data: existingRow, error: existingErr } = await admin
       .from("system_settings")
-      .select("id")
+      .select("key")
       .eq("store_id", storeId)
-      .eq("key", "reminder_config")
+      .eq("key", REMINDER_CONFIG_KEY)
       .maybeSingle();
 
     if (existingErr) {
@@ -293,11 +294,12 @@ export async function PATCH(request: Request) {
       );
     }
 
-    if (existingRow?.id) {
+    if (existingRow?.key === REMINDER_CONFIG_KEY) {
       const { error: updateErr } = await admin
         .from("system_settings")
         .update({ value: valueJson, updated_at: nowIso })
-        .eq("id", existingRow.id);
+        .eq("store_id", storeId)
+        .eq("key", REMINDER_CONFIG_KEY);
 
       if (updateErr) {
         logPostgrestError("PATCH system_settings update", updateErr);
@@ -314,7 +316,7 @@ export async function PATCH(request: Request) {
     } else {
       const { error: insertErr } = await admin.from("system_settings").insert({
         store_id: storeId,
-        key: "reminder_config",
+        key: REMINDER_CONFIG_KEY,
         value: valueJson,
       });
 
