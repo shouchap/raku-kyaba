@@ -322,23 +322,23 @@ export default function AdminSettingsPage() {
             <label className="flex items-start gap-3 cursor-pointer mb-4">
               <input
                 type="checkbox"
-                checked={enablePublicHoliday}
-                onChange={(e) => setEnablePublicHoliday(e.target.checked)}
-                className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-700 leading-snug">
-                公休機能を有効にする（出勤確認カードに「公休」ボタンを表示）
-              </span>
-            </label>
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
                 checked={enableHalfHoliday}
                 onChange={(e) => setEnableHalfHoliday(e.target.checked)}
                 className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
               <span className="text-sm text-gray-700 leading-snug">
                 半休機能を有効にする（出勤確認カードに「半休」ボタンを表示）
+              </span>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enablePublicHoliday}
+                onChange={(e) => setEnablePublicHoliday(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700 leading-snug">
+                公休機能を有効にする（出勤確認カードに「公休」ボタンを表示）
               </span>
             </label>
             <p className="text-xs text-gray-500 mt-2 pl-8">

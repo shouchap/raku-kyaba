@@ -4,7 +4,7 @@ import { isUndefinedColumnError } from "@/lib/postgrest-error";
 const DEFAULT_REMINDER_MESSAGE_TEMPLATE =
   "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。";
 
-/** 出勤確認 Flex の公休・半休ボタン表示（system_settings の reminder_config 行） */
+/** 出勤確認 Flex の半休・公休ボタン表示（system_settings の reminder_config 行） */
 export type HolidayFlexFlags = {
   enablePublicHoliday: boolean;
   enableHalfHoliday: boolean;
@@ -16,7 +16,7 @@ const DEFAULT_HOLIDAY_FLAGS: HolidayFlexFlags = {
 };
 
 /**
- * system_settings.reminder_config 行から公休・半休ボタン表示を取得。
+ * system_settings.reminder_config 行から半休・公休ボタン表示を取得。
  * 016 未適用の DB では false 固定。
  */
 export async function fetchAttendanceFlexHolidayOptions(

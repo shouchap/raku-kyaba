@@ -103,12 +103,12 @@ function rowIsAbsent(row: ScheduleRow): boolean {
   return row.is_absent === true || row.response_status === "absent";
 }
 
-/** 欠勤・公休・半休を含む「休み」扱いの日（出勤日数から除く） */
+/** 欠勤・半休・公休を含む「休み」扱いの日（出勤日数から除く） */
 function rowIsOffDay(row: ScheduleRow): boolean {
   return (
     rowIsAbsent(row) ||
-    row.response_status === "public_holiday" ||
-    row.response_status === "half_holiday"
+    row.response_status === "half_holiday" ||
+    row.response_status === "public_holiday"
   );
 }
 
@@ -159,18 +159,18 @@ function buildCastReports(
           reason: row.absent_reason,
         });
       }
-      if (row.response_status === "public_holiday") {
-        incidents.push({
-          dateStr: row.scheduled_date,
-          kind: "public_holiday",
-          reason: row.public_holiday_reason,
-        });
-      }
       if (row.response_status === "half_holiday") {
         incidents.push({
           dateStr: row.scheduled_date,
           kind: "half_holiday",
           reason: row.half_holiday_reason,
+        });
+      }
+      if (row.response_status === "public_holiday") {
+        incidents.push({
+          dateStr: row.scheduled_date,
+          kind: "public_holiday",
+          reason: row.public_holiday_reason,
         });
       }
     }
@@ -375,7 +375,7 @@ function AdminReportContent() {
           月間レポート（集計）
         </h1>
         <p className="mt-1 text-sm text-gray-600">
-          {store?.name ?? "店舗"} · 遅刻・休み（欠勤・公休・半休）の理由は、該当がある行を展開して確認できます（表示のみ）。
+          {store?.name ?? "店舗"} · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。
         </p>
       </div>
 
@@ -533,9 +533,11 @@ function AdminReportContent() {
                                     ? "遅刻"
                                     : inc.kind === "absent"
                                       ? "欠勤"
-                                      : inc.kind === "public_holiday"
-                                        ? "公休"
-                                        : "半休";
+                                      : inc.kind === "half_holiday"
+                                        ? "半休"
+                                        : inc.kind === "public_holiday"
+                                          ? "公休"
+                                          : "—";
                                 const reasonText =
                                   inc.reason?.trim() || "（理由なし）";
                                 return (

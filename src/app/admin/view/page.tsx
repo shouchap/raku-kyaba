@@ -224,8 +224,8 @@ export default function AdminViewPage() {
             row.response_status === "attending" ||
             row.response_status === "late" ||
             row.response_status === "absent" ||
-            row.response_status === "public_holiday" ||
-            row.response_status === "half_holiday"
+            row.response_status === "half_holiday" ||
+            row.response_status === "public_holiday"
               ? row.response_status
               : null;
           next[row.cast_id][row.scheduled_date] = {
@@ -434,10 +434,10 @@ export default function AdminViewPage() {
                             ? "🟡遅刻"
                             : cell!.responseStatus === "absent"
                               ? "🔴欠勤"
-                              : cell!.responseStatus === "public_holiday"
-                                ? "🟣公休"
-                                : cell!.responseStatus === "half_holiday"
-                                  ? "🟠半休"
+                              : cell!.responseStatus === "half_holiday"
+                                ? "🟠半休"
+                                : cell!.responseStatus === "public_holiday"
+                                  ? "🟣公休"
                                   : "—"
                         : showUnansweredAlert
                           ? "⚠️未返信"
@@ -489,7 +489,7 @@ export default function AdminViewPage() {
               >
                 ⚠️ 未返信
               </span>
-              <span title="回答済み">🟢出勤 🟡遅刻 🔴欠勤 🟣公休 🟠半休</span>
+              <span title="回答済み">🟢出勤 🟡遅刻 🔴欠勤 🟠半休 🟣公休</span>
             </div>
           )}
         </div>

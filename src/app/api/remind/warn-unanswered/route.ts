@@ -169,8 +169,8 @@ async function fetchOverdueUnansweredSchedules(
       s.response_status === "attending" ||
       s.response_status === "late" ||
       s.response_status === "absent" ||
-      s.response_status === "public_holiday" ||
-      s.response_status === "half_holiday"
+      s.response_status === "half_holiday" ||
+      s.response_status === "public_holiday"
     ) {
       continue;
     }

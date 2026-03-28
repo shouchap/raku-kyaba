@@ -1,5 +1,5 @@
 /**
- * LINE Webhook の出勤回答・来客予定フロー・理由入力（遅刻/欠勤/公休/半休）
+ * LINE Webhook の出勤回答・来客予定フロー・理由入力（遅刻/欠勤/半休/公休）
  */
 import { sendMulticastMessage, sendReply, type LineReplyMessage } from "@/lib/line-reply";
 import { createSupabaseClient } from "@/lib/supabase";
@@ -38,7 +38,7 @@ const ATTENDING_ALREADY_DONE_REPLY =
 /** 出勤コマンド等はフォールバックで消費せず後段の Postback 相当処理へ */
 function isAttendanceCommandText(text: string): boolean {
   const t = String(text ?? "").trim();
-  return t === "出勤" || t === "欠勤" || t === "遅刻" || t === "公休" || t === "半休";
+  return t === "出勤" || t === "欠勤" || t === "遅刻" || t === "半休" || t === "公休";
 }
 
 export const PENDING_RESERVATION_ASK = "reservation_ask";
@@ -832,17 +832,17 @@ export async function handleAttendanceResponse(
       return;
     }
 
-    if (statusData === "public_holiday" || statusData === "half_holiday") {
+    if (statusData === "half_holiday" || statusData === "public_holiday") {
       const flags = await fetchAttendanceFlexHolidayOptions(supabase, cast.store_id);
-      if (statusData === "public_holiday" && !flags.enablePublicHoliday) {
-        await safeReply(
-          "この店舗では公休の連絡は受け付けていません。出勤・遅刻・欠勤から選ぶか、管理者にご連絡ください。"
-        );
-        return;
-      }
       if (statusData === "half_holiday" && !flags.enableHalfHoliday) {
         await safeReply(
           "この店舗では半休の連絡は受け付けていません。出勤・遅刻・欠勤から選ぶか、管理者にご連絡ください。"
+        );
+        return;
+      }
+      if (statusData === "public_holiday" && !flags.enablePublicHoliday) {
+        await safeReply(
+          "この店舗では公休の連絡は受け付けていません。出勤・遅刻・欠勤から選ぶか、管理者にご連絡ください。"
         );
         return;
       }
@@ -896,15 +896,15 @@ export async function handleAttendanceResponse(
         ? LATE_POSTBACK_REPLY
         : statusData === "absent"
           ? ABSENT_POSTBACK_REPLY
-          : statusData === "public_holiday"
-            ? PUBLIC_HOLIDAY_POSTBACK_REPLY
-            : HALF_HOLIDAY_POSTBACK_REPLY;
+          : statusData === "half_holiday"
+            ? HALF_HOLIDAY_POSTBACK_REPLY
+            : PUBLIC_HOLIDAY_POSTBACK_REPLY;
 
     const needsReasonPing =
       statusData === "late" ||
       statusData === "absent" ||
-      statusData === "public_holiday" ||
-      statusData === "half_holiday";
+      statusData === "half_holiday" ||
+      statusData === "public_holiday";
 
     if (channelAccessToken && needsReasonPing) {
       const adminIds = await getAdminLineUserIds(supabase, cast.store_id);
@@ -914,9 +914,9 @@ export async function handleAttendanceResponse(
             ? "遅刻"
             : statusData === "absent"
               ? "欠勤"
-              : statusData === "public_holiday"
-                ? "公休"
-                : "半休";
+              : statusData === "half_holiday"
+                ? "半休"
+                : "公休";
         const adminMessage = `${cast.name ?? "キャスト"}さんが${kind}の連絡をしました。理由確認中です。`;
         try {
           await sendMulticastMessage(adminIds, channelAccessToken, [

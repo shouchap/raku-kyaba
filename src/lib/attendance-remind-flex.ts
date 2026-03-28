@@ -36,7 +36,7 @@ export function formatFlexHeaderStoreName(storeName: string | null | undefined):
   return s.length > 0 ? s : "店舗";
 }
 
-/** 公休・半休ボタンの有無（店舗の system_settings） */
+/** 半休・公休ボタンの有無（店舗の system_settings） */
 export type AttendanceRemindFlexOptions = {
   enablePublicHoliday?: boolean;
   enableHalfHoliday?: boolean;
@@ -84,7 +84,7 @@ const BASE_FLEX_BUTTONS: object[] = [
 /**
  * /api/remind 等と同一の出勤確認 Flex（店舗名ヘッダー・縦ボタン）
  * @param storeName stores.name（テナント表示名。空のときは「店舗」）
- * @param flexOptions 公休・半休は true のときのみフッターに追加
+ * @param flexOptions 半休・公休は true のときのみフッターに追加（表示順は半休→公休）
  */
 export function buildAttendanceRemindFlexMessage(
   bodyText: string,
@@ -92,24 +92,10 @@ export function buildAttendanceRemindFlexMessage(
   flexOptions?: AttendanceRemindFlexOptions
 ): LineReplyMessage {
   const headerTitle = `${formatFlexHeaderStoreName(storeName)} 出勤確認`;
-  const showPublic = flexOptions?.enablePublicHoliday === true;
   const showHalf = flexOptions?.enableHalfHoliday === true;
+  const showPublic = flexOptions?.enablePublicHoliday === true;
 
   const footerContents: object[] = [...BASE_FLEX_BUTTONS];
-  if (showPublic) {
-    footerContents.push({
-      type: "button",
-      style: "primary",
-      color: "#9C27B0",
-      height: "sm",
-      action: {
-        type: "postback",
-        label: "公休",
-        data: "public_holiday",
-        displayText: "公休",
-      },
-    });
-  }
   if (showHalf) {
     footerContents.push({
       type: "button",
@@ -121,6 +107,20 @@ export function buildAttendanceRemindFlexMessage(
         label: "半休",
         data: "half_holiday",
         displayText: "半休",
+      },
+    });
+  }
+  if (showPublic) {
+    footerContents.push({
+      type: "button",
+      style: "primary",
+      color: "#9C27B0",
+      height: "sm",
+      action: {
+        type: "postback",
+        label: "公休",
+        data: "public_holiday",
+        displayText: "公休",
       },
     });
   }

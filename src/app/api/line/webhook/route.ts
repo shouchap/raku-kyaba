@@ -31,8 +31,8 @@ function textToAttendanceData(text: string): AttendancePostbackData | null {
   if (t === "出勤") return "attending";
   if (t === "欠勤") return "absent";
   if (t === "遅刻") return "late";
-  if (t === "公休") return "public_holiday";
   if (t === "半休") return "half_holiday";
+  if (t === "公休") return "public_holiday";
   return null;
 }
 
@@ -45,8 +45,8 @@ function parsePostbackData(
     s === "attending" ||
     s === "absent" ||
     s === "late" ||
-    s === "public_holiday" ||
-    s === "half_holiday"
+    s === "half_holiday" ||
+    s === "public_holiday"
   )
     return s;
   if (s === "reservation_yes" || s === "reservation_no") return s;
@@ -58,8 +58,8 @@ function parsePostbackData(
  *
  * - 504タイムアウト防止: 必ず NextResponse.json({ message: "OK" }) を返す
  * - マルチ店舗: `destination`（ボットユーザーID）で stores を引き、チャンネルシークレット・トークンを解決（無ければ環境変数へフォールバック）
- * - 出勤/遅刻/欠勤/公休/半休・来客予定ヒアリング（クイックリプライ）
- * - 遅刻・欠勤・公休・半休後の自由テキストは各理由カラムに保存（キャストへは無言）
+ * - 出勤/遅刻/欠勤/半休/公休・来客予定ヒアリング（クイックリプライ）
+ * - 遅刻・欠勤・半休・公休後の自由テキストは各理由カラムに保存（キャストへは無言）
  * - 日本時間: getTodayJst() で日付を正しく処理
  */
 app.post("*", async (c) => {

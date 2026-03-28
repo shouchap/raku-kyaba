@@ -46,8 +46,8 @@ function sortRows(rows: PreOpenScheduleRow[]): PreOpenScheduleRow[] {
 
 function offKindOrder(rs: string | null): number {
   if (rs === "absent") return 0;
-  if (rs === "public_holiday") return 1;
-  if (rs === "half_holiday") return 2;
+  if (rs === "half_holiday") return 1;
+  if (rs === "public_holiday") return 2;
   return 99;
 }
 
@@ -68,7 +68,7 @@ function sectionForRow(row: PreOpenScheduleRow): "attending" | "late" | "off" | 
   const rs = row.response_status;
   if (rs === "attending") return "attending";
   if (rs === "late") return "late";
-  if (rs === "absent" || rs === "public_holiday" || rs === "half_holiday") return "off";
+  if (rs === "absent" || rs === "half_holiday" || rs === "public_holiday") return "off";
   return "unanswered";
 }
 
@@ -106,13 +106,13 @@ function lineOff(row: PreOpenScheduleRow): string {
     const r = (row.absent_reason ?? "").trim();
     return `  • ${name}  欠勤${r ? ` — ${r}` : ""}`;
   }
-  if (rs === "public_holiday") {
-    const r = (row.public_holiday_reason ?? "").trim();
-    return `  • ${name}  公休${r ? ` — ${r}` : ""}`;
-  }
   if (rs === "half_holiday") {
     const r = (row.half_holiday_reason ?? "").trim();
     return `  • ${name}  半休${r ? ` — ${r}` : ""}`;
+  }
+  if (rs === "public_holiday") {
+    const r = (row.public_holiday_reason ?? "").trim();
+    return `  • ${name}  公休${r ? ` — ${r}` : ""}`;
   }
   return `  • ${name}`;
 }
@@ -155,7 +155,7 @@ export function buildPreOpenReportMessage(storeName: string, todayJst: string, r
   out.push(RULE);
   out.push(late.length ? late.map(lineLate).join("\n\n") : "  （該当なし）");
   out.push("");
-  out.push("❌ お休み（欠勤・公休・半休）");
+  out.push("❌ お休み（欠勤・半休・公休）");
   out.push(RULE);
   out.push(offSorted.length ? offSorted.map(lineOff).join("\n\n") : "  （該当なし）");
 
