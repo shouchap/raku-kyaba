@@ -118,7 +118,7 @@ async function fetchOverdueUnansweredSchedules(
   const { data: schedules, error: schedError } = await supabase
     .from("attendance_schedules")
     .select(
-      "id, cast_id, store_id, scheduled_date, scheduled_time, last_reminded_at, admin_warned_at, is_action_completed, response_status, casts(name)"
+      "id, cast_id, store_id, scheduled_date, scheduled_time, last_reminded_at, admin_warned_at, is_action_completed, response_status, pending_line_flow, casts(name)"
     )
     .eq("store_id", storeId)
     .eq("scheduled_date", today)
@@ -158,15 +158,19 @@ async function fetchOverdueUnansweredSchedules(
     scheduled_time?: string | null;
     is_action_completed?: boolean;
     response_status?: string | null;
+    pending_line_flow?: string | null;
     casts?: { name: string } | { name: string }[] | null;
   };
 
   for (const s of schedules as ScheduleRow[]) {
     if (s.is_action_completed === true) continue;
+    if (s.pending_line_flow) continue;
     if (
       s.response_status === "attending" ||
       s.response_status === "late" ||
-      s.response_status === "absent"
+      s.response_status === "absent" ||
+      s.response_status === "public_holiday" ||
+      s.response_status === "half_holiday"
     ) {
       continue;
     }

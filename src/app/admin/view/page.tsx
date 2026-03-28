@@ -27,8 +27,14 @@ type Store = {
 type CellData = {
   time: string;
   lastRemindedAt: string | null;
-  /** 回答ステータス（attending/late/absent）。null は未回答 */
-  responseStatus: "attending" | "late" | "absent" | null;
+  /** 回答ステータス。null は未回答 */
+  responseStatus:
+    | "attending"
+    | "late"
+    | "absent"
+    | "public_holiday"
+    | "half_holiday"
+    | null;
 };
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
@@ -190,7 +196,13 @@ export default function AdminViewPage() {
         scheduled_time?: string | null;
         is_dohan?: boolean | null;
         last_reminded_at?: string | null;
-        response_status?: "attending" | "late" | "absent" | null;
+        response_status?:
+          | "attending"
+          | "late"
+          | "absent"
+          | "public_holiday"
+          | "half_holiday"
+          | null;
       }>;
 
       const next: Record<string, Record<string, CellData>> = {};
@@ -211,7 +223,9 @@ export default function AdminViewPage() {
           const status =
             row.response_status === "attending" ||
             row.response_status === "late" ||
-            row.response_status === "absent"
+            row.response_status === "absent" ||
+            row.response_status === "public_holiday" ||
+            row.response_status === "half_holiday"
               ? row.response_status
               : null;
           next[row.cast_id][row.scheduled_date] = {
@@ -418,7 +432,13 @@ export default function AdminViewPage() {
                           ? "🟢出勤"
                           : cell!.responseStatus === "late"
                             ? "🟡遅刻"
-                            : "🔴欠勤"
+                            : cell!.responseStatus === "absent"
+                              ? "🔴欠勤"
+                              : cell!.responseStatus === "public_holiday"
+                                ? "🟣公休"
+                                : cell!.responseStatus === "half_holiday"
+                                  ? "🟠半休"
+                                  : "—"
                         : showUnansweredAlert
                           ? "⚠️未返信"
                           : showReminderBadge
@@ -469,7 +489,7 @@ export default function AdminViewPage() {
               >
                 ⚠️ 未返信
               </span>
-              <span title="回答済み">🟢出勤 🟡遅刻 🔴欠勤</span>
+              <span title="回答済み">🟢出勤 🟡遅刻 🔴欠勤 🟣公休 🟠半休</span>
             </div>
           )}
         </div>

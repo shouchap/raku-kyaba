@@ -95,4 +95,12 @@ export type LineMessage =
   | { type: "flex"; id: string; flex: unknown };
 
 /** 出勤確認のPostback data値（Flex Messageボタンで設定する値と一致させる） */
-export type AttendancePostbackData = "attending" | "absent" | "late";
+export type AttendancePostbackData =
+  | "attending"
+  | "absent"
+  | "late"
+  | "public_holiday"
+  | "half_holiday";
+
+/** 来客予定ヒアリング（クイックリプライ） */
+export type ReservationPostbackData = "reservation_yes" | "reservation_no";

@@ -34,12 +34,20 @@ type ScheduleRow = {
   is_late: boolean | null;
   late_reason: string | null;
   absent_reason: string | null;
-  response_status: "attending" | "absent" | "late" | null;
+  public_holiday_reason: string | null;
+  half_holiday_reason: string | null;
+  response_status:
+    | "attending"
+    | "absent"
+    | "late"
+    | "public_holiday"
+    | "half_holiday"
+    | null;
 };
 
 type Incident = {
   dateStr: string;
-  kind: "late" | "absent";
+  kind: "late" | "absent" | "public_holiday" | "half_holiday";
   reason: string | null;
 };
 
@@ -95,6 +103,15 @@ function rowIsAbsent(row: ScheduleRow): boolean {
   return row.is_absent === true || row.response_status === "absent";
 }
 
+/** 欠勤・公休・半休を含む「休み」扱いの日（出勤日数から除く） */
+function rowIsOffDay(row: ScheduleRow): boolean {
+  return (
+    rowIsAbsent(row) ||
+    row.response_status === "public_holiday" ||
+    row.response_status === "half_holiday"
+  );
+}
+
 function rowIsLate(row: ScheduleRow): boolean {
   return row.is_late === true || row.response_status === "late";
 }
@@ -119,13 +136,14 @@ function buildCastReports(
     const incidents: Incident[] = [];
 
     for (const row of rows) {
-      const absent = rowIsAbsent(row);
+      const off = rowIsOffDay(row);
+      const absentOnly = rowIsAbsent(row);
       const late = rowIsLate(row);
 
-      if (!absent) attendanceDays += 1;
+      if (!off) attendanceDays += 1;
       if (row.is_dohan === true) dohanCount += 1;
       if (late) lateCount += 1;
-      if (absent) absentCount += 1;
+      if (off) absentCount += 1;
 
       if (late) {
         incidents.push({
@@ -134,11 +152,25 @@ function buildCastReports(
           reason: row.late_reason,
         });
       }
-      if (absent) {
+      if (absentOnly) {
         incidents.push({
           dateStr: row.scheduled_date,
           kind: "absent",
           reason: row.absent_reason,
+        });
+      }
+      if (row.response_status === "public_holiday") {
+        incidents.push({
+          dateStr: row.scheduled_date,
+          kind: "public_holiday",
+          reason: row.public_holiday_reason,
+        });
+      }
+      if (row.response_status === "half_holiday") {
+        incidents.push({
+          dateStr: row.scheduled_date,
+          kind: "half_holiday",
+          reason: row.half_holiday_reason,
         });
       }
     }
@@ -258,7 +290,7 @@ function AdminReportContent() {
       const { data: schedData, error: schedError } = await supabase
         .from("attendance_schedules")
         .select(
-          "id, cast_id, scheduled_date, is_dohan, is_absent, is_late, late_reason, absent_reason, response_status"
+          "id, cast_id, scheduled_date, is_dohan, is_absent, is_late, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, response_status"
         )
         .eq("store_id", st.id)
         .in("cast_id", castIds)
@@ -343,7 +375,7 @@ function AdminReportContent() {
           月間レポート（集計）
         </h1>
         <p className="mt-1 text-sm text-gray-600">
-          {store?.name ?? "店舗"} · 遅刻・欠勤の理由は、該当がある行を展開して確認できます（表示のみ）。
+          {store?.name ?? "店舗"} · 遅刻・休み（欠勤・公休・半休）の理由は、該当がある行を展開して確認できます（表示のみ）。
         </p>
       </div>
 
@@ -433,7 +465,7 @@ function AdminReportContent() {
                     onClick={() => toggleSort("absent")}
                     className="font-semibold text-gray-900 hover:text-blue-700"
                   >
-                    欠勤
+                    休み
                     {sortKey === "absent" && (sortDir === "asc" ? " ↑" : " ↓")}
                   </button>
                 </th>
@@ -463,7 +495,7 @@ function AdminReportContent() {
                               onClick={() => toggleExpand(r.castId)}
                               className="p-1 rounded-md text-gray-600 hover:bg-gray-200"
                               aria-expanded={open}
-                              aria-label="遅刻・欠勤の詳細を表示"
+                              aria-label="遅刻・休みの詳細を表示"
                             >
                               {open ? (
                                 <ChevronDown className="h-5 w-5" />
@@ -497,7 +529,13 @@ function AdminReportContent() {
                             <ul className="space-y-2 pl-2 border-l-2 border-blue-200">
                               {r.incidents.map((inc, idx) => {
                                 const label =
-                                  inc.kind === "late" ? "遅刻" : "欠勤";
+                                  inc.kind === "late"
+                                    ? "遅刻"
+                                    : inc.kind === "absent"
+                                      ? "欠勤"
+                                      : inc.kind === "public_holiday"
+                                        ? "公休"
+                                        : "半休";
                                 const reasonText =
                                   inc.reason?.trim() || "（理由なし）";
                                 return (

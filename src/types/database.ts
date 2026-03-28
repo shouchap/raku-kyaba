@@ -4,7 +4,12 @@
  */
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
-export type AttendanceStatus = "attending" | "absent" | "late";
+export type AttendanceStatus =
+  | "attending"
+  | "absent"
+  | "late"
+  | "public_holiday"
+  | "half_holiday";
 
 export interface Database {
   public: {
@@ -24,12 +29,23 @@ export interface Database {
           last_reminded_date: string | null;
           /** キャストからのシフト提出を受け付けるか */
           allow_shift_submission: boolean;
+          /** 営業前サマリー送信の JST 時（0–23）。NULL 時は環境変数 */
+          pre_open_report_hour_jst: number | null;
+          /** 最後に営業前サマリーを送信した JST 暦日 */
+          last_pre_open_report_date: string | null;
           created_at: string;
           updated_at: string;
         };
         Insert: Omit<
           Database["public"]["Tables"]["stores"]["Row"],
-          "id" | "created_at" | "updated_at" | "remind_time" | "last_reminded_date" | "allow_shift_submission"
+          | "id"
+          | "created_at"
+          | "updated_at"
+          | "remind_time"
+          | "last_reminded_date"
+          | "allow_shift_submission"
+          | "pre_open_report_hour_jst"
+          | "last_pre_open_report_date"
         > & {
           id?: string;
           created_at?: string;
@@ -37,6 +53,8 @@ export interface Database {
           remind_time?: string;
           last_reminded_date?: string | null;
           allow_shift_submission?: boolean;
+          pre_open_report_hour_jst?: number | null;
+          last_pre_open_report_date?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["stores"]["Insert"]>;
       };
@@ -66,6 +84,10 @@ export interface Database {
           attendance_schedule_id: string | null;
           attended_date: string;
           status: AttendanceStatus;
+          public_holiday_reason: string | null;
+          half_holiday_reason: string | null;
+          has_reservation: boolean | null;
+          reservation_details: string | null;
           responded_at: string;
           created_at: string;
           updated_at: string;

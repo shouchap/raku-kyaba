@@ -131,8 +131,19 @@ export async function sendMulticastMessage(
   }
 }
 
+/** テキスト＋クイックリプライ（出勤時の来客予定ヒアリング等） */
+export type LineTextQuickReplyItem = {
+  type: "action";
+  action: {
+    type: "postback";
+    label: string;
+    data: string;
+    displayText?: string;
+  };
+};
+
 export type LineReplyMessage =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; quickReply?: { items: LineTextQuickReplyItem[] } }
   | { type: "flex"; altText: string; contents: object }
   | {
       type: "template";
