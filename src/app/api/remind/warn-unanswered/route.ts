@@ -1,11 +1,13 @@
 /**
- * リマインド未対応者アラートバッチ API
+ * リマインド未対応者エスカレーション API
  *
- * リマインド送信から5時間経過しても出勤確認を行っていないキャストを抽出し、
- * 管理者にLINEで通知する。Cronなどで定期的に呼び出す想定。
+ * 本日シフトでリマインド送信済みだが未返信のまま、設定時間（デフォルト2時間）経過したキャストを抽出し、
+ * 管理者へ店舗の LINE 公式アカウントから通知する。Cron 等で定期実行想定。
  *
  * GET /api/remind/warn-unanswered
- * - Cronから呼び出す場合は Authorization ヘッダーやクエリパラメータで保護推奨
+ * - エスカレーション待ち時間: system_settings.reminder_config の
+ *   `warn_unanswered_hours_after_remind` または `escalation_hours_after_remind`（数値・時間）、
+ *   なければ環境変数 WARN_UNANSWERED_HOURS_AFTER_REMIND、なければ 2 時間
  */
 
 import { NextResponse } from "next/server";
@@ -17,10 +19,16 @@ import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 
 export const dynamic = "force-dynamic";
 
-/** リマインドからアラートを出すまでの経過時間（時間） */
-const ALERT_HOURS = 5;
+const REMINDER_CONFIG_KEY = "reminder_config";
 
-/** メッセージに列挙する最大人数。超えた場合は「他N名」で省略（LINE文字数制限対策） */
+/** リマインド送信からこの時間経過後にエスカレーション（設定・環境変数が無い場合） */
+const DEFAULT_ESCALATION_HOURS_AFTER_REMIND = 2;
+
+/** 1〜168 時間の範囲でクリップ */
+const MIN_ESCALATION_HOURS = 1;
+const MAX_ESCALATION_HOURS = 168;
+
+/** メッセージに列挙する最大人数（LINE 文字数対策） */
 const MAX_NAMES_IN_MESSAGE = 15;
 
 type OverdueSchedule = {
@@ -29,28 +37,89 @@ type OverdueSchedule = {
   store_id: string;
   scheduled_date: string;
   cast_name: string;
+  /** 表示用 "21:00" */
+  timeDisplay: string;
 };
 
 /**
- * 抽出: リマインドから5時間以上経過＆未返信＆未警告のスケジュールを取得
+ * reminder_config JSON または環境変数から「リマインド送信後 N 時間でエスカレーション」を取得
+ */
+async function getEscalationHoursAfterRemind(
+  supabase: SupabaseClient,
+  storeId: string
+): Promise<number> {
+  const { data: row } = await supabase
+    .from("system_settings")
+    .select("value")
+    .eq("store_id", storeId)
+    .eq("key", REMINDER_CONFIG_KEY)
+    .maybeSingle();
+
+  const config = (row?.value ?? {}) as Record<string, unknown>;
+  const raw =
+    config.warn_unanswered_hours_after_remind ?? config.escalation_hours_after_remind;
+
+  const parseNum = (v: unknown): number | null => {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && v.trim()) {
+      const n = parseFloat(v.trim());
+      if (!Number.isNaN(n)) return n;
+    }
+    return null;
+  };
+
+  const fromConfig = parseNum(raw);
+  if (fromConfig != null && fromConfig > 0) {
+    return clampEscalationHours(fromConfig);
+  }
+
+  const envRaw = process.env.WARN_UNANSWERED_HOURS_AFTER_REMIND?.trim();
+  if (envRaw) {
+    const n = parseFloat(envRaw);
+    if (!Number.isNaN(n) && n > 0) return clampEscalationHours(n);
+  }
+
+  return DEFAULT_ESCALATION_HOURS_AFTER_REMIND;
+}
+
+function clampEscalationHours(n: number): number {
+  const floor = Math.floor(n);
+  return Math.min(MAX_ESCALATION_HOURS, Math.max(MIN_ESCALATION_HOURS, floor));
+}
+
+/** DB の TIME / 文字列から "HH:mm" */
+function formatScheduledTimeDisplay(scheduledTime: string | null | undefined): string {
+  if (scheduledTime == null || scheduledTime === "") return "—";
+  const m = String(scheduledTime).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return "—";
+  const hh = m[1].padStart(2, "0");
+  const mm = m[2];
+  return `${hh}:${mm}`;
+}
+
+/**
+ * 抽出: リマインド送信から N 時間経過 ＆ 未返信 ＆ 未警告の本日シフト
  *
- * 条件:
- * - last_reminded_at が 5時間以上前（last_reminded_at < now - 5h）
- * - attendance_logs に該当日の回答が存在しない（未返信）
- * - admin_warned_at が null（警告未送信）
+ * - last_reminded_at が N 時間より前
+ * - admin_warned_at IS NULL
+ * - scheduled_time あり、is_action_completed が true でない
+ * - attendance_logs に当日回答が無い
  */
 async function fetchOverdueUnansweredSchedules(
   supabase: SupabaseClient,
   today: string,
-  storeId: string
+  storeId: string,
+  escalationHours: number
 ): Promise<OverdueSchedule[]> {
-  const cutoff = new Date(Date.now() - ALERT_HOURS * 60 * 60 * 1000).toISOString();
+  const cutoff = new Date(
+    Date.now() - escalationHours * 60 * 60 * 1000
+  ).toISOString();
 
-  // is_action_completed=false のスケジュールのみ対象（回答済みは除外）
-  // 旧データ互換: attendance_logs の respondedSet でも二重チェック
   const { data: schedules, error: schedError } = await supabase
     .from("attendance_schedules")
-    .select("id, cast_id, store_id, scheduled_date, last_reminded_at, admin_warned_at, is_action_completed, casts(name)")
+    .select(
+      "id, cast_id, store_id, scheduled_date, scheduled_time, last_reminded_at, admin_warned_at, is_action_completed, response_status, casts(name)"
+    )
     .eq("store_id", storeId)
     .eq("scheduled_date", today)
     .not("last_reminded_at", "is", null)
@@ -75,7 +144,9 @@ async function fetchOverdueUnansweredSchedules(
     .eq("attended_date", today);
 
   const respondedSet = new Set(
-    (logs ?? []).map((l: { cast_id: string; attended_date: string }) => `${l.cast_id}:${l.attended_date}`)
+    (logs ?? []).map(
+      (l: { cast_id: string; attended_date: string }) => `${l.cast_id}:${l.attended_date}`
+    )
   );
 
   const result: OverdueSchedule[] = [];
@@ -84,43 +155,57 @@ async function fetchOverdueUnansweredSchedules(
     cast_id: string;
     store_id: string;
     scheduled_date: string;
+    scheduled_time?: string | null;
     is_action_completed?: boolean;
+    response_status?: string | null;
     casts?: { name: string } | { name: string }[] | null;
   };
+
   for (const s of schedules as ScheduleRow[]) {
-    // 二重チェック: is_action_completed または attendance_logs で回答済みなら除外
-    const completed = s.is_action_completed === true;
-    if (completed || respondedSet.has(`${s.cast_id}:${s.scheduled_date}`)) continue;
+    if (s.is_action_completed === true) continue;
+    if (
+      s.response_status === "attending" ||
+      s.response_status === "late" ||
+      s.response_status === "absent"
+    ) {
+      continue;
+    }
+    if (respondedSet.has(`${s.cast_id}:${s.scheduled_date}`)) continue;
+
     const raw = s.casts;
     const castName = raw
       ? Array.isArray(raw)
         ? raw[0]?.name ?? "不明"
         : (raw as { name?: string }).name ?? "不明"
       : "不明";
+
     result.push({
       id: s.id,
       cast_id: s.cast_id,
       store_id: s.store_id,
       scheduled_date: s.scheduled_date,
       cast_name: castName,
+      timeDisplay: formatScheduledTimeDisplay(s.scheduled_time),
     });
   }
 
   return result;
 }
 
-/**
- * 通知メッセージ本文を組み立て
- * 大人数時は「他N名」で省略してLINE文字数制限を回避
- */
-function buildWarningMessage(items: OverdueSchedule[]): string {
+function buildUnansweredAlertMessage(
+  items: OverdueSchedule[],
+  escalationHours: number
+): string {
   if (items.length === 0) return "";
 
-  const header = "【警告】以下のユーザーがリマインドから5時間経過しても未対応です。\n";
+  const header =
+    "【未返信アラート】\n" +
+    `出勤確認から${escalationHours}時間が経過しましたが、以下のキャストから返信がありません。\n`;
+
   const maxShow = Math.min(items.length, MAX_NAMES_IN_MESSAGE);
   const lines = items
     .slice(0, maxShow)
-    .map((i) => `・${i.cast_name}`)
+    .map((i) => `・${i.cast_name} (${i.timeDisplay})`)
     .join("\n");
 
   if (items.length <= MAX_NAMES_IN_MESSAGE) {
@@ -130,12 +215,28 @@ function buildWarningMessage(items: OverdueSchedule[]): string {
 }
 
 /**
- * 管理者の line_user_id 一覧を取得（casts.is_admin または stores.admin_line_user_id）
+ * 管理者の LINE ユーザー ID（stores.admin_line_user_id と is_admin キャストをマージ・重複除去）
  */
-async function getAdminLineUserIds(
+async function getAdminRecipientLineUserIds(
   supabase: SupabaseClient,
   storeId: string
 ): Promise<string[]> {
+  const ids = new Set<string>();
+
+  const { data: storeRow, error: storeErr } = await supabase
+    .from("stores")
+    .select("admin_line_user_id")
+    .eq("id", storeId)
+    .maybeSingle();
+
+  if (!storeErr) {
+    const legacy = (storeRow as { admin_line_user_id?: string | null } | null)
+      ?.admin_line_user_id;
+    if (legacy && String(legacy).trim() !== "") {
+      ids.add(String(legacy).trim());
+    }
+  }
+
   const { data: adminCasts } = await supabase
     .from("casts")
     .select("line_user_id")
@@ -144,27 +245,14 @@ async function getAdminLineUserIds(
     .eq("is_active", true)
     .not("line_user_id", "is", null);
 
-  const fromCasts = (adminCasts ?? [])
-    .map((r: { line_user_id?: string }) => r.line_user_id)
-    .filter((id: string | undefined): id is string => !!id && id.trim() !== "");
+  for (const r of adminCasts ?? []) {
+    const id = (r as { line_user_id?: string }).line_user_id;
+    if (id && String(id).trim() !== "") ids.add(String(id).trim());
+  }
 
-  if (fromCasts.length > 0) return fromCasts;
-
-  const { data: store } = await supabase
-    .from("stores")
-    .select("admin_line_user_id")
-    .eq("id", storeId)
-    .single();
-
-  const legacyId = (store as { admin_line_user_id?: string | null })?.admin_line_user_id;
-  if (legacyId && String(legacyId).trim() !== "") return [legacyId];
-
-  return [];
+  return [...ids];
 }
 
-/**
- * 指定スケジュールの admin_warned_at を更新（二重通知防止）
- */
 async function markSchedulesAsWarned(
   supabase: SupabaseClient,
   scheduleIds: string[]
@@ -213,18 +301,25 @@ export async function GET(request: Request) {
   }
 
   try {
-    const overdue = await fetchOverdueUnansweredSchedules(
+    const escalationHours = await getEscalationHoursAfterRemind(
       supabase,
-      today,
       tenantStoreId
     );
 
+    const overdue = await fetchOverdueUnansweredSchedules(
+      supabase,
+      today,
+      tenantStoreId,
+      escalationHours
+    );
+
     if (overdue.length === 0) {
-      console.log("[WarnUnanswered] 該当者なし");
+      console.log("[WarnUnanswered] 該当者なし escalationHours=", escalationHours);
       return NextResponse.json({
         ok: true,
         message: "該当者なし",
         warnedCount: 0,
+        escalationHoursAfterRemind: escalationHours,
       });
     }
 
@@ -235,7 +330,11 @@ export async function GET(request: Request) {
 
     for (const storeId of storeIds) {
       const storeOverdue = overdue.filter((o) => o.store_id === storeId);
-      const adminIds = await getAdminLineUserIds(supabase, storeId);
+      const storeEscalationHours = await getEscalationHoursAfterRemind(
+        supabase,
+        storeId
+      );
+      const adminIds = await getAdminRecipientLineUserIds(supabase, storeId);
 
       if (adminIds.length === 0) {
         console.warn("[WarnUnanswered] 管理者不在 storeId=", storeId);
@@ -256,12 +355,12 @@ export async function GET(request: Request) {
         continue;
       }
 
+      const text = buildUnansweredAlertMessage(storeOverdue, storeEscalationHours);
+
       try {
-        await sendMulticastMessage(
-          adminIds,
-          tokenResult.token,
-          [{ type: "text", text: buildWarningMessage(storeOverdue) }]
-        );
+        await sendMulticastMessage(adminIds, tokenResult.token, [
+          { type: "text", text },
+        ]);
       } catch (sendErr) {
         console.error("[WarnUnanswered] LINE送信失敗 storeId=", storeId, sendErr);
         errors.push(
@@ -288,11 +387,18 @@ export async function GET(request: Request) {
       );
     }
 
-    console.log("[WarnUnanswered] 通知完了 warnedCount=", warnedCount, "errors=", errors.length);
+    console.log(
+      "[WarnUnanswered] 通知完了 warnedCount=",
+      warnedCount,
+      "errors=",
+      errors.length
+    );
     return NextResponse.json({
       ok: true,
-      message: errors.length > 0 ? "一部完了（トークン不足等でスキップあり）" : "通知完了",
+      message:
+        errors.length > 0 ? "一部完了（トークン不足等でスキップあり）" : "通知完了",
       warnedCount,
+      escalationHoursAfterRemind: escalationHours,
       ...(errors.length > 0 ? { partialErrors: errors } : {}),
     });
   } catch (err) {
