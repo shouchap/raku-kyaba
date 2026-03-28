@@ -186,13 +186,19 @@ export async function POST(request: Request) {
       "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。";
   }
 
+  const { data: storeRow } = await supabase
+    .from("stores")
+    .select("name")
+    .eq("id", storeId)
+    .maybeSingle();
+
   const timeStr = formatRemindScheduledTime(scheduledTime, isDohan);
   const bodyText = applyReminderMessageTemplate(
     messageTemplate,
     cast?.name ?? "キャスト",
     timeStr
   );
-  const flex = buildAttendanceRemindFlexMessage(bodyText);
+  const flex = buildAttendanceRemindFlexMessage(bodyText, storeRow?.name);
 
   try {
     await sendPushMessage(lineUserId, channelAccessToken, [flex]);

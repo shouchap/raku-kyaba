@@ -129,6 +129,7 @@ function parseRemindHourJst(remindTime: string | null | undefined): number | nul
 
 type StoreRow = {
   id: string;
+  name: string | null;
   remind_time: string | null;
   last_reminded_date: string | null;
   line_channel_access_token: string | null;
@@ -172,8 +173,8 @@ async function loadReminderConfig(
     (config.template && String(config.template).trim()) ||
     (typeof rawConfig.messageTemplate === "string" && rawConfig.messageTemplate.trim()) ||
     (typeof rawConfig.template === "string" && rawConfig.template.trim()) ||
-    "【Club GOLD】本日は {time} 出勤予定です。";
-  const messageTemplate = rawTemplate.trim() || "【Club GOLD】本日は {time} 出勤予定です。";
+    "本日は {time} 出勤予定です。";
+  const messageTemplate = rawTemplate.trim() || "本日は {time} 出勤予定です。";
 
   return { config, rawConfig, messageTemplate };
 }
@@ -287,7 +288,7 @@ async function runRemindForStore(
         const name = casts.name ?? "キャスト";
         const scheduledTime = formatRemindScheduledTime(schedule.scheduled_time, schedule.is_dohan);
         const bodyText = applyReminderMessageTemplate(messageTemplate, name, scheduledTime);
-        const message = buildAttendanceRemindFlexMessage(bodyText);
+        const message = buildAttendanceRemindFlexMessage(bodyText, store.name);
         await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);
         return schedule;
       })
@@ -395,7 +396,7 @@ async function runRemindForStore(
       const name = casts.name ?? "キャスト";
       const scheduledTime = formatRemindScheduledTime(schedule.scheduled_time, schedule.is_dohan);
       const bodyText = applyReminderMessageTemplate(messageTemplate, name, scheduledTime);
-      const message = buildAttendanceRemindFlexMessage(bodyText);
+      const message = buildAttendanceRemindFlexMessage(bodyText, store.name);
 
       try {
         await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);
@@ -560,7 +561,7 @@ async function handleRemind(request: Request) {
 
     const { data: store, error: storeErr } = await supabase
       .from("stores")
-      .select("id, remind_time, last_reminded_date, line_channel_access_token")
+      .select("id, name, remind_time, last_reminded_date, line_channel_access_token")
       .eq("id", storeId)
       .single();
 
@@ -586,7 +587,7 @@ async function handleRemind(request: Request) {
 
   const { data: stores, error: storesErr } = await supabase
     .from("stores")
-    .select("id, remind_time, last_reminded_date, line_channel_access_token");
+    .select("id, name, remind_time, last_reminded_date, line_channel_access_token");
 
   if (storesErr) {
     logError("店舗一覧取得失敗", storesErr);

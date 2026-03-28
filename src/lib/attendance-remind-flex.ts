@@ -30,10 +30,21 @@ export function applyReminderMessageTemplate(
     .replace(/\{time\}/g, timeStr ?? "営業時間");
 }
 
+/** Flex ヘッダー用。空なら「店舗」 */
+export function formatFlexHeaderStoreName(storeName: string | null | undefined): string {
+  const s = String(storeName ?? "").trim();
+  return s.length > 0 ? s : "店舗";
+}
+
 /**
- * /api/remind と同一の出勤確認 Flex（Club GOLD ヘッダー・縦ボタン）
+ * /api/remind 等と同一の出勤確認 Flex（店舗名ヘッダー・縦ボタン）
+ * @param storeName stores.name（テナント表示名。空のときは「店舗」）
  */
-export function buildAttendanceRemindFlexMessage(bodyText: string): LineReplyMessage {
+export function buildAttendanceRemindFlexMessage(
+  bodyText: string,
+  storeName: string | null | undefined
+): LineReplyMessage {
+  const headerTitle = `${formatFlexHeaderStoreName(storeName)} 出勤確認`;
   return {
     type: "flex",
     altText: `${bodyText.slice(0, 60)}${bodyText.length > 60 ? "…" : ""}\n下のボタンから選択してください。`,
@@ -49,7 +60,7 @@ export function buildAttendanceRemindFlexMessage(bodyText: string): LineReplyMes
           },
           {
             type: "text",
-            text: "Club GOLD 出勤確認",
+            text: headerTitle,
             color: "#D4AF37",
             size: "sm",
             weight: "bold",
