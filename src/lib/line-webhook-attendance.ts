@@ -21,14 +21,18 @@ const PUBLIC_HOLIDAY_POSTBACK_REPLY =
 const HALF_HOLIDAY_POSTBACK_REPLY =
   "半休の理由をこのトークにそのまま返信してください";
 
+/** Quick Reply 付きの案内文（出勤確定直後） */
 const RESERVATION_ASK_TEXT =
-  "本日の同伴や来客（予約）予定はありますか？\n下のボタンからお選びください。";
+  "出勤ですね、承知しました！\n本日の同伴や来客（予約）予定はありますか？\n下のボタンからお選びください。";
 const RESERVATION_DETAIL_PROMPT =
   "お客様のお名前と予定時間を入力してください（例：21時 田中様）";
 const RESERVATION_ASK_REMIND_TEXT =
   "「はい」「いいえ」からお選びください。";
 const RESERVATION_DETAIL_EMPTY_TEXT =
   "内容を入力してください。";
+
+const ATTENDING_ALREADY_DONE_REPLY =
+  "既に出勤連絡を受け付けています。本日もよろしくお願い致します。";
 
 export const PENDING_RESERVATION_ASK = "reservation_ask";
 export const PENDING_RESERVATION_DETAIL = "reservation_detail";
@@ -133,7 +137,7 @@ async function getAdminLineUserIds(
   return [];
 }
 
-function buildReservationAskMessage(): LineReplyMessage {
+export function buildReservationAskMessage(): LineReplyMessage {
   return {
     type: "text",
     text: RESERVATION_ASK_TEXT,
@@ -500,6 +504,10 @@ async function finalizeAttendingAttendance(p: FinalizeParams): Promise<void> {
   await sendReply(replyToken, channelAccessToken, [{ type: "text", text: replyMessageText }]);
 }
 
+/**
+ * 出勤 Postback 初回（または他ステータスから変更）:
+ * attendance_logs / response_status を即時 attending で確定し、予約ヒアリングは pending_line_flow で継続する。
+ */
 async function handleAttendingReservationFlowStart(
   cast: { id: string; store_id: string; name: string | null },
   scheduleId: string,
@@ -513,18 +521,47 @@ async function handleAttendingReservationFlowStart(
     }
   };
 
+  const today = getTodayJst();
+  const nowIso = new Date().toISOString();
+
+  const upsertLog = await supabase.from("attendance_logs").upsert(
+    {
+      store_id: cast.store_id,
+      cast_id: cast.id,
+      attendance_schedule_id: scheduleId,
+      attended_date: today,
+      status: "attending",
+      responded_at: nowIso,
+      updated_at: nowIso,
+    } as Record<string, unknown>,
+    {
+      onConflict: "store_id,cast_id,attended_date",
+      ignoreDuplicates: false,
+    }
+  );
+
+  if (upsertLog.error) {
+    console.error("[Attendance] attending 初回 attendance_logs upsert エラー:", upsertLog.error);
+    await safeReply([{ type: "text", text: ERROR_REPLY }]);
+    return;
+  }
+
   const { data: updatedRows, error } = await supabase
     .from("attendance_schedules")
     .update({
+      response_status: "attending",
+      is_absent: false,
+      is_late: false,
+      is_action_completed: false,
       pending_line_flow: PENDING_RESERVATION_ASK,
-      pending_line_updated_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      pending_line_updated_at: nowIso,
+      updated_at: nowIso,
     })
     .eq("id", scheduleId)
     .select("id");
 
   if (error || !updatedRows?.length) {
-    console.error("[Attendance] pending_line_flow 設定エラー:", error);
+    console.error("[Attendance] attending 初回 schedule 更新エラー:", error);
     await safeReply([{ type: "text", text: ERROR_REPLY }]);
     return;
   }
@@ -661,7 +698,7 @@ export async function handleAttendanceResponse(
 
     const { data: schedule, error: scheduleFetchError } = await supabase
       .from("attendance_schedules")
-      .select("id")
+      .select("id, pending_line_flow, response_status, is_action_completed")
       .eq("store_id", cast.store_id)
       .eq("cast_id", cast.id)
       .eq("scheduled_date", today)
@@ -672,13 +709,33 @@ export async function handleAttendanceResponse(
       return;
     }
 
-    const scheduleId = schedule?.id ?? null;
-    if (!scheduleId) {
+    if (!schedule?.id) {
       await safeReply(NO_SCHEDULE_FOR_TODAY_REPLY);
       return;
     }
 
+    const scheduleId = schedule.id;
+
     if (statusData === "attending") {
+      const pending = schedule.pending_line_flow ?? null;
+      const rs = schedule.response_status ?? null;
+      const done = schedule.is_action_completed === true;
+
+      if (pending === PENDING_RESERVATION_DETAIL) {
+        await safeReply(RESERVATION_DETAIL_PROMPT);
+        return;
+      }
+      if (pending === PENDING_RESERVATION_ASK) {
+        if (replyToken && channelAccessToken) {
+          await sendReply(replyToken, channelAccessToken, [buildReservationAskMessage()]);
+        }
+        return;
+      }
+      if (rs === "attending" && !pending && done) {
+        await safeReply(ATTENDING_ALREADY_DONE_REPLY);
+        return;
+      }
+
       await handleAttendingReservationFlowStart(
         cast,
         scheduleId,
