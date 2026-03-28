@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendPushMessage } from "@/lib/line-reply";
+import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
@@ -36,17 +37,9 @@ export async function POST(request: Request) {
   const supabaseKey =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
     process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-
   if (!supabaseUrl || !supabaseKey) {
     return NextResponse.json(
       { error: "Supabase URL or key is not configured" },
-      { status: 500 }
-    );
-  }
-  if (!channelAccessToken) {
-    return NextResponse.json(
-      { error: "LINE_CHANNEL_ACCESS_TOKEN is not configured" },
       { status: 500 }
     );
   }
@@ -118,6 +111,22 @@ export async function POST(request: Request) {
   if (cast.store_id !== expectedStoreId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const tokenResult = await fetchResolvedLineChannelAccessTokenForStore(
+    supabase,
+    cast.store_id,
+    "[NotifyIndividual]"
+  );
+  if (!tokenResult) {
+    return NextResponse.json(
+      {
+        error:
+          "LINE チャネルアクセストークンがありません。stores.line_channel_access_token または環境変数 LINE_CHANNEL_ACCESS_TOKEN を設定してください。",
+      },
+      { status: 500 }
+    );
+  }
+  const channelAccessToken = tokenResult.token;
 
   const lineUserId = cast.line_user_id;
   if (!lineUserId) {

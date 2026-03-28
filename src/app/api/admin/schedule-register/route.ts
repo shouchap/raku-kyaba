@@ -9,6 +9,7 @@ import {
 } from "@/lib/attendance-remind-flex";
 import { fetchReminderMessageTemplate } from "@/lib/reminder-config";
 import { assertStoreIdMatchesRequest } from "@/lib/current-store";
+import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 
 export const dynamic = "force-dynamic";
 
@@ -132,16 +133,21 @@ export async function POST(request: Request) {
     });
   }
 
-  const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-  if (!channelAccessToken?.trim()) {
+  const tokenResult = await fetchResolvedLineChannelAccessTokenForStore(
+    supabase,
+    storeId,
+    "[schedule-register]"
+  );
+  if (!tokenResult) {
     return NextResponse.json({
       ok: true,
       scheduleId,
       lineSent: false,
       lineWarning:
-        "LINE_CHANNEL_ACCESS_TOKEN が未設定のため送信できませんでした（登録は完了しています）",
+        "stores.line_channel_access_token および環境変数 LINE_CHANNEL_ACCESS_TOKEN が未設定のため送信できませんでした（登録は完了しています）",
     });
   }
+  const channelAccessToken = tokenResult.token;
 
   const { data: cast, error: castError } = await supabase
     .from("casts")

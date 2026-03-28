@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendMulticastMessage } from "@/lib/line-reply";
+import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { getTodayJst } from "@/lib/date-utils";
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 
@@ -187,17 +188,10 @@ export async function GET(request: Request) {
   const supabaseKey =
     process.env.SUPABASE_SERVICE_ROLE_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
   if (!supabaseUrl || !supabaseKey) {
     return NextResponse.json(
       { error: "Supabase URL or key is not configured" },
-      { status: 500 }
-    );
-  }
-  if (!channelAccessToken) {
-    return NextResponse.json(
-      { error: "LINE_CHANNEL_ACCESS_TOKEN is not configured" },
       { status: 500 }
     );
   }
@@ -236,6 +230,9 @@ export async function GET(request: Request) {
 
     const storeIds = [...new Set(overdue.map((o) => o.store_id))];
 
+    let warnedCount = 0;
+    const errors: string[] = [];
+
     for (const storeId of storeIds) {
       const storeOverdue = overdue.filter((o) => o.store_id === storeId);
       const adminIds = await getAdminLineUserIds(supabase, storeId);
@@ -245,34 +242,58 @@ export async function GET(request: Request) {
         continue;
       }
 
+      const tokenResult = await fetchResolvedLineChannelAccessTokenForStore(
+        supabase,
+        storeId,
+        "[WarnUnanswered]"
+      );
+      if (!tokenResult) {
+        console.warn(
+          "[WarnUnanswered] 店舗の LINE トークンなし（stores または LINE_CHANNEL_ACCESS_TOKEN） storeId=",
+          storeId
+        );
+        errors.push(`store ${storeId}: no LINE channel access token`);
+        continue;
+      }
+
       try {
         await sendMulticastMessage(
           adminIds,
-          channelAccessToken,
+          tokenResult.token,
           [{ type: "text", text: buildWarningMessage(storeOverdue) }]
         );
       } catch (sendErr) {
-        console.error("[WarnUnanswered] LINE送信失敗:", sendErr);
-        return NextResponse.json(
-          {
-            error: "LINE送信失敗",
-            details: sendErr instanceof Error ? sendErr.message : String(sendErr),
-          },
-          { status: 500 }
+        console.error("[WarnUnanswered] LINE送信失敗 storeId=", storeId, sendErr);
+        errors.push(
+          `store ${storeId}: ${sendErr instanceof Error ? sendErr.message : String(sendErr)}`
         );
+        continue;
       }
 
       await markSchedulesAsWarned(
         supabase,
         storeOverdue.map((o) => o.id)
       );
+      warnedCount += storeOverdue.length;
     }
 
-    console.log("[WarnUnanswered] 通知完了 count=", overdue.length);
+    if (warnedCount === 0 && errors.length > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "LINE送信できた店舗がありません",
+          details: errors,
+        },
+        { status: 500 }
+      );
+    }
+
+    console.log("[WarnUnanswered] 通知完了 warnedCount=", warnedCount, "errors=", errors.length);
     return NextResponse.json({
       ok: true,
-      message: "通知完了",
-      warnedCount: overdue.length,
+      message: errors.length > 0 ? "一部完了（トークン不足等でスキップあり）" : "通知完了",
+      warnedCount,
+      ...(errors.length > 0 ? { partialErrors: errors } : {}),
     });
   } catch (err) {
     console.error("[WarnUnanswered] エラー:", err);
