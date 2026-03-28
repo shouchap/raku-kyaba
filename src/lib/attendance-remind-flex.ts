@@ -36,15 +36,95 @@ export function formatFlexHeaderStoreName(storeName: string | null | undefined):
   return s.length > 0 ? s : "店舗";
 }
 
+/** 公休・半休ボタンの有無（店舗の system_settings） */
+export type AttendanceRemindFlexOptions = {
+  enablePublicHoliday?: boolean;
+  enableHalfHoliday?: boolean;
+};
+
+const BASE_FLEX_BUTTONS: object[] = [
+  {
+    type: "button",
+    style: "primary",
+    color: "#2196F3",
+    height: "sm",
+    action: {
+      type: "postback",
+      label: "出勤",
+      data: "attending",
+      displayText: "出勤",
+    },
+  },
+  {
+    type: "button",
+    style: "primary",
+    color: "#FFC107",
+    height: "sm",
+    action: {
+      type: "postback",
+      label: "遅刻",
+      data: "late",
+      displayText: "遅刻",
+    },
+  },
+  {
+    type: "button",
+    style: "primary",
+    color: "#FF5252",
+    height: "sm",
+    action: {
+      type: "postback",
+      label: "欠勤",
+      data: "absent",
+      displayText: "欠勤",
+    },
+  },
+];
+
 /**
  * /api/remind 等と同一の出勤確認 Flex（店舗名ヘッダー・縦ボタン）
  * @param storeName stores.name（テナント表示名。空のときは「店舗」）
+ * @param flexOptions 公休・半休は true のときのみフッターに追加
  */
 export function buildAttendanceRemindFlexMessage(
   bodyText: string,
-  storeName: string | null | undefined
+  storeName: string | null | undefined,
+  flexOptions?: AttendanceRemindFlexOptions
 ): LineReplyMessage {
   const headerTitle = `${formatFlexHeaderStoreName(storeName)} 出勤確認`;
+  const showPublic = flexOptions?.enablePublicHoliday === true;
+  const showHalf = flexOptions?.enableHalfHoliday === true;
+
+  const footerContents: object[] = [...BASE_FLEX_BUTTONS];
+  if (showPublic) {
+    footerContents.push({
+      type: "button",
+      style: "primary",
+      color: "#9C27B0",
+      height: "sm",
+      action: {
+        type: "postback",
+        label: "公休",
+        data: "public_holiday",
+        displayText: "公休",
+      },
+    });
+  }
+  if (showHalf) {
+    footerContents.push({
+      type: "button",
+      style: "primary",
+      color: "#795548",
+      height: "sm",
+      action: {
+        type: "postback",
+        label: "半休",
+        data: "half_holiday",
+        displayText: "半休",
+      },
+    });
+  }
+
   return {
     type: "flex",
     altText: `${bodyText.slice(0, 60)}${bodyText.length > 60 ? "…" : ""}\n下のボタンから選択してください。`,
@@ -85,68 +165,7 @@ export function buildAttendanceRemindFlexMessage(
         type: "box",
         layout: "vertical",
         spacing: "sm",
-        contents: [
-          {
-            type: "button",
-            style: "primary",
-            color: "#2196F3",
-            height: "sm",
-            action: {
-              type: "postback",
-              label: "出勤",
-              data: "attending",
-              displayText: "出勤",
-            },
-          },
-          {
-            type: "button",
-            style: "primary",
-            color: "#FFC107",
-            height: "sm",
-            action: {
-              type: "postback",
-              label: "遅刻",
-              data: "late",
-              displayText: "遅刻",
-            },
-          },
-          {
-            type: "button",
-            style: "primary",
-            color: "#FF5252",
-            height: "sm",
-            action: {
-              type: "postback",
-              label: "欠勤",
-              data: "absent",
-              displayText: "欠勤",
-            },
-          },
-          {
-            type: "button",
-            style: "primary",
-            color: "#9C27B0",
-            height: "sm",
-            action: {
-              type: "postback",
-              label: "公休",
-              data: "public_holiday",
-              displayText: "公休",
-            },
-          },
-          {
-            type: "button",
-            style: "primary",
-            color: "#795548",
-            height: "sm",
-            action: {
-              type: "postback",
-              label: "半休",
-              data: "half_holiday",
-              displayText: "半休",
-            },
-          },
-        ],
+        contents: footerContents,
       },
     },
   };

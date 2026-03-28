@@ -12,6 +12,8 @@ import {
   logResolvedLineToken,
   resolveLineChannelAccessToken,
 } from "@/lib/line-channel-token";
+import type { HolidayFlexFlags } from "@/lib/reminder-config";
+import { isUndefinedColumnError } from "@/lib/postgrest-error";
 
 /** キャッシュ無効化: 毎回最新のDB値を取得する */
 export const dynamic = "force-dynamic";
@@ -138,18 +140,54 @@ type StoreRow = {
 async function loadReminderConfig(
   supabase: SupabaseClient,
   storeId: string
-): Promise<{ config: ReminderConfig; rawConfig: Record<string, unknown>; messageTemplate: string } | null> {
-  const { data: settingsRow, error: settingsError } = await supabase
+): Promise<{
+  config: ReminderConfig;
+  rawConfig: Record<string, unknown>;
+  messageTemplate: string;
+  holidayFlex: HolidayFlexFlags;
+} | null> {
+  const fullSelect = await supabase
     .from("system_settings")
-    .select("value")
+    .select("value, enable_public_holiday, enable_half_holiday")
     .eq("store_id", storeId)
     .eq("key", "reminder_config")
     .maybeSingle();
 
-  if (settingsError) {
-    logError(`reminder_config 取得失敗 store=${storeId}`, settingsError);
-    return null;
+  let settingsRow: {
+    value: unknown;
+    enable_public_holiday?: boolean | null;
+    enable_half_holiday?: boolean | null;
+  } | null = null;
+
+  if (fullSelect.error) {
+    if (isUndefinedColumnError(fullSelect.error, "enable_public_holiday")) {
+      const fallback = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("store_id", storeId)
+        .eq("key", "reminder_config")
+        .maybeSingle();
+      if (fallback.error) {
+        logError(`reminder_config 取得失敗 store=${storeId}`, fallback.error);
+        return null;
+      }
+      settingsRow = {
+        value: fallback.data?.value,
+        enable_public_holiday: false,
+        enable_half_holiday: false,
+      };
+    } else {
+      logError(`reminder_config 取得失敗 store=${storeId}`, fullSelect.error);
+      return null;
+    }
+  } else {
+    settingsRow = fullSelect.data as typeof settingsRow;
   }
+
+  const holidayFlex: HolidayFlexFlags = {
+    enablePublicHoliday: settingsRow?.enable_public_holiday === true,
+    enableHalfHoliday: settingsRow?.enable_half_holiday === true,
+  };
 
   const rawConfig = (settingsRow?.value ?? {}) as Record<string, unknown>;
   const sanitized = sanitizeReminderConfig(rawConfig);
@@ -176,7 +214,7 @@ async function loadReminderConfig(
     "本日は {time} 出勤予定です。";
   const messageTemplate = rawTemplate.trim() || "本日は {time} 出勤予定です。";
 
-  return { config, rawConfig, messageTemplate };
+  return { config, rawConfig, messageTemplate, holidayFlex };
 }
 
 const minutesFromScheduledTime = (time: string | null | undefined): number => {
@@ -236,7 +274,7 @@ async function runRemindForStore(
   if (!loaded) {
     return { storeId, skipped: "settings_error", successCount: 0, failureCount: 0, totalCandidates: 0 };
   }
-  const { config, messageTemplate } = loaded;
+  const { config, messageTemplate, holidayFlex } = loaded;
 
   if (config.enabled === false) {
     return { storeId, skipped: "reminder_disabled", successCount: 0, failureCount: 0, totalCandidates: 0 };
@@ -288,7 +326,10 @@ async function runRemindForStore(
         const name = casts.name ?? "キャスト";
         const scheduledTime = formatRemindScheduledTime(schedule.scheduled_time, schedule.is_dohan);
         const bodyText = applyReminderMessageTemplate(messageTemplate, name, scheduledTime);
-        const message = buildAttendanceRemindFlexMessage(bodyText, store.name);
+        const message = buildAttendanceRemindFlexMessage(bodyText, store.name, {
+          enablePublicHoliday: holidayFlex.enablePublicHoliday,
+          enableHalfHoliday: holidayFlex.enableHalfHoliday,
+        });
         await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);
         return schedule;
       })
@@ -396,7 +437,10 @@ async function runRemindForStore(
       const name = casts.name ?? "キャスト";
       const scheduledTime = formatRemindScheduledTime(schedule.scheduled_time, schedule.is_dohan);
       const bodyText = applyReminderMessageTemplate(messageTemplate, name, scheduledTime);
-      const message = buildAttendanceRemindFlexMessage(bodyText, store.name);
+      const message = buildAttendanceRemindFlexMessage(bodyText, store.name, {
+        enablePublicHoliday: holidayFlex.enablePublicHoliday,
+        enableHalfHoliday: holidayFlex.enableHalfHoliday,
+      });
 
       try {
         await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);

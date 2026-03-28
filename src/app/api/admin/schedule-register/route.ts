@@ -7,6 +7,7 @@ import {
   buildAttendanceRemindFlexMessage,
   formatRemindScheduledTime,
 } from "@/lib/attendance-remind-flex";
+import { fetchAttendanceFlexHolidayOptions } from "@/lib/reminder-config";
 import { fetchReminderMessageTemplate } from "@/lib/reminder-config";
 import { assertStoreIdMatchesRequest } from "@/lib/current-store";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
@@ -186,11 +187,11 @@ export async function POST(request: Request) {
       "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。";
   }
 
-  const { data: storeRow } = await supabase
-    .from("stores")
-    .select("name")
-    .eq("id", storeId)
-    .maybeSingle();
+  const [storeRes, holidayFlex] = await Promise.all([
+    supabase.from("stores").select("name").eq("id", storeId).maybeSingle(),
+    fetchAttendanceFlexHolidayOptions(supabase, storeId),
+  ]);
+  const storeRow = storeRes.data;
 
   const timeStr = formatRemindScheduledTime(scheduledTime, isDohan);
   const bodyText = applyReminderMessageTemplate(
@@ -198,7 +199,10 @@ export async function POST(request: Request) {
     cast?.name ?? "キャスト",
     timeStr
   );
-  const flex = buildAttendanceRemindFlexMessage(bodyText, storeRow?.name);
+  const flex = buildAttendanceRemindFlexMessage(bodyText, storeRow?.name, {
+    enablePublicHoliday: holidayFlex.enablePublicHoliday,
+    enableHalfHoliday: holidayFlex.enableHalfHoliday,
+  });
 
   try {
     await sendPushMessage(lineUserId, channelAccessToken, [flex]);

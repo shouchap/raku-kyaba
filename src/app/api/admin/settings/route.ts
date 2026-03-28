@@ -92,23 +92,59 @@ export async function GET(request: Request) {
   }
 
   try {
-    const settingsRes = await admin
+    const fullSettings = await admin
       .from("system_settings")
-      .select("value")
+      .select("value, enable_public_holiday, enable_half_holiday")
       .eq("store_id", storeId)
       .eq("key", REMINDER_CONFIG_KEY)
       .maybeSingle();
 
-    if (settingsRes.error) {
-      logPostgrestError("GET system_settings", settingsRes.error);
-      return NextResponse.json(
-        {
-          error: "Failed to load settings",
-          details: settingsRes.error.message,
-          code: settingsRes.error.code,
-        },
-        { status: 500 }
-      );
+    let settingsRow: {
+      value: unknown;
+      enable_public_holiday?: boolean | null;
+      enable_half_holiday?: boolean | null;
+    } | null = null;
+
+    if (fullSettings.error) {
+      if (isUndefinedColumnError(fullSettings.error, "enable_public_holiday")) {
+        const fb = await admin
+          .from("system_settings")
+          .select("value")
+          .eq("store_id", storeId)
+          .eq("key", REMINDER_CONFIG_KEY)
+          .maybeSingle();
+        if (fb.error) {
+          logPostgrestError("GET system_settings", fb.error);
+          return NextResponse.json(
+            {
+              error: "Failed to load settings",
+              details: fb.error.message,
+              code: fb.error.code,
+            },
+            { status: 500 }
+          );
+        }
+        settingsRow = {
+          value: fb.data?.value,
+          enable_public_holiday: false,
+          enable_half_holiday: false,
+        };
+        console.warn(
+          "[api/admin/settings] GET: system_settings.enable_public_holiday 未適用。マイグレーション 016 を適用してください。"
+        );
+      } else {
+        logPostgrestError("GET system_settings", fullSettings.error);
+        return NextResponse.json(
+          {
+            error: "Failed to load settings",
+            details: fullSettings.error.message,
+            code: fullSettings.error.code,
+          },
+          { status: 500 }
+        );
+      }
+    } else {
+      settingsRow = fullSettings.data as typeof settingsRow;
     }
 
     /** remind_time / allow_shift_submission（カラム未適用時はフォールバック） */
@@ -165,9 +201,11 @@ export async function GET(request: Request) {
     return NextResponse.json({
       remind_time: remindTime,
       allow_shift_submission: allowShiftSubmission,
+      enable_public_holiday: settingsRow?.enable_public_holiday === true,
+      enable_half_holiday: settingsRow?.enable_half_holiday === true,
       reminder_config:
-        settingsRes.data?.value && typeof settingsRes.data.value === "object"
-          ? settingsRes.data.value
+        settingsRow?.value && typeof settingsRow.value === "object"
+          ? settingsRow.value
           : {},
     });
   } catch (e) {
@@ -188,6 +226,9 @@ type PatchBody = {
   reminder_config?: Record<string, unknown>;
   /** 未指定の場合は DB の allow_shift_submission を更新しない */
   allow_shift_submission?: boolean;
+  /** 未指定の場合は system_settings の該当カラムを更新しない（016 未適用時は無視） */
+  enable_public_holiday?: boolean;
+  enable_half_holiday?: boolean;
 };
 
 /**
@@ -294,12 +335,44 @@ export async function PATCH(request: Request) {
       );
     }
 
+    const holidayColsProvided =
+      typeof body.enable_public_holiday === "boolean" &&
+      typeof body.enable_half_holiday === "boolean";
+
+    const settingsUpdatePayload: Record<string, unknown> = {
+      value: valueJson,
+      updated_at: nowIso,
+    };
+    if (holidayColsProvided) {
+      settingsUpdatePayload.enable_public_holiday = body.enable_public_holiday;
+      settingsUpdatePayload.enable_half_holiday = body.enable_half_holiday;
+    }
+
     if (existingRow?.key === REMINDER_CONFIG_KEY) {
-      const { error: updateErr } = await admin
-        .from("system_settings")
-        .update({ value: valueJson, updated_at: nowIso })
-        .eq("store_id", storeId)
-        .eq("key", REMINDER_CONFIG_KEY);
+      let updateErr = (
+        await admin
+          .from("system_settings")
+          .update(settingsUpdatePayload)
+          .eq("store_id", storeId)
+          .eq("key", REMINDER_CONFIG_KEY)
+      ).error;
+
+      if (
+        updateErr &&
+        holidayColsProvided &&
+        isUndefinedColumnError(updateErr, "enable_public_holiday")
+      ) {
+        console.warn(
+          "[api/admin/settings] PATCH: enable_public_holiday カラムなし。reminder_config のみ保存しました。016 を適用してください。"
+        );
+        updateErr = (
+          await admin
+            .from("system_settings")
+            .update({ value: valueJson, updated_at: nowIso })
+            .eq("store_id", storeId)
+            .eq("key", REMINDER_CONFIG_KEY)
+        ).error;
+      }
 
       if (updateErr) {
         logPostgrestError("PATCH system_settings update", updateErr);
@@ -314,11 +387,34 @@ export async function PATCH(request: Request) {
         );
       }
     } else {
-      const { error: insertErr } = await admin.from("system_settings").insert({
+      const insertPayload: Record<string, unknown> = {
         store_id: storeId,
         key: REMINDER_CONFIG_KEY,
         value: valueJson,
-      });
+      };
+      if (holidayColsProvided) {
+        insertPayload.enable_public_holiday = body.enable_public_holiday;
+        insertPayload.enable_half_holiday = body.enable_half_holiday;
+      }
+
+      let insertErr = (await admin.from("system_settings").insert(insertPayload)).error;
+
+      if (
+        insertErr &&
+        holidayColsProvided &&
+        isUndefinedColumnError(insertErr, "enable_public_holiday")
+      ) {
+        console.warn(
+          "[api/admin/settings] PATCH: enable_* カラムなし。reminder_config のみ挿入します。016 を適用してください。"
+        );
+        insertErr = (
+          await admin.from("system_settings").insert({
+            store_id: storeId,
+            key: REMINDER_CONFIG_KEY,
+            value: valueJson,
+          })
+        ).error;
+      }
 
       if (insertErr) {
         logPostgrestError("PATCH system_settings insert", insertErr);

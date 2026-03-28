@@ -5,6 +5,7 @@ import { sendMulticastMessage, sendReply, type LineReplyMessage } from "@/lib/li
 import { createSupabaseClient } from "@/lib/supabase";
 import { getTodayJst } from "@/lib/date-utils";
 import { getDefaultStoreIdOrNull } from "@/lib/current-store";
+import { fetchAttendanceFlexHolidayOptions } from "@/lib/reminder-config";
 import type { AttendancePostbackData, ReservationPostbackData } from "@/types/line-webhook";
 
 const ERROR_REPLY = "申し訳ございません。エラーが発生しました。しばらく経ってから再度お試しください。";
@@ -829,6 +830,22 @@ export async function handleAttendanceResponse(
         channelAccessToken
       );
       return;
+    }
+
+    if (statusData === "public_holiday" || statusData === "half_holiday") {
+      const flags = await fetchAttendanceFlexHolidayOptions(supabase, cast.store_id);
+      if (statusData === "public_holiday" && !flags.enablePublicHoliday) {
+        await safeReply(
+          "この店舗では公休の連絡は受け付けていません。出勤・遅刻・欠勤から選ぶか、管理者にご連絡ください。"
+        );
+        return;
+      }
+      if (statusData === "half_holiday" && !flags.enableHalfHoliday) {
+        await safeReply(
+          "この店舗では半休の連絡は受け付けていません。出勤・遅刻・欠勤から選ぶか、管理者にご連絡ください。"
+        );
+        return;
+      }
     }
 
     const status = statusData;

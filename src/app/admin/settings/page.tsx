@@ -52,6 +52,8 @@ export default function AdminSettingsPage() {
   const [config, setConfig] = useState<ReminderConfig>(DEFAULT_CONFIG);
   const [remindTime, setRemindTime] = useState("07:00");
   const [allowShiftSubmission, setAllowShiftSubmission] = useState(false);
+  const [enablePublicHoliday, setEnablePublicHoliday] = useState(false);
+  const [enableHalfHoliday, setEnableHalfHoliday] = useState(false);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -67,6 +69,8 @@ export default function AdminSettingsPage() {
       const data = (await res.json()) as {
         remind_time?: string;
         allow_shift_submission?: boolean;
+        enable_public_holiday?: boolean;
+        enable_half_holiday?: boolean;
         reminder_config?: Record<string, unknown>;
       };
 
@@ -77,6 +81,8 @@ export default function AdminSettingsPage() {
         setRemindTime(data.remind_time);
       }
       setAllowShiftSubmission(data.allow_shift_submission === true);
+      setEnablePublicHoliday(data.enable_public_holiday === true);
+      setEnableHalfHoliday(data.enable_half_holiday === true);
 
       const v = data.reminder_config;
       if (v && typeof v === "object" && !Array.isArray(v)) {
@@ -154,6 +160,8 @@ export default function AdminSettingsPage() {
           remind_time: remindTime,
           reminder_config: value,
           allow_shift_submission: allowShiftSubmission,
+          enable_public_holiday: enablePublicHoliday,
+          enable_half_holiday: enableHalfHoliday,
         }),
       });
 
@@ -306,6 +314,35 @@ export default function AdminSettingsPage() {
             </label>
             <p className="text-xs text-gray-500 mt-2 pl-8">
               ON のときのみ、週間シフト一覧画面に「来週のシフトを提出する」導線（開発中）を表示します。
+            </p>
+          </div>
+
+          <div className="mb-8 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-4">
+            <h3 className="text-sm font-medium text-gray-800 mb-3">出勤確認（LINE Flex）</h3>
+            <label className="flex items-start gap-3 cursor-pointer mb-4">
+              <input
+                type="checkbox"
+                checked={enablePublicHoliday}
+                onChange={(e) => setEnablePublicHoliday(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700 leading-snug">
+                公休機能を有効にする（出勤確認カードに「公休」ボタンを表示）
+              </span>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enableHalfHoliday}
+                onChange={(e) => setEnableHalfHoliday(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700 leading-snug">
+                半休機能を有効にする（出勤確認カードに「半休」ボタンを表示）
+              </span>
+            </label>
+            <p className="text-xs text-gray-500 mt-2 pl-8">
+              どちらもオフの場合は、出勤・遅刻・欠勤の3ボタンのみが表示されます。業態に合わせて店舗ごとに設定してください。
             </p>
           </div>
 
