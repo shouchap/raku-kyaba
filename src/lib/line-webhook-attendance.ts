@@ -822,6 +822,41 @@ export async function handleAttendanceResponse(
         return;
       }
 
+      const storeFlags = await supabase
+        .from("stores")
+        .select("enable_reservation_check")
+        .eq("id", cast.store_id)
+        .maybeSingle();
+
+      let reservationAskEnabled = false;
+      if (!storeFlags.error && storeFlags.data) {
+        reservationAskEnabled =
+          (storeFlags.data as { enable_reservation_check?: boolean | null }).enable_reservation_check ===
+          true;
+      } else if (storeFlags.error) {
+        console.warn(
+          "[Attendance] stores.enable_reservation_check 取得失敗（予約ヒアリングはスキップ）:",
+          storeFlags.error.message
+        );
+      }
+
+      if (!reservationAskEnabled) {
+        if (!replyToken || !channelAccessToken) return;
+        const { replyMessages } = await getReminderReplyConfig(supabase, cast.store_id);
+        await finalizeAttendingAttendance({
+          supabase,
+          cast,
+          scheduleId,
+          today,
+          hasReservation: false,
+          reservationDetails: null,
+          replyToken,
+          channelAccessToken,
+          replyMessageText: replyMessages.attending,
+        });
+        return;
+      }
+
       await handleAttendingReservationFlowStart(
         cast,
         scheduleId,

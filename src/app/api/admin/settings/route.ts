@@ -258,10 +258,38 @@ export async function GET(request: Request) {
       preOpenReportHourJst = parsePreOpenReportHourJst(row?.pre_open_report_hour_jst);
     }
 
+    let enableReservationCheck = false;
+    const resCheckRes = await admin
+      .from("stores")
+      .select("enable_reservation_check")
+      .eq("id", storeId)
+      .maybeSingle();
+    if (resCheckRes.error) {
+      if (!isUndefinedColumnError(resCheckRes.error, "enable_reservation_check")) {
+        logPostgrestError("GET stores enable_reservation_check", resCheckRes.error);
+        return NextResponse.json(
+          {
+            error: "Failed to load store",
+            details: resCheckRes.error.message,
+            code: resCheckRes.error.code,
+          },
+          { status: 500 }
+        );
+      }
+      console.warn(
+        "[api/admin/settings] GET: stores.enable_reservation_check 未適用。マイグレーション 017 を適用してください。"
+      );
+    } else {
+      enableReservationCheck =
+        (resCheckRes.data as { enable_reservation_check?: boolean | null } | null)
+          ?.enable_reservation_check === true;
+    }
+
     return NextResponse.json({
       remind_time: remindTime,
       allow_shift_submission: allowShiftSubmission,
       pre_open_report_hour_jst: preOpenReportHourJst,
+      enable_reservation_check: enableReservationCheck,
       enable_public_holiday: settingsRow?.enable_public_holiday === true,
       enable_half_holiday: settingsRow?.enable_half_holiday === true,
       reminder_config:
@@ -287,6 +315,8 @@ type PatchBody = {
   reminder_config?: Record<string, unknown>;
   /** 未指定の場合は DB の allow_shift_submission を更新しない */
   allow_shift_submission?: boolean;
+  /** 未指定の場合は stores.enable_reservation_check を更新しない */
+  enable_reservation_check?: boolean;
   /** 未指定の場合は stores.pre_open_report_hour_jst を更新しない。null は送信しない（NULL） */
   pre_open_report_hour_jst?: number | null;
   /** 未指定の場合は system_settings の該当カラムを更新しない（016 未適用時は無視） */
@@ -322,6 +352,7 @@ export async function PATCH(request: Request) {
   const remindTime = body.remind_time?.trim() ?? "";
   const reminderConfig = body.reminder_config;
   const allowShiftSubmissionProvided = typeof body.allow_shift_submission === "boolean";
+  const enableReservationCheckProvided = typeof body.enable_reservation_check === "boolean";
   const preOpenReportHourProvided = Object.prototype.hasOwnProperty.call(
     body,
     "pre_open_report_hour_jst"
@@ -513,6 +544,9 @@ export async function PATCH(request: Request) {
     if (allowShiftSubmissionProvided) {
       storePayload.allow_shift_submission = body.allow_shift_submission as boolean;
     }
+    if (enableReservationCheckProvided) {
+      storePayload.enable_reservation_check = body.enable_reservation_check as boolean;
+    }
     if (preOpenReportHourProvided) {
       storePayload.pre_open_report_hour_jst = body.pre_open_report_hour_jst as number | null;
     }
@@ -521,6 +555,50 @@ export async function PATCH(request: Request) {
 
     if (storeRes.error) {
       logPostgrestError("PATCH stores", storeRes.error);
+      if (
+        enableReservationCheckProvided &&
+        isUndefinedColumnError(storeRes.error, "enable_reservation_check")
+      ) {
+        console.warn(
+          "[api/admin/settings] PATCH: enable_reservation_check 未適用。マイグレーション 017 を適用してください。"
+        );
+        const retryNoResCheck: Record<string, string | boolean | number | null> = {
+          remind_time: remindTime,
+          updated_at: nowIso,
+        };
+        if (allowShiftSubmissionProvided) {
+          retryNoResCheck.allow_shift_submission = body.allow_shift_submission as boolean;
+        }
+        if (preOpenReportHourProvided) {
+          retryNoResCheck.pre_open_report_hour_jst = body.pre_open_report_hour_jst as number | null;
+        }
+        const retryRes = await admin.from("stores").update(retryNoResCheck).eq("id", storeId);
+        if (retryRes.error) {
+          logPostgrestError("PATCH stores retry without enable_reservation_check", retryRes.error);
+          return NextResponse.json(
+            {
+              error: "Failed to update store",
+              details: retryRes.error.message,
+              code: retryRes.error.code,
+              hint: retryRes.error.hint,
+            },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json({
+          ok: true,
+          remind_time: remindTime,
+          remind_time_persisted: true,
+          allow_shift_submission: allowShiftSubmissionProvided
+            ? (body.allow_shift_submission as boolean)
+            : undefined,
+          pre_open_report_hour_jst: preOpenReportHourProvided
+            ? (body.pre_open_report_hour_jst as number | null)
+            : undefined,
+          warning:
+            "その他の設定は保存しましたが、stores.enable_reservation_check カラムがありません。マイグレーション 017 を適用してください。",
+        });
+      }
       if (preOpenReportHourProvided && isUndefinedColumnError(storeRes.error, "pre_open_report_hour_jst")) {
         console.warn(
           "[api/admin/settings] PATCH: stores.pre_open_report_hour_jst 未適用。他項目のみ再試行します。"
@@ -531,6 +609,9 @@ export async function PATCH(request: Request) {
         };
         if (allowShiftSubmissionProvided) {
           retryPayload.allow_shift_submission = body.allow_shift_submission as boolean;
+        }
+        if (enableReservationCheckProvided) {
+          retryPayload.enable_reservation_check = body.enable_reservation_check as boolean;
         }
         const retryRes = await admin.from("stores").update(retryPayload).eq("id", storeId);
         if (retryRes.error) {
@@ -586,12 +667,15 @@ export async function PATCH(request: Request) {
         console.warn(
           "[api/admin/settings] PATCH: allow_shift_submission column missing. reminder_config and remind_time may need separate migration."
         );
-        const retryPayloadNoAllow: Record<string, string | number | null> = {
+        const retryPayloadNoAllow: Record<string, string | boolean | number | null> = {
           remind_time: remindTime,
           updated_at: nowIso,
         };
         if (preOpenReportHourProvided) {
           retryPayloadNoAllow.pre_open_report_hour_jst = body.pre_open_report_hour_jst as number | null;
+        }
+        if (enableReservationCheckProvided) {
+          retryPayloadNoAllow.enable_reservation_check = body.enable_reservation_check as boolean;
         }
         const retry = await admin.from("stores").update(retryPayloadNoAllow).eq("id", storeId);
         if (retry.error) {
@@ -633,6 +717,9 @@ export async function PATCH(request: Request) {
       allow_shift_submission: allowShiftSubmissionProvided ? (body.allow_shift_submission as boolean) : undefined,
       pre_open_report_hour_jst: preOpenReportHourProvided
         ? (body.pre_open_report_hour_jst as number | null)
+        : undefined,
+      enable_reservation_check: enableReservationCheckProvided
+        ? (body.enable_reservation_check as boolean)
         : undefined,
     });
   } catch (e) {

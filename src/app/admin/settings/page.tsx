@@ -59,6 +59,7 @@ export default function AdminSettingsPage() {
   const [enableHalfHoliday, setEnableHalfHoliday] = useState(false);
   /** 空文字 = 送信しない（NULL）、"0"〜"23" = その時台に送信 */
   const [preOpenReportHourJst, setPreOpenReportHourJst] = useState("");
+  const [enableReservationCheck, setEnableReservationCheck] = useState(false);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -77,6 +78,7 @@ export default function AdminSettingsPage() {
         pre_open_report_hour_jst?: number | null;
         enable_public_holiday?: boolean;
         enable_half_holiday?: boolean;
+        enable_reservation_check?: boolean;
         reminder_config?: Record<string, unknown>;
       };
 
@@ -89,6 +91,7 @@ export default function AdminSettingsPage() {
       setAllowShiftSubmission(data.allow_shift_submission === true);
       setEnablePublicHoliday(data.enable_public_holiday === true);
       setEnableHalfHoliday(data.enable_half_holiday === true);
+      setEnableReservationCheck(data.enable_reservation_check === true);
 
       const p = data.pre_open_report_hour_jst;
       if (typeof p === "number" && Number.isInteger(p) && p >= 0 && p <= 23) {
@@ -177,6 +180,7 @@ export default function AdminSettingsPage() {
           enable_half_holiday: enableHalfHoliday,
           pre_open_report_hour_jst:
             preOpenReportHourJst === "" ? null : parseInt(preOpenReportHourJst, 10),
+          enable_reservation_check: enableReservationCheck,
         }),
       });
 
@@ -358,6 +362,25 @@ export default function AdminSettingsPage() {
             </label>
             <p className="text-xs text-gray-500 mt-2 pl-8">
               どちらもオフの場合は、出勤・遅刻・欠勤の3ボタンのみが表示されます。業態に合わせて店舗ごとに設定してください。
+            </p>
+          </div>
+
+          <div className="mb-8 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-4">
+            <h3 className="text-sm font-medium text-gray-800 mb-3">出勤回答時の予約確認</h3>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enableReservationCheck}
+                onChange={(e) => setEnableReservationCheck(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700 leading-snug">
+                出勤回答時に予約（客予定）を確認する
+              </span>
+            </label>
+            <p className="text-xs text-gray-500 mt-2 pl-8">
+              ON のときのみ、出勤ボタン押下後に同伴・来客予定の Flex ヒアリングを送ります。OFF
+              のときは「出勤を記録しました」の完了メッセージのみです。
             </p>
           </div>
 

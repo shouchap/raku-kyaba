@@ -33,6 +33,8 @@ export interface Database {
           pre_open_report_hour_jst: number | null;
           /** 最後に営業前サマリーを送信した JST 暦日 */
           last_pre_open_report_date: string | null;
+          /** 出勤回答後に予約（客予定）をヒアリングするか */
+          enable_reservation_check: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -46,6 +48,7 @@ export interface Database {
           | "allow_shift_submission"
           | "pre_open_report_hour_jst"
           | "last_pre_open_report_date"
+          | "enable_reservation_check"
         > & {
           id?: string;
           created_at?: string;
@@ -55,6 +58,7 @@ export interface Database {
           allow_shift_submission?: boolean;
           pre_open_report_hour_jst?: number | null;
           last_pre_open_report_date?: string | null;
+          enable_reservation_check?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["stores"]["Insert"]>;
       };
