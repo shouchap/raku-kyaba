@@ -2,8 +2,11 @@
  * 営業前サマリー用のプレーンテキスト組み立て（LINE 送信向け）
  */
 import { formatRemindScheduledTime } from "@/lib/attendance-remind-flex";
-
-const RULE = "────────────────";
+import {
+  RULE_THICK,
+  formatReasonSubLines,
+  formatReservationSubLines,
+} from "@/lib/pre-open-report-utils";
 
 type CastJoin = { name?: string } | { name?: string }[] | null;
 
@@ -72,55 +75,62 @@ function sectionForRow(row: PreOpenScheduleRow): "attending" | "late" | "off" | 
   return "unanswered";
 }
 
-function reservationSuffix(row: PreOpenScheduleRow): string {
-  if (row.pending_line_flow === "reservation_ask") return " ｜ 予約: 回答待ち";
-  if (row.pending_line_flow === "reservation_detail") return " ｜ 予約: 詳細入力待ち";
-  if (row.pending_line_flow) return " ｜ 予約: 確認中";
-  if (row.has_reservation === true) {
-    const d = (row.reservation_details ?? "").trim();
-    return d ? ` ｜ 予約: ${d}` : " ｜ 予約: （詳細あり）";
-  }
-  if (row.has_reservation === false) return " ｜ 予約なし";
-  return "";
-}
-
-function lineAttending(row: PreOpenScheduleRow): string {
+function blockAttending(row: PreOpenScheduleRow): string {
   const name = castName(row);
   const time = formatRemindScheduledTime(row.scheduled_time, row.is_dohan);
-  return `  • ${name}  (${time})${reservationSuffix(row)}`;
+  const head = `👤 ${name}（${time}）`;
+  const subs = formatReservationSubLines(row);
+  if (subs.length === 0) return head;
+  return [head, ...subs].join("\n");
 }
 
-function lineLate(row: PreOpenScheduleRow): string {
+function blockLate(row: PreOpenScheduleRow): string {
   const name = castName(row);
   const time = formatRemindScheduledTime(row.scheduled_time, row.is_dohan);
+  const head = `👤 ${name}（${time}）`;
   const reason = (row.late_reason ?? "").trim();
-  return reason
-    ? `  • ${name}  (${time})\n      理由: ${reason}`
-    : `  • ${name}  (${time})`;
+  if (!reason) {
+    return `${head}\n　⏰ 遅刻`;
+  }
+  return [head, ...formatReasonSubLines("遅刻", reason)].join("\n");
 }
 
-function lineOff(row: PreOpenScheduleRow): string {
+function blockOff(row: PreOpenScheduleRow): string {
   const name = castName(row);
+  const head = `👤 ${name}`;
   const rs = row.response_status;
   if (rs === "absent") {
     const r = (row.absent_reason ?? "").trim();
-    return `  • ${name}  欠勤${r ? ` — ${r}` : ""}`;
+    if (r) return [head, ...formatReasonSubLines("欠勤", r)].join("\n");
+    return `${head}\n　❌ 欠勤`;
   }
   if (rs === "half_holiday") {
     const r = (row.half_holiday_reason ?? "").trim();
-    return `  • ${name}  半休${r ? ` — ${r}` : ""}`;
+    if (r) return [head, ...formatReasonSubLines("半休", r)].join("\n");
+    return `${head}\n　❌ 半休`;
   }
   if (rs === "public_holiday") {
     const r = (row.public_holiday_reason ?? "").trim();
-    return `  • ${name}  公休${r ? ` — ${r}` : ""}`;
+    if (r) return [head, ...formatReasonSubLines("公休", r)].join("\n");
+    return `${head}\n　❌ 公休`;
   }
-  return `  • ${name}`;
+  return head;
 }
 
-function lineUnanswered(row: PreOpenScheduleRow): string {
+function blockUnanswered(row: PreOpenScheduleRow): string {
   const name = castName(row);
   const time = formatRemindScheduledTime(row.scheduled_time, row.is_dohan);
-  return `  • ${name}  (${time})`;
+  return `👤 ${name}（${time}）`;
+}
+
+function sectionBlock(emojiTitle: string, subtitle: string | null, body: string): string[] {
+  const lines: string[] = [];
+  lines.push(emojiTitle);
+  if (subtitle) lines.push(subtitle);
+  lines.push(RULE_THICK);
+  lines.push("");
+  lines.push(body);
+  return lines;
 }
 
 /**
@@ -144,27 +154,31 @@ export function buildPreOpenReportMessage(storeName: string, todayJst: string, r
   const offSorted = sortOffRows(off);
 
   const out: string[] = [];
-  out.push(`【本日の営業前サマリー（${storeName}）】`);
-  out.push(`対象日: ${todayJst}（JST）`);
-  out.push("");
-  out.push("✅ 出勤予定");
-  out.push(RULE);
-  out.push(attending.length ? attending.map(lineAttending).join("\n\n") : "  （該当なし）");
-  out.push("");
-  out.push("⚠️ 遅刻");
-  out.push(RULE);
-  out.push(late.length ? late.map(lineLate).join("\n\n") : "  （該当なし）");
-  out.push("");
-  out.push("❌ お休み（欠勤・半休・公休）");
-  out.push(RULE);
-  out.push(offSorted.length ? offSorted.map(lineOff).join("\n\n") : "  （該当なし）");
 
-  if (unanswered.length > 0) {
-    out.push("");
-    out.push("❓ 未回答（出勤確認が未完了）");
-    out.push(RULE);
-    out.push(unanswered.map(lineUnanswered).join("\n\n"));
-  }
+  out.push("【本日の営業前サマリー】");
+  out.push(`🏪 ${storeName.trim() || "店舗"}`);
+  out.push(`📅 ${todayJst}（JST）`);
+  out.push("");
+  out.push(RULE_THICK);
+  out.push("");
+
+  const attendingBody = attending.length ? attending.map(blockAttending).join("\n\n") : "（なし）";
+  out.push(...sectionBlock("✅ 出勤予定", null, attendingBody));
+  out.push("");
+  out.push("");
+
+  const lateBody = late.length ? late.map(blockLate).join("\n\n") : "（なし）";
+  out.push(...sectionBlock("⏰ 遅刻", null, lateBody));
+  out.push("");
+  out.push("");
+
+  const offBody = offSorted.length ? offSorted.map(blockOff).join("\n\n") : "（なし）";
+  out.push(...sectionBlock("🛌 お休み", "　欠勤・半休・公休", offBody));
+  out.push("");
+  out.push("");
+
+  const unansweredBody = unanswered.length ? unanswered.map(blockUnanswered).join("\n\n") : "（なし）";
+  out.push(...sectionBlock("❓ 未回答", "　出勤確認が未完了の方", unansweredBody));
 
   return out.join("\n");
 }
