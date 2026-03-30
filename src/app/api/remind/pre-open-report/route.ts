@@ -19,6 +19,8 @@ import { isValidStoreId } from "@/lib/current-store";
 
 export const dynamic = "force-dynamic";
 
+const LOG_PREFIX = "[PreOpenReport]";
+
 function getSupabaseKeys(): { url: string | null; key: string | null; isServiceRole: boolean } {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim() ?? null;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -27,8 +29,29 @@ function getSupabaseKeys(): { url: string | null; key: string | null; isServiceR
   return { url, key: anon ?? null, isServiceRole: false };
 }
 
+/** Cloud Scheduler / Vercel で request.url が不正な場合のフォールバック */
+function safeSearchParams(request: Request): URLSearchParams {
+  try {
+    return new URL(request.url).searchParams;
+  } catch (e) {
+    console.error(`${LOG_PREFIX} new URL(request.url) failed`, {
+      rawUrl: request.url,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    const host =
+      request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "localhost";
+    const path = "/api/remind/pre-open-report";
+    try {
+      return new URL(`https://${host}${path}`).searchParams;
+    } catch (e2) {
+      console.error(`${LOG_PREFIX} URL fallback failed`, e2);
+      return new URLSearchParams();
+    }
+  }
+}
+
 async function getAdminLineUserIds(supabase: SupabaseClient, storeId: string): Promise<string[]> {
-  const { data: adminCasts } = await supabase
+  const { data: adminCasts, error: castsErr } = await supabase
     .from("casts")
     .select("line_user_id")
     .eq("store_id", storeId)
@@ -36,27 +59,87 @@ async function getAdminLineUserIds(supabase: SupabaseClient, storeId: string): P
     .eq("is_active", true)
     .not("line_user_id", "is", null);
 
+  if (castsErr) {
+    console.error(`${LOG_PREFIX} casts query (admin)`, storeId, castsErr.message, castsErr.code);
+  }
+
   const fromCasts = (adminCasts ?? [])
     .map((r: { line_user_id?: string }) => r.line_user_id)
     .filter((id): id is string => !!id && id.trim() !== "");
 
   if (fromCasts.length > 0) return fromCasts;
 
-  const { data: store } = await supabase
+  const { data: storeRow, error: storeErr } = await supabase
     .from("stores")
     .select("admin_line_user_id")
     .eq("id", storeId)
-    .single();
+    .maybeSingle();
 
-  const legacyId = (store as { admin_line_user_id?: string | null })?.admin_line_user_id;
+  if (storeErr) {
+    console.error(`${LOG_PREFIX} stores admin_line_user_id`, storeId, storeErr.message, storeErr.code);
+  }
+
+  const legacyId = (storeRow as { admin_line_user_id?: string | null } | null)?.admin_line_user_id;
   if (legacyId && String(legacyId).trim() !== "") return [legacyId];
 
   return [];
 }
 
+/** ネスト casts 付き（失敗時はフォールバック） */
+async function fetchSchedulesForPreOpenReport(
+  supabase: SupabaseClient,
+  storeId: string,
+  todayJst: string
+): Promise<{ data: PreOpenScheduleRow[] | null; error: { message: string; code?: string } | null }> {
+  const fullSelect =
+    "id, scheduled_time, is_dohan, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow, casts(name)";
+
+  const minSelect =
+    "id, scheduled_time, is_dohan, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow";
+
+  const first = await supabase
+    .from("attendance_schedules")
+    .select(fullSelect)
+    .eq("store_id", storeId)
+    .eq("scheduled_date", todayJst)
+    .not("scheduled_time", "is", null);
+
+  if (first.error) {
+    console.error(`${LOG_PREFIX} schedules select (with casts)`, storeId, {
+      message: first.error.message,
+      code: first.error.code,
+      details: first.error.details,
+      hint: first.error.hint,
+    });
+    const second = await supabase
+      .from("attendance_schedules")
+      .select(minSelect)
+      .eq("store_id", storeId)
+      .eq("scheduled_date", todayJst)
+      .not("scheduled_time", "is", null);
+    if (second.error) {
+      console.error(`${LOG_PREFIX} schedules select (minimal)`, storeId, {
+        message: second.error.message,
+        code: second.error.code,
+      });
+      return { data: null, error: { message: second.error.message, code: second.error.code } };
+    }
+    console.warn(`${LOG_PREFIX} using schedule rows without casts(name); names may show as 不明`);
+    return {
+      data: (second.data ?? []) as PreOpenScheduleRow[],
+      error: null,
+    };
+  }
+
+  return {
+    data: (first.data ?? []) as PreOpenScheduleRow[],
+    error: null,
+  };
+}
+
 type StoreRow = {
   id: string;
-  name: string;
+  name: string | null;
   pre_open_report_hour_jst: number | null;
   last_pre_open_report_date: string | null;
 };
@@ -78,61 +161,70 @@ async function processPreOpenReportForStore(
   store: StoreRow,
   ctx: { todayJst: string; hourJst: number; force: boolean }
 ): Promise<ProcessResult> {
+  const sid = String(store?.id ?? "").trim();
+  if (!sid) {
+    console.error(`${LOG_PREFIX} processPreOpenReportForStore: missing store.id`, store);
+    return { storeId: "(unknown)", skipped: "invalid_store_row" };
+  }
+
   const { todayJst, hourJst, force } = ctx;
 
   try {
     if (!force) {
       if (store.pre_open_report_hour_jst == null) {
-        return { storeId: store.id, skipped: "summary_disabled" };
+        return { storeId: sid, skipped: "summary_disabled" };
       }
       if (store.pre_open_report_hour_jst !== hourJst) {
-        return { storeId: store.id, skipped: "hour_mismatch" };
+        return { storeId: sid, skipped: "hour_mismatch" };
       }
       const sentDate = store.last_pre_open_report_date?.trim() ?? null;
       if (sentDate === todayJst) {
-        return { storeId: store.id, skipped: "already_sent_today" };
+        return { storeId: sid, skipped: "already_sent_today" };
       }
     }
 
-    const resolved = await fetchResolvedLineChannelAccessTokenForStore(
-      supabase,
-      store.id,
-      "[PreOpenReport]"
-    );
+    const resolved = await fetchResolvedLineChannelAccessTokenForStore(supabase, sid, LOG_PREFIX);
     if (!resolved?.token) {
-      return { storeId: store.id, skipped: "no_line_token" };
+      return { storeId: sid, skipped: "no_line_token" };
     }
 
-    const adminIds = await getAdminLineUserIds(supabase, store.id);
+    const adminIds = await getAdminLineUserIds(supabase, sid);
     if (adminIds.length === 0) {
-      return { storeId: store.id, skipped: "no_admin_recipients" };
+      return { storeId: sid, skipped: "no_admin_recipients" };
     }
 
-    const { data: rawSchedules, error: schedErr } = await supabase
-      .from("attendance_schedules")
-      .select(
-        "id, scheduled_time, is_dohan, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow, casts(name)"
-      )
-      .eq("store_id", store.id)
-      .eq("scheduled_date", todayJst)
-      .not("scheduled_time", "is", null);
+    const { data: rawSchedules, error: schedErr } = await fetchSchedulesForPreOpenReport(
+      supabase,
+      sid,
+      todayJst
+    );
 
     if (schedErr) {
-      return { storeId: store.id, skipped: `fetch_error:${schedErr.message}` };
+      return { storeId: sid, skipped: `fetch_error:${schedErr.message}` };
     }
 
-    const schedules = (rawSchedules ?? []) as PreOpenScheduleRow[];
+    const schedules = rawSchedules ?? [];
     if (schedules.length === 0 && !force) {
-      return { storeId: store.id, skipped: "no_schedules_today" };
+      return { storeId: sid, skipped: "no_schedules_today" };
     }
 
-    const body = buildPreOpenReportMessage(store.name ?? "店舗", todayJst, schedules);
+    let body: string;
+    try {
+      body = buildPreOpenReportMessage(store.name ?? "店舗", todayJst, schedules);
+    } catch (buildErr) {
+      console.error(`${LOG_PREFIX} buildPreOpenReportMessage failed`, sid, buildErr);
+      return {
+        storeId: sid,
+        skipped: `build_message_failed:${buildErr instanceof Error ? buildErr.message : String(buildErr)}`,
+      };
+    }
 
     try {
       await sendMulticastMessage(adminIds, resolved.token, [{ type: "text", text: body }]);
     } catch (e) {
+      console.error(`${LOG_PREFIX} sendMulticastMessage`, sid, e);
       return {
-        storeId: store.id,
+        storeId: sid,
         skipped: `line_send_failed:${e instanceof Error ? e.message : String(e)}`,
       };
     }
@@ -144,17 +236,18 @@ async function processPreOpenReportForStore(
           last_pre_open_report_date: todayJst,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", store.id);
+        .eq("id", sid);
 
       if (updErr) {
-        console.error("[PreOpenReport] last_pre_open_report_date 更新失敗", store.id, updErr);
+        console.error(`${LOG_PREFIX} last_pre_open_report_date 更新失敗`, sid, updErr);
       }
     }
 
-    return { storeId: store.id, sent: true, adminCount: adminIds.length };
+    return { storeId: sid, sent: true, adminCount: adminIds.length };
   } catch (e) {
+    console.error(`${LOG_PREFIX} processPreOpenReportForStore unexpected`, sid, e);
     return {
-      storeId: store.id,
+      storeId: sid,
       skipped: `unexpected:${e instanceof Error ? e.message : String(e)}`,
     };
   }
@@ -166,6 +259,7 @@ function settledToResult(
 ): ProcessResult {
   if (outcome.status === "fulfilled") return outcome.value;
   const reason = outcome.reason;
+  console.error(`${LOG_PREFIX} Promise rejected`, storeId, reason);
   return {
     storeId,
     skipped: `rejected:${reason instanceof Error ? reason.message : String(reason)}`,
@@ -188,6 +282,7 @@ export async function GET(request: Request) {
 
     const { url, key, isServiceRole } = getSupabaseKeys();
     if (!url || !key) {
+      console.error(`${LOG_PREFIX} missing Supabase URL or key`);
       return NextResponse.json(
         { error: "Supabase URL or key is not configured" },
         { status: 500 }
@@ -195,6 +290,7 @@ export async function GET(request: Request) {
     }
 
     if (!isServiceRole) {
+      console.error(`${LOG_PREFIX} SUPABASE_SERVICE_ROLE_KEY not set (required for cron)`);
       return NextResponse.json(
         {
           error: "Configuration error",
@@ -209,38 +305,69 @@ export async function GET(request: Request) {
     const todayJst = getTodayJst();
     const hourJst = getCurrentTimeJst().hour;
 
-    const paramStoreId = new URL(request.url).searchParams.get("storeId")?.trim() ?? "";
+    const paramStoreIdRaw = safeSearchParams(request).get("storeId")?.trim() ?? "";
+    const paramStoreId = paramStoreIdRaw ? paramStoreIdRaw.toLowerCase() : "";
 
     if (paramStoreId) {
       if (!isValidStoreId(paramStoreId)) {
         return NextResponse.json({ error: "Invalid storeId" }, { status: 400 });
       }
 
+      /** テスト用: pre_open 系カラム未適用でも 500 にしないよう id / name のみ取得 */
       const { data: oneStore, error: oneErr } = await supabase
         .from("stores")
-        .select("id, name, pre_open_report_hour_jst, last_pre_open_report_date")
+        .select("id, name")
         .eq("id", paramStoreId)
         .maybeSingle();
 
       if (oneErr) {
+        console.error(`${LOG_PREFIX} force_single fetch store`, {
+          storeId: paramStoreId,
+          message: oneErr.message,
+          code: oneErr.code,
+          details: oneErr.details,
+          hint: oneErr.hint,
+        });
         return NextResponse.json(
-          { error: "Failed to fetch store", details: oneErr.message },
+          { error: "Failed to fetch store", details: oneErr.message, code: oneErr.code },
           { status: 500 }
         );
       }
-      if (!oneStore) {
+      if (!oneStore?.id) {
         return NextResponse.json({ error: "Store not found" }, { status: 404 });
       }
 
-      const settled = await Promise.allSettled([
-        processPreOpenReportForStore(supabase, oneStore as StoreRow, {
-          todayJst,
-          hourJst,
-          force: true,
-        }),
-      ]);
+      const storeRow: StoreRow = {
+        id: oneStore.id,
+        name: oneStore.name ?? null,
+        pre_open_report_hour_jst: null,
+        last_pre_open_report_date: null,
+      };
 
-      const results = [settledToResult(paramStoreId, settled[0]!)];
+      let settled: PromiseSettledResult<ProcessResult>[];
+      try {
+        settled = await Promise.allSettled([
+          processPreOpenReportForStore(supabase, storeRow, {
+            todayJst,
+            hourJst,
+            force: true,
+          }),
+        ]);
+      } catch (loopErr) {
+        console.error(`${LOG_PREFIX} force_single Promise.allSettled failed`, loopErr);
+        throw loopErr;
+      }
+
+      const first = settled[0];
+      if (!first) {
+        console.error(`${LOG_PREFIX} force_single: empty settled array`);
+        return NextResponse.json(
+          { error: "Internal server error", details: "empty settled result" },
+          { status: 500 }
+        );
+      }
+
+      const results = [settledToResult(paramStoreId, first)];
       const processedCount = results.filter((r) => r.sent === true).length;
 
       return NextResponse.json({
@@ -259,6 +386,11 @@ export async function GET(request: Request) {
       .select("id, name, pre_open_report_hour_jst, last_pre_open_report_date");
 
     if (storesErr) {
+      console.error(`${LOG_PREFIX} batch fetch stores`, {
+        message: storesErr.message,
+        code: storesErr.code,
+        details: storesErr.details,
+      });
       return NextResponse.json(
         { error: "Failed to fetch stores", details: storesErr.message },
         { status: 500 }
@@ -267,19 +399,30 @@ export async function GET(request: Request) {
 
     const list = (stores ?? []) as StoreRow[];
 
-    const settled = await Promise.allSettled(
-      list.map((store) =>
-        processPreOpenReportForStore(supabase, store, {
-          todayJst,
-          hourJst,
-          force: false,
-        })
-      )
-    );
+    let settled: PromiseSettledResult<ProcessResult>[];
+    try {
+      settled = await Promise.allSettled(
+        list.map((store) =>
+          processPreOpenReportForStore(supabase, store, {
+            todayJst,
+            hourJst,
+            force: false,
+          })
+        )
+      );
+    } catch (batchErr) {
+      console.error(`${LOG_PREFIX} batch Promise.allSettled failed`, batchErr);
+      throw batchErr;
+    }
 
-    const results: ProcessResult[] = list.map((store, i) =>
-      settledToResult(store.id, settled[i]!)
-    );
+    const results: ProcessResult[] = list.map((store, i) => {
+      const out = settled[i];
+      if (!out) {
+        console.error(`${LOG_PREFIX} batch: missing settled index`, i, store.id);
+        return { storeId: store.id, skipped: "internal_settled_missing" };
+      }
+      return settledToResult(store.id, out);
+    });
 
     const processedCount = results.filter((r) => r.sent === true).length;
 
@@ -292,7 +435,10 @@ export async function GET(request: Request) {
       results,
     });
   } catch (err) {
-    console.error("[PreOpenReport]", err);
+    console.error(`${LOG_PREFIX} GET handler failed`, err);
+    if (err instanceof Error) {
+      console.error(`${LOG_PREFIX} stack`, err.stack);
+    }
     return NextResponse.json(
       {
         error: "Internal server error",
