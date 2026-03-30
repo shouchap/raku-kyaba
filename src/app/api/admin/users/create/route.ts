@@ -152,15 +152,26 @@ export async function POST(request: Request) {
 
   const email = `${username}@raku-kyaba.internal`;
 
+  /** DB / JWT で一貫させる（大文字 UUID でも raw_user_meta_data に確実に載せる） */
+  const normalizedStoreId = storeId.toLowerCase();
+
+  const userMetadata = {
+    username,
+    store_id: normalizedStoreId,
+    role: ROLE_STORE_ADMIN,
+  } as const;
+
+  const appMetadata = {
+    role: ROLE_STORE_ADMIN,
+    store_id: normalizedStoreId,
+  } as const;
+
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
-    user_metadata: {
-      username,
-      store_id: storeId,
-      role: ROLE_STORE_ADMIN,
-    },
+    user_metadata: { ...userMetadata },
+    app_metadata: { ...appMetadata },
   });
 
   if (createErr) {
@@ -187,11 +198,37 @@ export async function POST(request: Request) {
     );
   }
 
+  const newUserId = created.user?.id;
+  if (!newUserId) {
+    return NextResponse.json(
+      { error: "ユーザー ID を取得できませんでした", code: "create_incomplete" },
+      { status: 500 }
+    );
+  }
+
+  // createUser だけでは raw_user_meta_data に反映されない環境があるため、必ず再設定する
+  const { error: updateErr } = await admin.auth.admin.updateUserById(newUserId, {
+    user_metadata: { ...userMetadata },
+    app_metadata: { ...appMetadata },
+  });
+
+  if (updateErr) {
+    console.error("[users/create] updateUserById:", updateErr);
+    await admin.auth.admin.deleteUser(newUserId);
+    return NextResponse.json(
+      {
+        error: "アカウントの店舗紐付け情報の保存に失敗しました",
+        code: "metadata_persist_failed",
+      },
+      { status: 500 }
+    );
+  }
+
   return NextResponse.json({
     ok: true,
-    userId: created.user?.id ?? null,
+    userId: newUserId,
     email,
     username,
-    storeId,
+    storeId: normalizedStoreId,
   });
 }

@@ -10,9 +10,11 @@ export const ROLE_STORE_ADMIN = "store_admin" as const;
  */
 export function getStoreAdminStoreIdFromUser(user: User | null): string | null {
   if (!user) return null;
-  const meta = user.user_metadata as Record<string, unknown> | undefined;
-  if (meta?.role !== ROLE_STORE_ADMIN) return null;
-  const id = meta.store_id;
-  if (typeof id === "string" && isValidStoreId(id)) return id.trim();
+  const userMeta = user.user_metadata as Record<string, unknown> | undefined;
+  const appMeta = user.app_metadata as Record<string, unknown> | undefined;
+  const role = userMeta?.role ?? appMeta?.role;
+  if (role !== ROLE_STORE_ADMIN) return null;
+  const id = userMeta?.store_id ?? appMeta?.store_id;
+  if (typeof id === "string" && isValidStoreId(id)) return id.trim().toLowerCase();
   return null;
 }
