@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { handle } from "hono/vercel";
 import { verifyLineSignature } from "@/lib/line-signature";
 import { sendReply, sendMulticastMessage, getLineProfile } from "@/lib/line-reply";
+import { isMaintenanceMode, MAINTENANCE_LINE_REPLY_TEXT } from "@/lib/maintenance";
 import { createSupabaseClient } from "@/lib/supabase";
 import { getDefaultStoreIdOrNull, runWithWebhookStoreContext } from "@/lib/current-store";
 import type {
@@ -144,6 +145,30 @@ app.post("*", async (c) => {
 
     if (!channelAccessToken?.trim()) {
       console.error("[Webhook] LINE_CHANNEL_ACCESS_TOKEN が取得できません（DB・環境変数とも）");
+    }
+
+    /** メンテナンス中: DB への書き込みは行わず 200 を返し、ログ退避 + 案内返信のみ */
+    if (isMaintenanceMode()) {
+      for (let i = 0; i < events.length; i++) {
+        const event = events[i];
+        try {
+          console.info("MAINTENANCE_BACKUP_DATA:", JSON.stringify(event));
+        } catch (logErr) {
+          console.error("[Webhook] MAINTENANCE_BACKUP_DATA ログ失敗:", logErr);
+        }
+        const replyToken = (event as { replyToken?: string }).replyToken;
+        if (replyToken && channelAccessToken?.trim()) {
+          try {
+            await sendReply(replyToken, channelAccessToken, [
+              { type: "text", text: MAINTENANCE_LINE_REPLY_TEXT },
+            ]);
+          } catch (replyErr) {
+            console.error("[Webhook] メンテナンス案内返信失敗:", replyErr);
+          }
+        }
+      }
+      console.log("[Webhook] メンテナンスモード: 処理スキップ（バックアップログ済み）");
+      return okResponse();
     }
 
     await runWithWebhookStoreContext(resolvedStoreId, async () => {
