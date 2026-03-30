@@ -6,6 +6,7 @@ import { createSupabaseClient } from "@/lib/supabase";
 import { getTodayJst } from "@/lib/date-utils";
 import { getDefaultStoreIdOrNull } from "@/lib/current-store";
 import { fetchAttendanceFlexHolidayOptions } from "@/lib/reminder-config";
+import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import type { AttendancePostbackData, ReservationPostbackData } from "@/types/line-webhook";
 
 const ERROR_REPLY = "申し訳ございません。エラーが発生しました。しばらく経ってから再度お試しください。";
@@ -833,6 +834,20 @@ export async function handleAttendanceResponse(
         reservationAskEnabled =
           (storeFlags.data as { enable_reservation_check?: boolean | null }).enable_reservation_check ===
           true;
+      } else if (
+        storeFlags.error &&
+        isUndefinedColumnError(storeFlags.error, "enable_reservation_check")
+      ) {
+        const cfg = await supabase
+          .from("system_settings")
+          .select("value")
+          .eq("store_id", cast.store_id)
+          .eq("key", "reminder_config")
+          .maybeSingle();
+        const row = cfg.data?.value as Record<string, unknown> | null;
+        if (row && typeof row === "object") {
+          reservationAskEnabled = row.enable_reservation_check === true;
+        }
       } else if (storeFlags.error) {
         console.warn(
           "[Attendance] stores.enable_reservation_check 取得失敗（予約ヒアリングはスキップ）:",

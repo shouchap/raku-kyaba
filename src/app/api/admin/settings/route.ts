@@ -277,8 +277,13 @@ export async function GET(request: Request) {
         );
       }
       console.warn(
-        "[api/admin/settings] GET: stores.enable_reservation_check 未適用。マイグレーション 017 を適用してください。"
+        "[api/admin/settings] GET: stores.enable_reservation_check 未適用。reminder_config JSON を参照します。マイグレーション 017 を適用してください。"
       );
+      const v = settingsRow?.value;
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        enableReservationCheck =
+          (v as Record<string, unknown>).enable_reservation_check === true;
+      }
     } else {
       enableReservationCheck =
         (resCheckRes.data as { enable_reservation_check?: boolean | null } | null)
@@ -418,6 +423,11 @@ export async function PATCH(request: Request) {
       { error: "reminder_config is not JSON-serializable", details: String(e) },
       { status: 400 }
     );
+  }
+
+  /** stores カラム未適用時もリロード後に復元できるよう reminder_config に冗長保存 */
+  if (enableReservationCheckProvided) {
+    valueJson.enable_reservation_check = body.enable_reservation_check as boolean;
   }
 
   try {
