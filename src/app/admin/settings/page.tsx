@@ -406,7 +406,8 @@ export default function AdminSettingsPage() {
               ))}
             </select>
             <p className="text-xs text-gray-500 mt-2">
-              選択した時刻（毎時0分・JST）に営業前サマリーが送信されるようスケジューラ側で処理されます。「送信しない」の場合は店舗マスタ上は未設定（NULL）です。
+              毎時0分（JST）にスケジューラが営業前サマリー API を店舗 ID なしで呼ぶと、送信時刻が一致する店舗だけに送られます。「送信しない」は NULL
+              です。テストは <code className="text-xs bg-gray-100 px-1 rounded">?storeId=UUID</code> で強制送信できます。
             </p>
           </div>
 
