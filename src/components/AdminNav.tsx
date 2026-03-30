@@ -43,7 +43,8 @@ export default function AdminNav({ stores, activeStoreId, isSuperAdmin }: Props)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const currentLabel =
-    stores.find((s) => s.id === activeStoreId)?.name ?? "店舗を選択";
+    stores.find((s) => s.id === activeStoreId)?.name ??
+    (isSuperAdmin ? "店舗を選択" : "店舗を取得できません");
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -157,26 +158,37 @@ export default function AdminNav({ stores, activeStoreId, isSuperAdmin }: Props)
           </Link>
 
           <div className="min-w-0 flex-1">
-            <label htmlFor="admin-store-select" className="sr-only">
-              表示する店舗
-            </label>
-            <select
-              id="admin-store-select"
-              value={activeStoreId}
-              onChange={handleStoreChange}
-              className="h-11 w-full min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 sm:max-w-md"
-              title={currentLabel}
-            >
-              {stores.length === 0 ? (
-                <option value={activeStoreId}>{currentLabel}</option>
-              ) : (
-                stores.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))
-              )}
-            </select>
+            {isSuperAdmin ? (
+              <>
+                <label htmlFor="admin-store-select" className="sr-only">
+                  表示する店舗
+                </label>
+                <select
+                  id="admin-store-select"
+                  value={activeStoreId}
+                  onChange={handleStoreChange}
+                  className="h-11 w-full min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 sm:max-w-md"
+                  title={currentLabel}
+                >
+                  {stores.length === 0 ? (
+                    <option value={activeStoreId}>{currentLabel}</option>
+                  ) : (
+                    stores.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </>
+            ) : (
+              <div
+                className="flex h-11 min-w-0 max-w-full items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-800 sm:max-w-md"
+                title={currentLabel}
+              >
+                <span className="truncate">{currentLabel}</span>
+              </div>
+            )}
           </div>
 
           <button

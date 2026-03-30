@@ -54,7 +54,7 @@ export async function middleware(request: NextRequest) {
     }
 
     if (user) {
-      // スーパー管理者専用: 店舗マスタ（許可リスト未設定時は制限なし）
+      // スーパー管理者専用: 店舗マスタ
       if (pathname.startsWith("/admin/stores")) {
         if (!isSuperAdminUser(user)) {
           return NextResponse.redirect(new URL("/admin/weekly", request.url));

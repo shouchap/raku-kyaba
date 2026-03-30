@@ -10,6 +10,7 @@ import {
 import { fetchAttendanceFlexHolidayOptions } from "@/lib/reminder-config";
 import { fetchReminderMessageTemplate } from "@/lib/reminder-config";
 import { assertStoreIdMatchesRequest } from "@/lib/current-store";
+import { canUserEditStore } from "@/lib/admin-store-auth";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 
 export const dynamic = "force-dynamic";
@@ -101,6 +102,10 @@ export async function POST(request: Request) {
   try {
     assertStoreIdMatchesRequest(request, storeId);
   } catch {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (!canUserEditStore(user, storeId)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

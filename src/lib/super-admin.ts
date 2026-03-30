@@ -37,19 +37,19 @@ export function resolveUsernameFromUser(user: User | null): string | null {
 }
 
 /**
- * スーパー管理者（全店舗の閲覧・店舗マスタ編集）の判定。
+ * スーパー管理者（全店舗の閲覧・店舗切替・店舗マスタ編集）の判定。
  *
- * - `SUPER_ADMIN_EMAILS` と `SUPER_ADMIN_USERNAMES` の**両方とも未設定または空**のときは、
- *   全員スーパー管理者扱い（開発用）。
- * - いずれかに値があるときは、ログインユーザーのメールがメール許可リストに含まれる、
- *   またはユーザー名がユーザー名許可リストに含まれる、のいずれかで許可。
+ * - **既定（安全）**: `SUPER_ADMIN_EMAILS` と `SUPER_ADMIN_USERNAMES` の両方が空のときは
+ *   **誰もスーパー管理者にしない**（本番で店長が全店舗扱いになる事故を防ぐ）。
+ * - **開発のみ**: 上記が両方空のとき、`SUPER_ADMIN_ALLOW_ALL=true` なら従来どおり全員スーパー管理者扱い。
+ * - いずれかのリストに値があるときは、メールまたはユーザー名のいずれかが一致すれば許可。
  */
 export function isSuperAdminUser(user: User | null): boolean {
   const emailList = parseAllowList(process.env.SUPER_ADMIN_EMAILS);
   const usernameList = parseAllowList(process.env.SUPER_ADMIN_USERNAMES);
 
   if (emailList.length === 0 && usernameList.length === 0) {
-    return true;
+    return process.env.SUPER_ADMIN_ALLOW_ALL === "true";
   }
 
   if (!user) {

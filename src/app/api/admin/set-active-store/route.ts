@@ -6,7 +6,9 @@ import {
   getActiveStoreCookieOptions,
   isValidStoreId,
 } from "@/lib/current-store";
+import { getStoreAdminStoreIdFromUser } from "@/lib/roles";
 import { createServiceRoleClient } from "@/lib/supabase-service";
+import { isSuperAdminUser } from "@/lib/super-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +62,16 @@ export async function POST(request: Request) {
   const storeId = body.storeId?.trim();
   if (!storeId || !isValidStoreId(storeId)) {
     return NextResponse.json({ error: "Valid storeId (UUID) is required" }, { status: 400 });
+  }
+
+  if (!isSuperAdminUser(user)) {
+    const assigned = getStoreAdminStoreIdFromUser(user);
+    if (!assigned || assigned !== storeId) {
+      return NextResponse.json(
+        { error: "店舗の切り替えはスーパー管理者のみ可能です" },
+        { status: 403 }
+      );
+    }
   }
 
   try {

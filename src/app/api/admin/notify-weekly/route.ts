@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendPushMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
+import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
@@ -75,6 +76,17 @@ export async function POST(request: Request) {
       },
       { status: 500 }
     );
+  }
+
+  const { user, error: authErr } = await getAuthedUserForAdminApi();
+  if (authErr === "config") {
+    return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
+  }
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!canUserEditStore(user, storeId)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const tokenResult = await fetchResolvedLineChannelAccessTokenForStore(

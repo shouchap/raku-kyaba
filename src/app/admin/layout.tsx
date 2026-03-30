@@ -5,6 +5,7 @@ import { ActiveStoreProvider } from "@/contexts/ActiveStoreContext";
 import { tryGetActiveStoreIdFromServerCookies } from "@/lib/current-store-server";
 import { createServiceRoleClient } from "@/lib/supabase-service";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { getStoreAdminStoreIdFromUser } from "@/lib/roles";
 import { isSuperAdminUser } from "@/lib/super-admin";
 
 export const dynamic = "force-dynamic";
@@ -24,14 +25,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const activeStoreId = await tryGetActiveStoreIdFromServerCookies();
 
   let stores: { id: string; name: string }[] = [];
-  try {
-    const admin = createServiceRoleClient();
-    const { data } = await admin.from("stores").select("id, name").order("name");
-    stores = data ?? [];
-  } catch {
-    // SUPABASE_SERVICE_ROLE_KEY 未設定時はセレクター用一覧を空に
-  }
-
   let isSuperAdmin = false;
   try {
     const supabase = await createSupabaseServerClient();
@@ -39,8 +32,20 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       data: { user },
     } = await supabase.auth.getUser();
     isSuperAdmin = isSuperAdminUser(user);
+
+    const admin = createServiceRoleClient();
+    if (isSuperAdmin) {
+      const { data } = await admin.from("stores").select("id, name").order("name");
+      stores = data ?? [];
+    } else {
+      const sid = getStoreAdminStoreIdFromUser(user);
+      if (sid) {
+        const { data } = await admin.from("stores").select("id, name").eq("id", sid).maybeSingle();
+        stores = data ? [data] : [];
+      }
+    }
   } catch {
-    // ignore
+    // SUPABASE_SERVICE_ROLE_KEY 未設定時など
   }
 
   if (!activeStoreId) {
