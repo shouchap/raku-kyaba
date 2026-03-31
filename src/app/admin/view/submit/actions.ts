@@ -85,6 +85,7 @@ export async function submitShiftAction(
     scheduled_date: string;
     scheduled_time: string;
     is_dohan: boolean;
+    is_sabaki: boolean;
   }> = [];
 
   for (const d of dates) {
@@ -97,6 +98,7 @@ export async function submitShiftAction(
         scheduled_date: d,
         scheduled_time: normalized,
         is_dohan: false,
+        is_sabaki: false,
       });
     }
   }

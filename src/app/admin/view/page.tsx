@@ -6,6 +6,7 @@ import { toPng } from "html-to-image";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { getTodayJst } from "@/lib/date-utils";
+import { formatScheduleTimeLabel } from "@/lib/attendance-remind-flex";
 import { SubmitSuccessToast } from "./SubmitSuccessToast";
 
 /** 未返信アラートを出すまでの経過時間（時間） */
@@ -64,18 +65,6 @@ function formatDateShort(dateStr: string): string {
 /** 日付の曜日（0=日, 6=土） */
 function getWeekday(dateStr: string): number {
   return new Date(dateStr + "T12:00:00").getDay();
-}
-
-/** "20:00:00" → "20:00" に変換。is_dohan が true の場合は「（同伴）」を追記 */
-function formatTimeDisplay(
-  time: string | null | undefined,
-  isDohan?: boolean | null
-): string {
-  if (!time) return "—";
-  const match = String(time).match(/^(\d{1,2}):(\d{2})/);
-  const base = match ? `${match[1]}:${match[2]}` : "—";
-  if (base === "—") return base;
-  return isDohan ? `${base}（同伴）` : base;
 }
 
 /** last_reminded_at から ALERT_HOURS 時間以上経過しているか */
@@ -184,7 +173,7 @@ export default function AdminViewPage() {
     async (storeId: string) => {
       const { data: schedulesData } = await supabase
         .from("attendance_schedules")
-        .select("cast_id, scheduled_date, scheduled_time, is_dohan, last_reminded_at, response_status")
+        .select("cast_id, scheduled_date, scheduled_time, is_dohan, is_sabaki, last_reminded_at, response_status")
         .eq("store_id", storeId)
         .in("scheduled_date", dates);
 
@@ -195,6 +184,7 @@ export default function AdminViewPage() {
         scheduled_date: string;
         scheduled_time?: string | null;
         is_dohan?: boolean | null;
+        is_sabaki?: boolean | null;
         last_reminded_at?: string | null;
         response_status?:
           | "attending"
@@ -229,7 +219,7 @@ export default function AdminViewPage() {
               ? row.response_status
               : null;
           next[row.cast_id][row.scheduled_date] = {
-            time: formatTimeDisplay(row.scheduled_time, row.is_dohan),
+            time: formatScheduleTimeLabel(row.scheduled_time, row.is_dohan, row.is_sabaki),
             lastRemindedAt: row.last_reminded_at ?? null,
             responseStatus: status,
           };

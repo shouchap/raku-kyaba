@@ -14,6 +14,51 @@ export function formatRemindScheduledTime(
 }
 
 /**
+ * 営業前サマリー・週間通知・一覧表示用: 時刻 + （同伴・捌き）の任意組み合わせ
+ */
+export function formatScheduleTimeLabel(
+  time: string | null | undefined,
+  isDohan?: boolean | null,
+  isSabaki?: boolean | null
+): string {
+  const tags: string[] = [];
+  if (isDohan) tags.push("同伴");
+  if (isSabaki) tags.push("捌き");
+  if (!time || String(time).trim() === "") {
+    if (tags.length === 0) return "—";
+    return tags.join("・");
+  }
+  const match = String(time).match(/^(\d{1,2}):(\d{2})/);
+  const base = match ? `${match[1]}:${match[2]}` : "—";
+  if (tags.length === 0) return base;
+  return `${base}（${tags.join("・")}）`;
+}
+
+/** 名前の横に付ける（同伴・捌き）表記 */
+export function formatCastNameAttendanceSuffix(
+  isDohan?: boolean | null,
+  isSabaki?: boolean | null
+): string {
+  const tags: string[] = [];
+  if (isDohan) tags.push("同伴");
+  if (isSabaki) tags.push("捌き");
+  if (tags.length === 0) return "";
+  return `（${tags.join("・")}）`;
+}
+
+/** 捌き出勤向けリマインド本文（時刻行は使わない） */
+export function buildSabakiRemindLines(castName: string): {
+  reminderMessageLine: string;
+  scheduledTimeDisplay: string;
+} {
+  const n = (castName ?? "").trim() || "キャスト";
+  return {
+    reminderMessageLine: `${n}さん、本日は捌き出勤よろしくお願いいたします。何時入りか分かればお知らせください。`,
+    scheduledTimeDisplay: "捌き出勤",
+  };
+}
+
+/**
  * reminder_config.messageTemplate の {name} / {time} 置換
  */
 export function applyReminderMessageTemplate(

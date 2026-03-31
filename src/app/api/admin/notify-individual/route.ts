@@ -4,6 +4,7 @@ import { sendPushMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
+import { formatScheduleTimeLabel } from "@/lib/attendance-remind-flex";
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -14,17 +15,6 @@ function formatDateJa(dateStr: string): string {
   const day = d.getDate();
   const w = WEEKDAY_JA[d.getDay()];
   return `${m}/${day}(${w})`;
-}
-
-/** "20:00:00" → "20:00"。is_dohan が true の場合は「（同伴）」を追記 */
-function formatTimeWithDohan(
-  time: string | null | undefined,
-  isDohan?: boolean | null
-): string {
-  if (!time) return "";
-  const match = String(time).match(/^(\d{1,2}):(\d{2})/);
-  const base = match ? `${match[1]}:${match[2]}` : "";
-  return isDohan ? `${base}（同伴）` : base;
 }
 
 /**
@@ -148,19 +138,29 @@ export async function POST(request: Request) {
     );
   }
 
-  // 該当キャストの7日間シフト（is_dohan 含む）
+  // 該当キャストの7日間シフト（同伴・捌き含む）
   const { data: schedules } = await supabase
     .from("attendance_schedules")
-    .select("scheduled_date, scheduled_time, is_dohan")
+    .select("scheduled_date, scheduled_time, is_dohan, is_sabaki")
     .eq("cast_id", castId)
     .eq("store_id", cast.store_id)
     .in("scheduled_date", dates);
 
   const byDate: Record<string, string> = {};
   (schedules ?? []).forEach(
-    (row: { scheduled_date: string; scheduled_time?: string; is_dohan?: boolean }) => {
-      const formatted = formatTimeWithDohan(row.scheduled_time, row.is_dohan);
-      byDate[row.scheduled_date] = formatted ? `${formatted}〜` : "";
+    (row: {
+      scheduled_date: string;
+      scheduled_time?: string;
+      is_dohan?: boolean;
+      is_sabaki?: boolean;
+    }) => {
+      const formatted = formatScheduleTimeLabel(
+        row.scheduled_time,
+        row.is_dohan,
+        row.is_sabaki
+      );
+      byDate[row.scheduled_date] =
+        formatted && formatted !== "—" ? `${formatted}〜` : "";
     }
   );
 

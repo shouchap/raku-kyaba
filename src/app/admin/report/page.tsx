@@ -36,6 +36,7 @@ type ScheduleRow = {
   cast_id: string;
   scheduled_date: string;
   is_dohan: boolean | null;
+  is_sabaki: boolean | null;
   is_absent: boolean | null;
   is_late: boolean | null;
   late_reason: string | null;
@@ -62,12 +63,14 @@ type CastReport = {
   name: string;
   attendanceDays: number;
   dohanCount: number;
+  sabakiCount: number;
+  sabakiDates: string[];
   lateCount: number;
   absentCount: number;
   incidents: Incident[];
 };
 
-type SortKey = "name" | "attendance" | "dohan" | "late" | "absent";
+type SortKey = "name" | "attendance" | "dohan" | "sabaki" | "late" | "absent";
 
 type ViewMode = "month" | "week";
 
@@ -136,6 +139,8 @@ function buildCastReports(casts: Cast[], schedules: ScheduleRow[]): CastReport[]
     const rows = byCast.get(cast.id) ?? [];
     let attendanceDays = 0;
     let dohanCount = 0;
+    let sabakiCount = 0;
+    const sabakiDates: string[] = [];
     let lateCount = 0;
     let absentCount = 0;
     const incidents: Incident[] = [];
@@ -147,6 +152,10 @@ function buildCastReports(casts: Cast[], schedules: ScheduleRow[]): CastReport[]
 
       if (!off) attendanceDays += 1;
       if (row.is_dohan === true) dohanCount += 1;
+      if (row.is_sabaki === true) {
+        sabakiCount += 1;
+        sabakiDates.push(row.scheduled_date);
+      }
       if (late) lateCount += 1;
       if (off) absentCount += 1;
 
@@ -182,11 +191,15 @@ function buildCastReports(casts: Cast[], schedules: ScheduleRow[]): CastReport[]
 
     incidents.sort((a, b) => a.dateStr.localeCompare(b.dateStr));
 
+    sabakiDates.sort();
+
     return {
       castId: cast.id,
       name: cast.name,
       attendanceDays,
       dohanCount,
+      sabakiCount,
+      sabakiDates,
       lateCount,
       absentCount,
       incidents,
@@ -356,7 +369,7 @@ function AdminReportContent() {
       const { data: schedData, error: schedError } = await supabase
         .from("attendance_schedules")
         .select(
-          "id, cast_id, scheduled_date, is_dohan, is_absent, is_late, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, response_status"
+          "id, cast_id, scheduled_date, is_dohan, is_sabaki, is_absent, is_late, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, response_status"
         )
         .eq("store_id", st.id)
         .in("cast_id", castIds)
@@ -395,6 +408,9 @@ function AdminReportContent() {
           break;
         case "dohan":
           cmp = a.dohanCount - b.dohanCount;
+          break;
+        case "sabaki":
+          cmp = a.sabakiCount - b.sabakiCount;
           break;
         case "late":
           cmp = a.lateCount - b.lateCount;
@@ -441,7 +457,8 @@ function AdminReportContent() {
   const emptyMessage =
     viewMode === "week" ? "この週のシフトデータはありません。" : "この月のシフトデータはありません。";
 
-  const hasDetails = (r: CastReport) => r.incidents.length > 0;
+  const hasDetails = (r: CastReport) =>
+    r.incidents.length > 0 || r.sabakiDates.length > 0;
 
   return (
     <div className="admin-report-print-root p-4 sm:p-6">
@@ -596,6 +613,20 @@ function AdminReportContent() {
                 <th className="px-3 py-3 text-right">
                   <button
                     type="button"
+                    onClick={() => toggleSort("sabaki")}
+                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
+                    title="捌き出勤の日数"
+                  >
+                    捌き
+                    {sortKey === "sabaki" && (sortDir === "asc" ? " ↑" : " ↓")}
+                  </button>
+                  <span className="hidden font-semibold text-gray-900 print:inline">
+                    捌き
+                  </span>
+                </th>
+                <th className="px-3 py-3 text-right">
+                  <button
+                    type="button"
                     onClick={() => toggleSort("late")}
                     className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
                   >
@@ -625,7 +656,7 @@ function AdminReportContent() {
               {sortedReports.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-3 py-8 text-center text-gray-500"
                   >
                     {emptyMessage}
@@ -658,13 +689,26 @@ function AdminReportContent() {
                           )}
                         </td>
                         <td className="px-3 py-3 font-medium text-gray-900">
-                          {r.name}
+                          <span className="inline-flex items-center gap-1.5 flex-wrap">
+                            {r.name}
+                            {r.sabakiCount > 0 && (
+                              <span
+                                className="inline-flex items-center justify-center rounded border border-amber-500 bg-amber-50 px-1.5 py-0.5 text-xs font-semibold text-amber-900 tabular-nums"
+                                title="期間内に捌き出勤のシフトあり"
+                              >
+                                捌
+                              </span>
+                            )}
+                          </span>
                         </td>
                         <td className="px-3 py-3 text-right tabular-nums">
                           {r.attendanceDays}
                         </td>
                         <td className="px-3 py-3 text-right tabular-nums">
                           {r.dohanCount}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {r.sabakiCount}
                         </td>
                         <td className="px-3 py-3 text-right tabular-nums">
                           {r.lateCount}
@@ -677,8 +721,24 @@ function AdminReportContent() {
                         <tr
                           className={`report-detail-row bg-gray-50/90 ${open ? "" : "hidden"}`}
                         >
-                          <td colSpan={6} className="px-4 py-3 text-sm text-gray-700">
+                          <td colSpan={7} className="px-4 py-3 text-sm text-gray-700">
                             <ul className="space-y-2 pl-2 border-l-2 border-blue-200">
+                              {r.sabakiDates.length > 0 && (
+                                <li className="list-none text-amber-950">
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <span
+                                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-amber-600 bg-amber-100 text-xs font-bold text-amber-900"
+                                      aria-hidden
+                                    >
+                                      捌
+                                    </span>
+                                    <span>
+                                      捌き出勤:{" "}
+                                      {r.sabakiDates.map(formatJaMonthDay).join("、")}
+                                    </span>
+                                  </span>
+                                </li>
+                              )}
                               {r.incidents.map((inc, idx) => {
                                 const label =
                                   inc.kind === "late"

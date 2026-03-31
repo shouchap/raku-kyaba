@@ -92,17 +92,17 @@ async function fetchSchedulesForPreOpenReport(
   todayJst: string
 ): Promise<{ data: PreOpenScheduleRow[] | null; error: { message: string; code?: string } | null }> {
   const fullSelect =
-    "id, scheduled_time, is_dohan, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow, casts(name)";
+    "id, scheduled_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow, casts(name)";
 
   const minSelect =
-    "id, scheduled_time, is_dohan, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow";
+    "id, scheduled_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow";
 
   const first = await supabase
     .from("attendance_schedules")
     .select(fullSelect)
     .eq("store_id", storeId)
     .eq("scheduled_date", todayJst)
-    .not("scheduled_time", "is", null);
+    .or("scheduled_time.not.is.null,is_sabaki.eq.true");
 
   if (first.error) {
     console.error(`${LOG_PREFIX} schedules select (with casts)`, storeId, {
@@ -116,7 +116,7 @@ async function fetchSchedulesForPreOpenReport(
       .select(minSelect)
       .eq("store_id", storeId)
       .eq("scheduled_date", todayJst)
-      .not("scheduled_time", "is", null);
+      .or("scheduled_time.not.is.null,is_sabaki.eq.true");
     if (second.error) {
       console.error(`${LOG_PREFIX} schedules select (minimal)`, storeId, {
         message: second.error.message,

@@ -1,7 +1,7 @@
 /**
  * 営業前サマリー用のプレーンテキスト組み立て（LINE 送信向け）
  */
-import { formatRemindScheduledTime } from "@/lib/attendance-remind-flex";
+import { formatScheduleTimeLabel } from "@/lib/attendance-remind-flex";
 import {
   RULE_THICK,
   formatReasonSubLines,
@@ -13,6 +13,7 @@ type CastJoin = { name?: string } | { name?: string }[] | null;
 export type PreOpenScheduleRow = {
   scheduled_time: string | null;
   is_dohan: boolean | null;
+  is_sabaki?: boolean | null;
   response_status: string | null;
   late_reason: string | null;
   absent_reason: string | null;
@@ -77,7 +78,7 @@ function sectionForRow(row: PreOpenScheduleRow): "attending" | "late" | "off" | 
 
 function blockAttending(row: PreOpenScheduleRow): string {
   const name = castName(row);
-  const time = formatRemindScheduledTime(row.scheduled_time, row.is_dohan);
+  const time = formatScheduleTimeLabel(row.scheduled_time, row.is_dohan, row.is_sabaki);
   const head = `👤 ${name}（${time}）`;
   const subs = formatReservationSubLines(row);
   if (subs.length === 0) return head;
@@ -86,7 +87,7 @@ function blockAttending(row: PreOpenScheduleRow): string {
 
 function blockLate(row: PreOpenScheduleRow): string {
   const name = castName(row);
-  const time = formatRemindScheduledTime(row.scheduled_time, row.is_dohan);
+  const time = formatScheduleTimeLabel(row.scheduled_time, row.is_dohan, row.is_sabaki);
   const head = `👤 ${name}（${time}）`;
   const reason = (row.late_reason ?? "").trim();
   if (!reason) {
@@ -119,7 +120,7 @@ function blockOff(row: PreOpenScheduleRow): string {
 
 function blockUnanswered(row: PreOpenScheduleRow): string {
   const name = castName(row);
-  const time = formatRemindScheduledTime(row.scheduled_time, row.is_dohan);
+  const time = formatScheduleTimeLabel(row.scheduled_time, row.is_dohan, row.is_sabaki);
   return `👤 ${name}（${time}）`;
 }
 

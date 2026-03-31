@@ -288,7 +288,7 @@ export async function tryHandleReservationDetailText(
 
   const { data: schedule } = await supabase
     .from("attendance_schedules")
-    .select("id, pending_line_flow")
+    .select("id, pending_line_flow, is_sabaki")
     .eq("id", ensured.id)
     .maybeSingle();
 
@@ -313,11 +313,13 @@ export async function tryHandleReservationDetailText(
   }
 
   const { replyMessages } = await getReminderReplyConfig(supabase, cast.store_id);
+  const isSabaki = (schedule as { is_sabaki?: boolean }).is_sabaki === true;
   await finalizeAttendingAttendance({
     supabase,
     cast,
     scheduleId: schedule.id,
     today: todayJst,
+    isSabaki,
     hasReservation: true,
     reservationDetails: text,
     replyToken,
@@ -567,6 +569,7 @@ type FinalizeParams = {
   cast: { id: string; store_id: string; name: string | null };
   scheduleId: string;
   today: string;
+  isSabaki: boolean;
   hasReservation: boolean;
   reservationDetails: string | null;
   replyToken: string;
@@ -580,6 +583,7 @@ async function finalizeAttendingAttendance(p: FinalizeParams): Promise<void> {
     cast,
     scheduleId,
     today,
+    isSabaki,
     hasReservation,
     reservationDetails,
     replyToken,
@@ -594,6 +598,7 @@ async function finalizeAttendingAttendance(p: FinalizeParams): Promise<void> {
       attendance_schedule_id: scheduleId,
       attended_date: today,
       status: "attending",
+      is_sabaki: isSabaki,
       has_reservation: hasReservation,
       reservation_details: reservationDetails,
       responded_at: new Date().toISOString(),
@@ -643,6 +648,7 @@ async function finalizeAttendingAttendance(p: FinalizeParams): Promise<void> {
 async function handleAttendingReservationFlowStart(
   cast: { id: string; store_id: string; name: string | null },
   scheduleId: string,
+  isSabaki: boolean,
   supabase: ReturnType<typeof createSupabaseClient>,
   replyToken: string | undefined,
   channelAccessToken: string | undefined
@@ -663,6 +669,7 @@ async function handleAttendingReservationFlowStart(
       attendance_schedule_id: scheduleId,
       attended_date: today,
       status: "attending",
+      is_sabaki: isSabaki,
       responded_at: nowIso,
       updated_at: nowIso,
     } as Record<string, unknown>,
@@ -742,7 +749,7 @@ export async function handleReservationPostback(
 
   const { data: schedule } = await supabase
     .from("attendance_schedules")
-    .select("id, pending_line_flow")
+    .select("id, pending_line_flow, is_sabaki")
     .eq("id", ensured.id)
     .maybeSingle();
 
@@ -750,6 +757,8 @@ export async function handleReservationPostback(
     await safeReply([{ type: "text", text: NO_SCHEDULE_FOR_TODAY_REPLY }]);
     return;
   }
+
+  const scheduleSabaki = schedule.is_sabaki === true;
 
   if (schedule.pending_line_flow !== PENDING_RESERVATION_ASK) {
     await safeReply([
@@ -770,6 +779,7 @@ export async function handleReservationPostback(
       cast,
       scheduleId: schedule.id,
       today,
+      isSabaki: scheduleSabaki,
       hasReservation: false,
       reservationDetails: null,
       replyToken,
@@ -840,7 +850,7 @@ export async function handleAttendanceResponse(
 
     const { data: schedule, error: scheduleFetchError } = await supabase
       .from("attendance_schedules")
-      .select("id, pending_line_flow, response_status, is_action_completed")
+      .select("id, pending_line_flow, response_status, is_action_completed, is_sabaki")
       .eq("id", ensured.id)
       .maybeSingle();
 
@@ -855,6 +865,7 @@ export async function handleAttendanceResponse(
     }
 
     const scheduleId = schedule.id;
+    const isSabaki = schedule.is_sabaki === true;
 
     if (statusData === "attending") {
       const pending = schedule.pending_line_flow ?? null;
@@ -916,6 +927,7 @@ export async function handleAttendanceResponse(
           cast,
           scheduleId,
           today,
+          isSabaki,
           hasReservation: false,
           reservationDetails: null,
           replyToken,
@@ -928,6 +940,7 @@ export async function handleAttendanceResponse(
       await handleAttendingReservationFlowStart(
         cast,
         scheduleId,
+        isSabaki,
         supabase,
         replyToken,
         channelAccessToken
@@ -960,6 +973,7 @@ export async function handleAttendanceResponse(
         attendance_schedule_id: scheduleId,
         attended_date: today,
         status,
+        is_sabaki: isSabaki,
         responded_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       } as Record<string, unknown>,

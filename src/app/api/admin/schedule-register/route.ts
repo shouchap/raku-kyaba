@@ -5,6 +5,7 @@ import { sendPushMessage } from "@/lib/line-reply";
 import {
   applyReminderMessageTemplate,
   buildAttendanceRemindFlexMessage,
+  buildSabakiRemindLines,
   formatRemindScheduledTime,
 } from "@/lib/attendance-remind-flex";
 import { fetchAttendanceFlexHolidayOptions } from "@/lib/reminder-config";
@@ -65,6 +66,7 @@ export async function POST(request: Request) {
     scheduledDate?: string;
     scheduledTime?: string;
     isDohan?: boolean;
+    isSabaki?: boolean;
     sendImmediateLine?: boolean;
   };
 
@@ -80,6 +82,7 @@ export async function POST(request: Request) {
     scheduledDate,
     scheduledTime,
     isDohan,
+    isSabaki,
     sendImmediateLine,
   } = body;
 
@@ -118,6 +121,7 @@ export async function POST(request: Request) {
       scheduled_date: scheduledDate,
       scheduled_time: scheduledTime,
       is_dohan: Boolean(isDohan),
+      is_sabaki: Boolean(isSabaki),
     })
     .select("id")
     .single();
@@ -199,12 +203,20 @@ export async function POST(request: Request) {
   ]);
   const storeRow = storeRes.data;
 
-  const timeStr = formatRemindScheduledTime(scheduledTime, isDohan);
   const castName = cast?.name ?? "キャスト";
-  const reminderMessageLine = applyReminderMessageTemplate(messageTemplate, castName, timeStr);
+  const sabaki = Boolean(isSabaki);
+  const { reminderMessageLine, scheduledTimeDisplay } = sabaki
+    ? buildSabakiRemindLines(castName)
+    : (() => {
+        const timeStr = formatRemindScheduledTime(scheduledTime, isDohan);
+        return {
+          reminderMessageLine: applyReminderMessageTemplate(messageTemplate, castName, timeStr),
+          scheduledTimeDisplay: timeStr,
+        };
+      })();
   const flex = buildAttendanceRemindFlexMessage({
     castName,
-    scheduledTimeDisplay: timeStr,
+    scheduledTimeDisplay,
     todayJst: getTodayJst(),
     storeName: storeRow?.name,
     flexOptions: {

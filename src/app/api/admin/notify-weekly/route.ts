@@ -4,6 +4,7 @@ import { sendPushMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
+import { formatScheduleTimeLabel } from "@/lib/attendance-remind-flex";
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -14,17 +15,6 @@ function formatDateJa(dateStr: string): string {
   const day = d.getDate();
   const w = WEEKDAY_JA[d.getDay()];
   return `${m}/${day}(${w})`;
-}
-
-/** "20:00:00" → "20:00"。is_dohan が true の場合は「（同伴）」を追記 */
-function formatTimeWithDohan(
-  time: string | null | undefined,
-  isDohan?: boolean | null
-): string {
-  if (!time) return "";
-  const match = String(time).match(/^(\d{1,2}):(\d{2})/);
-  const base = match ? `${match[1]}:${match[2]}` : "";
-  return isDohan ? `${base}（同伴）` : base;
 }
 
 /**
@@ -139,10 +129,10 @@ export async function POST(request: Request) {
     });
   }
 
-  // 7日間の attendance_schedules を casts と JOIN して取得（is_dohan 含む）
+  // 7日間の attendance_schedules を casts と JOIN して取得（同伴・捌き含む）
   const { data: schedules, error: scheduleError } = await supabase
     .from("attendance_schedules")
-    .select("cast_id, scheduled_date, scheduled_time, is_dohan, casts(name, line_user_id)")
+    .select("cast_id, scheduled_date, scheduled_time, is_dohan, is_sabaki, casts(name, line_user_id)")
     .eq("store_id", storeId)
     .in("scheduled_date", dates);
 
@@ -171,6 +161,7 @@ export async function POST(request: Request) {
     const scheduledDate = row.scheduled_date as string;
     const scheduledTime = row.scheduled_time as string | undefined;
     const isDohan = row.is_dohan as boolean | undefined;
+    const isSabaki = row.is_sabaki as boolean | undefined;
 
     if (!castMap.has(castId)) {
       castMap.set(castId, {
@@ -180,8 +171,8 @@ export async function POST(request: Request) {
       });
     }
     const entry = castMap.get(castId)!;
-    const formatted = formatTimeWithDohan(scheduledTime, isDohan);
-    entry.byDate[scheduledDate] = formatted ? `${formatted}〜` : "";
+    const formatted = formatScheduleTimeLabel(scheduledTime, isDohan, isSabaki);
+    entry.byDate[scheduledDate] = formatted && formatted !== "—" ? `${formatted}〜` : "";
   });
 
   // 全キャストに送信（スケジュールあり→詳細、全て休み→「来週はお休みです」）

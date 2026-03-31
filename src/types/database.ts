@@ -101,6 +101,8 @@ export interface Database {
           attendance_schedule_id: string | null;
           attended_date: string;
           status: AttendanceStatus;
+          /** 回答時点のシフトが捌き出勤だったスナップショット */
+          is_sabaki: boolean;
           public_holiday_reason: string | null;
           half_holiday_reason: string | null;
           has_reservation: boolean | null;

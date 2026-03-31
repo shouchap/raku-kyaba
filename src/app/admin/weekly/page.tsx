@@ -72,6 +72,7 @@ export default function AdminWeeklyPage() {
   const [matrix, setMatrix] = useState<Record<string, Record<string, string>>>({});
   // 同伴フラグ: dohan[castId][dateStr] = boolean（出勤時間がある場合のみ意味を持つ）
   const [dohan, setDohan] = useState<Record<string, Record<string, boolean>>>({});
+  const [sabaki, setSabaki] = useState<Record<string, Record<string, boolean>>>({});
 
   // 基準日から7日間の日付配列
   const dates = useMemo(() => {
@@ -110,35 +111,46 @@ export default function AdminWeeklyPage() {
     }
   }, [supabase, activeStoreId]);
 
-  // 既存シフトの読み込み（scheduled_time と is_dohan を取得）
+  // 既存シフトの読み込み（scheduled_time・is_dohan・is_sabaki を取得）
   const loadExistingSchedules = useCallback(
     async (storeId: string) => {
       const { data } = await supabase
         .from("attendance_schedules")
-        .select("cast_id, scheduled_date, scheduled_time, is_dohan")
+        .select("cast_id, scheduled_date, scheduled_time, is_dohan, is_sabaki")
         .eq("store_id", storeId)
         .in("scheduled_date", dates);
 
       const nextMatrix: Record<string, Record<string, string>> = {};
       const nextDohan: Record<string, Record<string, boolean>> = {};
+      const nextSabaki: Record<string, Record<string, boolean>> = {};
       casts.forEach((c) => {
         nextMatrix[c.id] = {};
         nextDohan[c.id] = {};
+        nextSabaki[c.id] = {};
         dates.forEach((d) => {
           nextMatrix[c.id][d] = "";
           nextDohan[c.id][d] = false;
+          nextSabaki[c.id][d] = false;
         });
       });
       (data ?? []).forEach(
-        (row: { cast_id: string; scheduled_date: string; scheduled_time?: string; is_dohan?: boolean }) => {
+        (row: {
+          cast_id: string;
+          scheduled_date: string;
+          scheduled_time?: string;
+          is_dohan?: boolean;
+          is_sabaki?: boolean;
+        }) => {
           if (nextMatrix[row.cast_id]) {
             nextMatrix[row.cast_id][row.scheduled_date] = formatTimeForInput(row.scheduled_time);
             nextDohan[row.cast_id][row.scheduled_date] = Boolean(row.is_dohan);
+            nextSabaki[row.cast_id][row.scheduled_date] = Boolean(row.is_sabaki);
           }
         }
       );
       setMatrix(nextMatrix);
       setDohan(nextDohan);
+      setSabaki(nextSabaki);
     },
     [supabase, casts, dates]
   );
@@ -154,16 +166,20 @@ export default function AdminWeeklyPage() {
       // 店舗がまだ無い場合の空マトリックス初期化
       const next: Record<string, Record<string, string>> = {};
       const nextDohan: Record<string, Record<string, boolean>> = {};
+      const nextSabaki: Record<string, Record<string, boolean>> = {};
       casts.forEach((c) => {
         next[c.id] = {};
         nextDohan[c.id] = {};
+        nextSabaki[c.id] = {};
         dates.forEach((d) => {
           next[c.id][d] = "";
           nextDohan[c.id][d] = false;
+          nextSabaki[c.id][d] = false;
         });
       });
       setMatrix(next);
       setDohan(nextDohan);
+      setSabaki(nextSabaki);
     }
   }, [store, casts, dates, loadExistingSchedules]);
 
@@ -181,6 +197,10 @@ export default function AdminWeeklyPage() {
         ...prev,
         [castId]: { ...(prev[castId] ?? {}), [dateStr]: false },
       }));
+      setSabaki((prev) => ({
+        ...prev,
+        [castId]: { ...(prev[castId] ?? {}), [dateStr]: false },
+      }));
     }
   };
 
@@ -189,6 +209,19 @@ export default function AdminWeeklyPage() {
     const time = matrix[castId]?.[dateStr]?.trim();
     if (!time) return;
     setDohan((prev) => ({
+      ...prev,
+      [castId]: {
+        ...(prev[castId] ?? {}),
+        [dateStr]: !(prev[castId]?.[dateStr] ?? false),
+      },
+    }));
+  };
+
+  /** 捌きトグル。出勤時間があるセルのみ有効 */
+  const toggleSabaki = (castId: string, dateStr: string) => {
+    const time = matrix[castId]?.[dateStr]?.trim();
+    if (!time) return;
+    setSabaki((prev) => ({
       ...prev,
       [castId]: {
         ...(prev[castId] ?? {}),
@@ -220,6 +253,7 @@ export default function AdminWeeklyPage() {
         scheduled_date: string;
         scheduled_time: string;
         is_dohan: boolean;
+        is_sabaki: boolean;
       }> = [];
       casts.forEach((cast) => {
         dates.forEach((dateStr) => {
@@ -231,6 +265,7 @@ export default function AdminWeeklyPage() {
               scheduled_date: dateStr,
               scheduled_time: time.length === 5 ? `${time}:00` : time,
               is_dohan: dohan[cast.id]?.[dateStr] ?? false,
+              is_sabaki: sabaki[cast.id]?.[dateStr] ?? false,
             });
           }
         });
@@ -367,6 +402,7 @@ export default function AdminWeeklyPage() {
                   {dates.map((dateStr) => {
                     const hasTime = Boolean(matrix[cast.id]?.[dateStr]?.trim());
                     const isDohanOn = dohan[cast.id]?.[dateStr] ?? false;
+                    const isSabakiOn = sabaki[cast.id]?.[dateStr] ?? false;
                     return (
                       <td key={dateStr} className="border-b border-r border-gray-200 p-0.5 sm:p-1">
                         <div className="flex flex-col gap-0.5">
@@ -381,19 +417,32 @@ export default function AdminWeeklyPage() {
                               </option>
                             ))}
                           </select>
-                          {/* 同伴トグル: 出勤時間がある場合のみ表示。ON時はピンクで視認性を確保 */}
+                          {/* 同伴・捌き: 出勤時間がある場合のみ */}
                           {hasTime && (
-                            <button
-                              type="button"
-                              onClick={() => toggleDohan(cast.id, dateStr)}
-                              className={`min-h-[24px] text-[9px] sm:text-[10px] px-1 py-0.5 rounded border touch-manipulation transition-colors ${
-                                isDohanOn
-                                  ? "bg-pink-500 border-pink-600 text-white font-medium"
-                                  : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
-                              }`}
-                            >
-                              同伴
-                            </button>
+                            <div className="flex gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => toggleDohan(cast.id, dateStr)}
+                                className={`flex-1 min-h-[24px] text-[9px] sm:text-[10px] px-0.5 py-0.5 rounded border touch-manipulation transition-colors ${
+                                  isDohanOn
+                                    ? "bg-pink-500 border-pink-600 text-white font-medium"
+                                    : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+                                }`}
+                              >
+                                同伴
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => toggleSabaki(cast.id, dateStr)}
+                                className={`flex-1 min-h-[24px] text-[9px] sm:text-[10px] px-0.5 py-0.5 rounded border touch-manipulation transition-colors ${
+                                  isSabakiOn
+                                    ? "bg-amber-600 border-amber-700 text-white font-medium"
+                                    : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+                                }`}
+                              >
+                                捌き
+                              </button>
+                            </div>
                           )}
                         </div>
                       </td>

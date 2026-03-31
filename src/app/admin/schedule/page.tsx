@@ -29,6 +29,7 @@ export default function AdminSchedulePage() {
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("20:00");
   const [isDohan, setIsDohan] = useState(false);
+  const [isSabaki, setIsSabaki] = useState(false);
   /** 登録と同時に Cron と同一の出勤確認 Flex を Push 送信 */
   const [sendImmediateLine, setSendImmediateLine] = useState(false);
   const [lineFeedback, setLineFeedback] = useState<{
@@ -67,6 +68,7 @@ export default function AdminSchedulePage() {
     setScheduledDate("");
     setScheduledTime("20:00");
     setIsDohan(false);
+    setIsSabaki(false);
     setSendImmediateLine(false);
   };
 
@@ -88,6 +90,7 @@ export default function AdminSchedulePage() {
           scheduledDate,
           scheduledTime,
           isDohan,
+          isSabaki,
           sendImmediateLine,
         }),
       });
@@ -214,17 +217,30 @@ export default function AdminSchedulePage() {
               ))}
             </select>
             {/* 同伴トグル: ON時はピンクで視認性を確保 */}
-            <button
-              type="button"
-              onClick={() => setIsDohan((prev) => !prev)}
-              className={`mt-2 w-full min-h-[40px] px-4 rounded-lg border font-medium transition-colors touch-manipulation ${
-                isDohan
-                  ? "bg-pink-500 border-pink-600 text-white"
-                  : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              同伴 {isDohan && "✓"}
-            </button>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setIsDohan((prev) => !prev)}
+                className={`flex-1 min-h-[40px] px-3 rounded-lg border font-medium transition-colors touch-manipulation text-sm ${
+                  isDohan
+                    ? "bg-pink-500 border-pink-600 text-white"
+                    : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                同伴 {isDohan && "✓"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsSabaki((prev) => !prev)}
+                className={`flex-1 min-h-[40px] px-3 rounded-lg border font-medium transition-colors touch-manipulation text-sm ${
+                  isSabaki
+                    ? "bg-amber-600 border-amber-700 text-white"
+                    : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                捌き {isSabaki && "✓"}
+              </button>
+            </div>
           </div>
 
           {message === "success" && (

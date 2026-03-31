@@ -4,6 +4,8 @@ import { sendPushMessage, sendMulticastMessage } from "@/lib/line-reply";
 import {
   applyReminderMessageTemplate,
   buildAttendanceRemindFlexMessage,
+  buildSabakiRemindLines,
+  formatCastNameAttendanceSuffix,
   formatRemindScheduledTime,
 } from "@/lib/attendance-remind-flex";
 import { getCurrentTimeJst, getTodayJst, getWeekdayJst } from "@/lib/date-utils";
@@ -247,14 +249,21 @@ function parseCastJoinFromSchedule(schedule: { casts: unknown }): CastJoinRow | 
   return c;
 }
 
-/** シフト行があるキャスト向け: レギュラーは店舗設定本文、バイト／未設定はテンプレ＋時刻 */
+/** シフト行があるキャスト向け: 捌きは専用文／レギュラーは店舗設定本文／バイトはテンプレ＋時刻 */
 function buildScheduleRemindParts(
   messageTemplate: string,
   castName: string,
-  schedule: { scheduled_time: string | null; is_dohan: boolean | null },
+  schedule: {
+    scheduled_time: string | null;
+    is_dohan: boolean | null;
+    is_sabaki?: boolean | null;
+  },
   employmentType: string | null | undefined,
   regularRemindMessageFromStore: string | null | undefined
 ): { reminderMessageLine: string; scheduledTimeDisplay: string } {
+  if (schedule.is_sabaki === true) {
+    return buildSabakiRemindLines(castName);
+  }
   const scheduledTime = formatRemindScheduledTime(schedule.scheduled_time, schedule.is_dohan);
   if (employmentUsesRegularRemindMessage(employmentType)) {
     return {
@@ -347,11 +356,11 @@ async function runRemindForStore(
   const { data: rawSchedules, error } = await supabase
     .from("attendance_schedules")
     .select(
-      "id, cast_id, store_id, scheduled_date, scheduled_time, is_dohan, last_reminded_at, casts(name, line_user_id, employment_type, is_admin)"
+      "id, cast_id, store_id, scheduled_date, scheduled_time, is_dohan, is_sabaki, last_reminded_at, casts(name, line_user_id, employment_type, is_admin)"
     )
     .eq("store_id", storeId)
     .eq("scheduled_date", todayJst)
-    .not("scheduled_time", "is", null);
+    .or("scheduled_time.not.is.null,is_sabaki.eq.true");
 
   if (error) {
     logError(`出勤予定取得失敗 store=${storeId}`, error);
@@ -360,7 +369,9 @@ async function runRemindForStore(
 
   let schedules = (rawSchedules ?? []).filter((s) => {
     const t = s.scheduled_time;
-    if (t == null || String(t).trim() === "") return false;
+    const hasTime = t != null && String(t).trim() !== "";
+    const isSabaki = s.is_sabaki === true;
+    if (!hasTime && !isSabaki) return false;
     const c = parseCastJoinFromSchedule(s);
     if (!c) return false;
     if (shouldSkipRemindForCast(c.employment_type, c.is_admin)) return false;
@@ -419,7 +430,15 @@ async function runRemindForStore(
 
   const buildSentItemFromSchedule = (s: ScheduleRow): SentItem => {
     const c = parseCastJoinFromSchedule(s);
-    const name = c?.name ?? "キャスト";
+    const baseName = c?.name ?? "キャスト";
+    const name = `${baseName}${formatCastNameAttendanceSuffix(s.is_dohan, s.is_sabaki)}`;
+    if (s.is_sabaki === true) {
+      return {
+        name,
+        timeDisplay: "捌き出勤",
+        sortMinutes: minutesFromScheduledTime(s.scheduled_time),
+      };
+    }
     if (employmentUsesRegularRemindMessage(c?.employment_type)) {
       return {
         name,
@@ -427,8 +446,8 @@ async function runRemindForStore(
         sortMinutes: minutesFromScheduledTime(s.scheduled_time),
       };
     }
-    const baseTime = formatRemindScheduledTime(s.scheduled_time, false);
-    const timeDisplay = `${baseTime}${s.is_dohan ? " 同伴" : ""}`.trim();
+    const timeStr = formatRemindScheduledTime(s.scheduled_time, false);
+    const timeDisplay = `${timeStr}${s.is_dohan ? " 同伴" : ""}`.trim();
     return {
       name,
       timeDisplay,
