@@ -66,6 +66,9 @@ export function formatReservationSubLines(row: ReservationFields): string[] {
   if (flow === "reservation_ask") {
     return [`${SUB_INDENT}📅 予約：回答待ち`];
   }
+  if (flow === "reservation_group_count") {
+    return [`${SUB_INDENT}📅 予約：組数選択待ち`];
+  }
   if (flow === "reservation_time") {
     return [`${SUB_INDENT}📅 予約：来店時間選択待ち`];
   }

@@ -8,6 +8,18 @@ import { getDefaultStoreIdOrNull } from "@/lib/current-store";
 import { fetchAttendanceFlexHolidayOptions } from "@/lib/reminder-config";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import type { AttendancePostbackData, ReservationPostbackData } from "@/types/line-webhook";
+import {
+  formatReservationCompletionMessage,
+  formatReservationStoredPlainText,
+  getReservationPromptTargets,
+  nextGroupIndexToFill,
+  parseReservationGroupCountFromPostback,
+  parseReservationProgress,
+  RESERVATION_JSON_VERSION,
+  serializeReservationProgress,
+  type ReservationGuestButton,
+  type ReservationProgressV2,
+} from "@/lib/reservation-progress";
 
 const ERROR_REPLY = "申し訳ございません。エラーが発生しました。しばらく経ってから再度お試しください。";
 const CAST_NOT_FOUND_REPLY = "キャストが登録されていません。管理者にご連絡ください。";
@@ -30,6 +42,7 @@ const RESERVATION_ASK_REMIND_TEXT =
   "「はい」「いいえ」からお選びください。";
 const RESERVATION_TIME_PROMPT_TEXT = "お客様の来店予定時間を教えてください。";
 const RESERVATION_GUESTS_PROMPT_TEXT = "何名様でのご来店ですか？";
+const RESERVATION_GROUP_COUNT_PROMPT_TEXT = "何組のお客様の予定がありますか？";
 const RESERVATION_TEXT_ONLY_REMIND =
   "文字入力は不要です。画面のボタンからお選びください。";
 
@@ -93,7 +106,8 @@ export const PENDING_RESERVATION_DETAIL = "reservation_detail";
 export const PENDING_RESERVATION_TIME = "reservation_time";
 /** Postback で人数を選ぶ段階 */
 export const PENDING_RESERVATION_GUESTS = "reservation_guests";
-
+/** 来客予定の組数を選ぶ段階 */
+export const PENDING_RESERVATION_GROUP_COUNT = "reservation_group_count";
 
 const DEFAULT_REPLY_MESSAGES: Record<AttendancePostbackData, string> = {
   attending: "出勤を記録しました。本日もよろしくお願い致します。",
@@ -228,11 +242,35 @@ const RESERVATION_FLEX_BODY = "#263238";
 const RESERVATION_FLEX_BTN_PRIMARY = "#C2185B";
 const RESERVATION_FLEX_BTN_MUTED = "#90A4AE";
 
-/** 来店時間のみ（Datetimepicker） */
-export function buildReservationTimePickerFlexMessage(): LineReplyMessage {
+function reservationTimePromptBody(opts: { groupIndex: number; totalGroups: number }): string {
+  if (opts.totalGroups <= 1) return RESERVATION_TIME_PROMPT_TEXT;
+  return `${opts.groupIndex}組目の来店時間を教えてください。`;
+}
+
+function reservationGuestsPromptBody(opts: { groupIndex: number; totalGroups: number }): string {
+  if (opts.totalGroups <= 1) return RESERVATION_GUESTS_PROMPT_TEXT;
+  return `${opts.groupIndex}組目は何名様ですか？`;
+}
+
+/** 組数のみ（Postback） */
+export function buildReservationGroupCountFlexMessage(): LineReplyMessage {
+  const postback = (label: string, groups: number) =>
+    ({
+      type: "button" as const,
+      style: "primary" as const,
+      color: RESERVATION_FLEX_BTN_PRIMARY,
+      height: "md" as const,
+      action: {
+        type: "postback" as const,
+        label,
+        data: `action=reservation_group_select&groups=${groups}`,
+        displayText: label,
+      },
+    }) as const;
+
   return {
     type: "flex",
-    altText: `${RESERVATION_TIME_PROMPT_TEXT}（ボタンから時間を選択）`,
+    altText: `${RESERVATION_GROUP_COUNT_PROMPT_TEXT}（ボタンから選択）`,
     contents: {
       type: "bubble",
       size: "mega" as const,
@@ -244,7 +282,46 @@ export function buildReservationTimePickerFlexMessage(): LineReplyMessage {
         contents: [
           {
             type: "text",
-            text: RESERVATION_TIME_PROMPT_TEXT,
+            text: RESERVATION_GROUP_COUNT_PROMPT_TEXT,
+            wrap: true,
+            weight: "bold" as const,
+            size: "md" as const,
+            color: RESERVATION_FLEX_BODY,
+          },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical" as const,
+        paddingAll: "20px",
+        paddingTop: "12px",
+        spacing: "sm" as const,
+        contents: [postback("1組", 1), postback("2組", 2), postback("3組以上", 3)],
+      },
+    },
+  };
+}
+
+/** 来店時間（Datetimepicker） */
+export function buildReservationTimePickerFlexMessage(
+  opts: { groupIndex: number; totalGroups: number } = { groupIndex: 1, totalGroups: 1 }
+): LineReplyMessage {
+  const bodyText = reservationTimePromptBody(opts);
+  return {
+    type: "flex",
+    altText: `${bodyText}（ボタンから時間を選択）`,
+    contents: {
+      type: "bubble",
+      size: "mega" as const,
+      body: {
+        type: "box",
+        layout: "vertical" as const,
+        paddingAll: "20px",
+        spacing: "md" as const,
+        contents: [
+          {
+            type: "text",
+            text: bodyText,
             wrap: true,
             weight: "bold" as const,
             size: "md" as const,
@@ -293,11 +370,14 @@ function guestCountButton(label: string, guests: number): object {
   };
 }
 
-/** 人数のみ（Postback 4段階） */
-export function buildReservationGuestsFlexMessage(): LineReplyMessage {
+/** 人数（Postback 4段階） */
+export function buildReservationGuestsFlexMessage(
+  opts: { groupIndex: number; totalGroups: number } = { groupIndex: 1, totalGroups: 1 }
+): LineReplyMessage {
+  const bodyText = reservationGuestsPromptBody(opts);
   return {
     type: "flex",
-    altText: `${RESERVATION_GUESTS_PROMPT_TEXT}（ボタンから選択）`,
+    altText: `${bodyText}（ボタンから選択）`,
     contents: {
       type: "bubble",
       size: "mega" as const,
@@ -309,7 +389,7 @@ export function buildReservationGuestsFlexMessage(): LineReplyMessage {
         contents: [
           {
             type: "text",
-            text: RESERVATION_GUESTS_PROMPT_TEXT,
+            text: bodyText,
             wrap: true,
             weight: "bold" as const,
             size: "md" as const,
@@ -346,32 +426,23 @@ function normalizeHmFromLineTime(time: string | null | undefined): string | null
   return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 }
 
-function parsePendingReservationTimeJson(details: string | null | undefined): string | null {
-  const s = String(details ?? "").trim();
-  if (!s.startsWith("{")) return null;
-  try {
-    const o = JSON.parse(s) as { time?: string };
-    return normalizeHmFromLineTime(o.time ?? null);
-  } catch {
-    return null;
+/** 来店時間を選ぶ直前の状態（旧フロー互換で total_groups=1 を補う） */
+function ensureProgressForTimeStep(
+  details: string | null | undefined
+): ReservationProgressV2 {
+  const p = parseReservationProgress(details);
+  if (p && p.total_groups >= 1) {
+    return {
+      ...p,
+      pending_time: undefined,
+    };
   }
-}
-
-function guestCountToLabel(guests: number): string {
-  if (guests === 4) return "4名以上";
-  return `${guests}名様`;
-}
-
-function buildReservationDetailStored(hm: string, guests: number): string {
-  if (guests === 4) return `${hm}から4名以上のご予定`;
-  return `${hm}から${guests}名様のご予定`;
-}
-
-function buildReservationCompletionReply(hm: string, guests: number): string {
-  if (guests === 4) {
-    return `${hm}から4名以上の予定を記録しました。ありがとうございます！`;
-  }
-  return `${hm}から${guests}名様の予定を記録しました。ありがとうございます！`;
+  return {
+    v: RESERVATION_JSON_VERSION,
+    total_groups: 1,
+    current_group: 1,
+    records: [],
+  };
 }
 
 type ScheduleReasonRow = {
@@ -444,7 +515,7 @@ export async function tryHandleReservationDetailText(
 
   const { data: schedule } = await supabase
     .from("attendance_schedules")
-    .select("id, pending_line_flow")
+    .select("id, pending_line_flow, reservation_details")
     .eq("id", ensured.id)
     .maybeSingle();
 
@@ -454,6 +525,7 @@ export async function tryHandleReservationDetailText(
   const reservationFlows = new Set([
     PENDING_RESERVATION_ASK,
     PENDING_RESERVATION_DETAIL,
+    PENDING_RESERVATION_GROUP_COUNT,
     PENDING_RESERVATION_TIME,
     PENDING_RESERVATION_GUESTS,
   ]);
@@ -474,35 +546,46 @@ export async function tryHandleReservationDetailText(
     const { error: migErr } = await supabase
       .from("attendance_schedules")
       .update({
-        pending_line_flow: PENDING_RESERVATION_TIME,
+        pending_line_flow: PENDING_RESERVATION_GROUP_COUNT,
+        reservation_details: null,
         pending_line_updated_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq("id", schedule.id);
     if (migErr) {
-      console.error("[Reservation] migrate detail→time:", migErr);
+      console.error("[Reservation] migrate detail→group_count:", migErr);
       await sendReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
       return true;
     }
     await sendReply(replyToken, channelAccessToken, [
       { type: "text", text: RESERVATION_TEXT_ONLY_REMIND },
-      buildReservationTimePickerFlexMessage(),
+      buildReservationGroupCountFlexMessage(),
+    ]);
+    return true;
+  }
+
+  if (flow === PENDING_RESERVATION_GROUP_COUNT) {
+    await sendReply(replyToken, channelAccessToken, [
+      { type: "text", text: RESERVATION_TEXT_ONLY_REMIND },
+      buildReservationGroupCountFlexMessage(),
     ]);
     return true;
   }
 
   if (flow === PENDING_RESERVATION_TIME) {
+    const opts = getReservationPromptTargets(schedule.reservation_details);
     await sendReply(replyToken, channelAccessToken, [
       { type: "text", text: RESERVATION_TEXT_ONLY_REMIND },
-      buildReservationTimePickerFlexMessage(),
+      buildReservationTimePickerFlexMessage(opts),
     ]);
     return true;
   }
 
   if (flow === PENDING_RESERVATION_GUESTS) {
+    const opts = getReservationPromptTargets(schedule.reservation_details);
     await sendReply(replyToken, channelAccessToken, [
       { type: "text", text: RESERVATION_TEXT_ONLY_REMIND },
-      buildReservationGuestsFlexMessage(),
+      buildReservationGuestsFlexMessage(opts),
     ]);
     return true;
   }
@@ -940,7 +1023,8 @@ export async function handleReservationPostback(
   const { error: updErr } = await supabase
     .from("attendance_schedules")
     .update({
-      pending_line_flow: PENDING_RESERVATION_TIME,
+      pending_line_flow: PENDING_RESERVATION_GROUP_COUNT,
+      reservation_details: null,
       pending_line_updated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
@@ -952,7 +1036,7 @@ export async function handleReservationPostback(
     return;
   }
 
-  await safeReply([buildReservationTimePickerFlexMessage()]);
+  await safeReply([buildReservationGroupCountFlexMessage()]);
 }
 
 export async function handleAttendanceResponse(
@@ -998,7 +1082,7 @@ export async function handleAttendanceResponse(
 
     const { data: schedule, error: scheduleFetchError } = await supabase
       .from("attendance_schedules")
-      .select("id, pending_line_flow, response_status, is_action_completed, is_sabaki")
+      .select("id, pending_line_flow, response_status, is_action_completed, is_sabaki, reservation_details")
       .eq("id", ensured.id)
       .maybeSingle();
 
@@ -1025,25 +1109,38 @@ export async function handleAttendanceResponse(
         await supabase
           .from("attendance_schedules")
           .update({
-            pending_line_flow: PENDING_RESERVATION_TIME,
+            pending_line_flow: PENDING_RESERVATION_GROUP_COUNT,
+            reservation_details: null,
             pending_line_updated_at: nowIso,
             updated_at: nowIso,
           })
           .eq("id", scheduleId);
         if (replyToken && channelAccessToken) {
-          await sendReply(replyToken, channelAccessToken, [buildReservationTimePickerFlexMessage()]);
+          await sendReply(replyToken, channelAccessToken, [buildReservationGroupCountFlexMessage()]);
+        }
+        return;
+      }
+      if (pending === PENDING_RESERVATION_GROUP_COUNT) {
+        if (replyToken && channelAccessToken) {
+          await sendReply(replyToken, channelAccessToken, [buildReservationGroupCountFlexMessage()]);
         }
         return;
       }
       if (pending === PENDING_RESERVATION_TIME) {
         if (replyToken && channelAccessToken) {
-          await sendReply(replyToken, channelAccessToken, [buildReservationTimePickerFlexMessage()]);
+          const opts = getReservationPromptTargets(schedule.reservation_details);
+          await sendReply(replyToken, channelAccessToken, [
+            buildReservationTimePickerFlexMessage(opts),
+          ]);
         }
         return;
       }
       if (pending === PENDING_RESERVATION_GUESTS) {
         if (replyToken && channelAccessToken) {
-          await sendReply(replyToken, channelAccessToken, [buildReservationGuestsFlexMessage()]);
+          const opts = getReservationPromptTargets(schedule.reservation_details);
+          await sendReply(replyToken, channelAccessToken, [
+            buildReservationGuestsFlexMessage(opts),
+          ]);
         }
         return;
       }
@@ -1234,7 +1331,7 @@ function parseReservationGuestsFromData(raw: string): number | null {
 }
 
 /**
- * 予約フロー: Datetimepicker（来店時間）と Postback（人数）。
+ * 予約フロー: 組数 Postback → Datetimepicker（来店時間）→ Postback（人数）を組数分ループ。
  * 対象 data のときのみ true。
  */
 export async function handleReservationFollowupPostback(
@@ -1248,7 +1345,10 @@ export async function handleReservationFollowupPostback(
   if (!replyToken?.trim() || !channelAccessToken?.trim()) return false;
 
   const data = String(rawData ?? "").trim();
-  if (data !== "action=reservation_time_select" && !data.includes("reservation_guests_select")) {
+  const isGroupSelect = data.includes("reservation_group_select");
+  const isTime = data === "action=reservation_time_select";
+  const isGuests = data.includes("reservation_guests_select");
+  if (!isGroupSelect && !isTime && !isGuests) {
     return false;
   }
 
@@ -1295,6 +1395,44 @@ export async function handleReservationFollowupPostback(
 
   const nowIso = new Date().toISOString();
 
+  if (isGroupSelect) {
+    if (schedule.pending_line_flow !== PENDING_RESERVATION_GROUP_COUNT) {
+      await safeReply([
+        { type: "text", text: "現在、組数の選択はできません。出勤確認の流れをご確認ください。" },
+      ]);
+      return true;
+    }
+    const groups = parseReservationGroupCountFromPostback(data);
+    if (groups == null) {
+      await safeReply([{ type: "text", text: ERROR_REPLY }]);
+      return true;
+    }
+    const initial: ReservationProgressV2 = {
+      v: RESERVATION_JSON_VERSION,
+      total_groups: groups,
+      current_group: 1,
+      records: [],
+    };
+    const { error: uErr } = await supabase
+      .from("attendance_schedules")
+      .update({
+        reservation_details: serializeReservationProgress(initial),
+        pending_line_flow: PENDING_RESERVATION_TIME,
+        pending_line_updated_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq("id", schedule.id);
+    if (uErr) {
+      console.error("[Reservation] group select update:", uErr);
+      await safeReply([{ type: "text", text: ERROR_REPLY }]);
+      return true;
+    }
+    await safeReply([
+      buildReservationTimePickerFlexMessage({ groupIndex: 1, totalGroups: groups }),
+    ]);
+    return true;
+  }
+
   if (data === "action=reservation_time_select") {
     if (schedule.pending_line_flow !== PENDING_RESERVATION_TIME) {
       await safeReply([
@@ -1307,11 +1445,23 @@ export async function handleReservationFollowupPostback(
       await safeReply([{ type: "text", text: "時間を取得できませんでした。もう一度お試しください。" }]);
       return true;
     }
-    const pendingJson = JSON.stringify({ time: hm });
+    const base = ensureProgressForTimeStep(schedule.reservation_details);
+    const nextIdx = nextGroupIndexToFill(base);
+    if (nextIdx > base.total_groups) {
+      await safeReply([
+        { type: "text", text: "予約の組数情報が不正です。最初からやり直してください。" },
+      ]);
+      return true;
+    }
+    const updated: ReservationProgressV2 = {
+      ...base,
+      current_group: nextIdx,
+      pending_time: hm,
+    };
     const { error: uErr } = await supabase
       .from("attendance_schedules")
       .update({
-        reservation_details: pendingJson,
+        reservation_details: serializeReservationProgress(updated),
         pending_line_flow: PENDING_RESERVATION_GUESTS,
         pending_line_updated_at: nowIso,
         updated_at: nowIso,
@@ -1322,7 +1472,12 @@ export async function handleReservationFollowupPostback(
       await safeReply([{ type: "text", text: ERROR_REPLY }]);
       return true;
     }
-    await safeReply([buildReservationGuestsFlexMessage()]);
+    await safeReply([
+      buildReservationGuestsFlexMessage({
+        groupIndex: nextIdx,
+        totalGroups: base.total_groups,
+      }),
+    ]);
     return true;
   }
 
@@ -1342,16 +1497,56 @@ export async function handleReservationFollowupPostback(
     return true;
   }
 
-  const hm = parsePendingReservationTimeJson(schedule.reservation_details);
-  if (!hm) {
+  const progress = parseReservationProgress(schedule.reservation_details);
+  const hm = progress?.pending_time ? normalizeHmFromLineTime(progress.pending_time) : null;
+  if (!progress || !hm) {
     await safeReply([
       { type: "text", text: "来店時間の情報が見つかりません。最初からやり直してください。" },
     ]);
     return true;
   }
 
-  const detailStr = buildReservationDetailStored(hm, guests);
-  const completionMsg = buildReservationCompletionReply(hm, guests);
+  const guestBtn = guests as ReservationGuestButton;
+  const newRecords = [...progress.records, { time: hm, guests: guestBtn }];
+
+  if (newRecords.length < progress.total_groups) {
+    const nextProgress: ReservationProgressV2 = {
+      v: RESERVATION_JSON_VERSION,
+      total_groups: progress.total_groups,
+      current_group: newRecords.length + 1,
+      records: newRecords,
+    };
+    const { error: loopErr } = await supabase
+      .from("attendance_schedules")
+      .update({
+        reservation_details: serializeReservationProgress(nextProgress),
+        pending_line_flow: PENDING_RESERVATION_TIME,
+        pending_line_updated_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq("id", schedule.id);
+    if (loopErr) {
+      console.error("[Reservation] guest loop update:", loopErr);
+      await safeReply([{ type: "text", text: ERROR_REPLY }]);
+      return true;
+    }
+    await safeReply([
+      buildReservationTimePickerFlexMessage({
+        groupIndex: nextProgress.current_group,
+        totalGroups: nextProgress.total_groups,
+      }),
+    ]);
+    return true;
+  }
+
+  const finalProgress: ReservationProgressV2 = {
+    v: RESERVATION_JSON_VERSION,
+    total_groups: progress.total_groups,
+    current_group: progress.total_groups,
+    records: newRecords,
+  };
+  const detailStr = formatReservationStoredPlainText(finalProgress);
+  const completionMsg = formatReservationCompletionMessage(finalProgress);
 
   await finalizeAttendingAttendance({
     supabase,
