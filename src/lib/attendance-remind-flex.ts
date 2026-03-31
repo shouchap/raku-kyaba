@@ -218,7 +218,7 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
 
   bodyContents.push({
     type: "text",
-    text: "本日は出勤予定ですか？",
+    text: "本日もよろしくお願いします",
     size: "xl" as const,
     weight: "bold" as const,
     color: COLOR_NAVY,
