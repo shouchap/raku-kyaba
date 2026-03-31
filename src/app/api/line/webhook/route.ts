@@ -16,10 +16,10 @@ import type {
 import {
   handleAttendanceResponse,
   handleReservationPostback,
+  handleReservationFollowupPostback,
   handleSabakiTimePostback,
   tryHandleLateAbsentReasonText,
   tryHandleReservationDetailText,
-  tryHandleReservationAskInvalidText,
   tryHandleCompletedFollowupText,
 } from "@/lib/line-webhook-attendance";
 
@@ -243,6 +243,19 @@ async function processWebhookEvent(
         break;
       }
 
+      const reservationFollowupHandled = await handleReservationFollowupPostback(
+        userId,
+        rawData,
+        postbackEvent.postback.params,
+        supabase,
+        postbackEvent.replyToken,
+        channelAccessToken
+      );
+      if (reservationFollowupHandled) {
+        console.log("[Webhook] 予約フォロー（時間/人数）postback を処理しました");
+        break;
+      }
+
       const data = parsePostbackData(rawData);
 
       console.log("[Webhook] Postback受信 | rawData:", JSON.stringify(rawData), "| 判定:", data ?? "未対応");
@@ -284,15 +297,6 @@ async function processWebhookEvent(
           channelAccessToken
         );
         if (consumedReservationDetail) break;
-
-        const consumedAskRemind = await tryHandleReservationAskInvalidText(
-          userId,
-          text,
-          supabase,
-          messageEvent.replyToken,
-          channelAccessToken
-        );
-        if (consumedAskRemind) break;
 
         const consumedAsReason = await tryHandleLateAbsentReasonText(
           userId,

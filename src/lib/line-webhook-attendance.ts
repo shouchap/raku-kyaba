@@ -26,12 +26,12 @@ const HALF_HOLIDAY_POSTBACK_REPLY =
 /** Quick Reply 付きの案内文（出勤確定直後） */
 const RESERVATION_ASK_TEXT =
   "出勤ですね、承知しました！\n本日の同伴や来客（予約）予定はありますか？\n下のボタンからお選びください。";
-const RESERVATION_DETAIL_PROMPT =
-  "お客様のお名前と予定時間を入力してください（例：21時 田中様）";
 const RESERVATION_ASK_REMIND_TEXT =
   "「はい」「いいえ」からお選びください。";
-const RESERVATION_DETAIL_EMPTY_TEXT =
-  "内容を入力してください。";
+const RESERVATION_TIME_PROMPT_TEXT = "お客様の来店予定時間を教えてください。";
+const RESERVATION_GUESTS_PROMPT_TEXT = "何名様でのご来店ですか？";
+const RESERVATION_TEXT_ONLY_REMIND =
+  "文字入力は不要です。画面のボタンからお選びください。";
 
 const ATTENDING_ALREADY_DONE_REPLY =
   "既に出勤連絡を受け付けています。本日もよろしくお願い致します。";
@@ -87,7 +87,13 @@ function isAttendanceCommandText(text: string): boolean {
 }
 
 export const PENDING_RESERVATION_ASK = "reservation_ask";
+/** @deprecated 旧テキスト入力。互換のため残す */
 export const PENDING_RESERVATION_DETAIL = "reservation_detail";
+/** Datetimepicker で来店時間を選ぶ段階 */
+export const PENDING_RESERVATION_TIME = "reservation_time";
+/** Postback で人数を選ぶ段階 */
+export const PENDING_RESERVATION_GUESTS = "reservation_guests";
+
 
 const DEFAULT_REPLY_MESSAGES: Record<AttendancePostbackData, string> = {
   attending: "出勤を記録しました。本日もよろしくお願い致します。",
@@ -218,6 +224,156 @@ export function buildReservationAskMessage(): LineReplyMessage {
   };
 }
 
+const RESERVATION_FLEX_BODY = "#263238";
+const RESERVATION_FLEX_BTN_PRIMARY = "#C2185B";
+const RESERVATION_FLEX_BTN_MUTED = "#90A4AE";
+
+/** 来店時間のみ（Datetimepicker） */
+export function buildReservationTimePickerFlexMessage(): LineReplyMessage {
+  return {
+    type: "flex",
+    altText: `${RESERVATION_TIME_PROMPT_TEXT}（ボタンから時間を選択）`,
+    contents: {
+      type: "bubble",
+      size: "mega" as const,
+      body: {
+        type: "box",
+        layout: "vertical" as const,
+        paddingAll: "20px",
+        spacing: "md" as const,
+        contents: [
+          {
+            type: "text",
+            text: RESERVATION_TIME_PROMPT_TEXT,
+            wrap: true,
+            weight: "bold" as const,
+            size: "md" as const,
+            color: RESERVATION_FLEX_BODY,
+          },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical" as const,
+        paddingAll: "20px",
+        paddingTop: "12px",
+        spacing: "md" as const,
+        contents: [
+          {
+            type: "button",
+            style: "primary" as const,
+            color: RESERVATION_FLEX_BTN_PRIMARY,
+            height: "md" as const,
+            action: {
+              type: "datetimepicker" as const,
+              label: "⏰ 時間を選択する",
+              data: "action=reservation_time_select",
+              mode: "time" as const,
+              initial: "20:00",
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
+function guestCountButton(label: string, guests: number): object {
+  return {
+    type: "button",
+    style: "primary" as const,
+    color: RESERVATION_FLEX_BTN_MUTED,
+    height: "md" as const,
+    action: {
+      type: "postback" as const,
+      label,
+      data: `action=reservation_guests_select&guests=${guests}`,
+      displayText: label,
+    },
+  };
+}
+
+/** 人数のみ（Postback 4段階） */
+export function buildReservationGuestsFlexMessage(): LineReplyMessage {
+  return {
+    type: "flex",
+    altText: `${RESERVATION_GUESTS_PROMPT_TEXT}（ボタンから選択）`,
+    contents: {
+      type: "bubble",
+      size: "mega" as const,
+      body: {
+        type: "box",
+        layout: "vertical" as const,
+        paddingAll: "20px",
+        spacing: "md" as const,
+        contents: [
+          {
+            type: "text",
+            text: RESERVATION_GUESTS_PROMPT_TEXT,
+            wrap: true,
+            weight: "bold" as const,
+            size: "md" as const,
+            color: RESERVATION_FLEX_BODY,
+          },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical" as const,
+        paddingAll: "20px",
+        paddingTop: "12px",
+        spacing: "sm" as const,
+        contents: [
+          guestCountButton("1名", 1),
+          guestCountButton("2名", 2),
+          guestCountButton("3名", 3),
+          guestCountButton("4名以上", 4),
+        ],
+      },
+    },
+  };
+}
+
+function normalizeHmFromLineTime(time: string | null | undefined): string | null {
+  const t = String(time ?? "").trim();
+  const m = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (Number.isNaN(h) || Number.isNaN(min) || h < 0 || h > 23 || min < 0 || min > 59) {
+    return null;
+  }
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+function parsePendingReservationTimeJson(details: string | null | undefined): string | null {
+  const s = String(details ?? "").trim();
+  if (!s.startsWith("{")) return null;
+  try {
+    const o = JSON.parse(s) as { time?: string };
+    return normalizeHmFromLineTime(o.time ?? null);
+  } catch {
+    return null;
+  }
+}
+
+function guestCountToLabel(guests: number): string {
+  if (guests === 4) return "4名以上";
+  return `${guests}名様`;
+}
+
+function buildReservationDetailStored(hm: string, guests: number): string {
+  if (guests === 4) return `${hm}から4名以上のご予定`;
+  return `${hm}から${guests}名様のご予定`;
+}
+
+function buildReservationCompletionReply(hm: string, guests: number): string {
+  if (guests === 4) {
+    return `${hm}から4名以上の予定を記録しました。ありがとうございます！`;
+  }
+  return `${hm}から${guests}名様の予定を記録しました。ありがとうございます！`;
+}
+
 type ScheduleReasonRow = {
   id: string;
   is_absent: boolean | null;
@@ -260,7 +416,7 @@ function pickReasonKind(
 }
 
 /**
- * 来客予定の詳細入力待ち状態で送られたテキストを処理し、出勤を確定する。
+ * 予約ヒアリング中にテキストが送られた場合は、文字入力を使わずボタン操作を促す。
  */
 export async function tryHandleReservationDetailText(
   lineUserId: string,
@@ -288,46 +444,70 @@ export async function tryHandleReservationDetailText(
 
   const { data: schedule } = await supabase
     .from("attendance_schedules")
-    .select("id, pending_line_flow, is_sabaki")
+    .select("id, pending_line_flow")
     .eq("id", ensured.id)
     .maybeSingle();
 
-  if (!schedule?.id || schedule.pending_line_flow !== PENDING_RESERVATION_DETAIL) {
-    return false;
-  }
+  const flow = schedule?.pending_line_flow ?? null;
+  if (!schedule?.id || !flow) return false;
 
-  const text = String(rawText ?? "").trim();
-  if (!text) {
+  const reservationFlows = new Set([
+    PENDING_RESERVATION_ASK,
+    PENDING_RESERVATION_DETAIL,
+    PENDING_RESERVATION_TIME,
+    PENDING_RESERVATION_GUESTS,
+  ]);
+  if (!reservationFlows.has(flow)) return false;
+
+  const t = String(rawText ?? "").trim();
+  if (!t) return false;
+
+  if (flow === PENDING_RESERVATION_ASK) {
     await sendReply(replyToken, channelAccessToken, [
-      { type: "text", text: RESERVATION_DETAIL_EMPTY_TEXT },
-      { type: "text", text: RESERVATION_DETAIL_PROMPT },
+      { type: "text", text: RESERVATION_ASK_REMIND_TEXT },
+      buildReservationAskMessage(),
     ]);
     return true;
   }
 
-  if (text.length > 5000) {
+  if (flow === PENDING_RESERVATION_DETAIL) {
+    const { error: migErr } = await supabase
+      .from("attendance_schedules")
+      .update({
+        pending_line_flow: PENDING_RESERVATION_TIME,
+        pending_line_updated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", schedule.id);
+    if (migErr) {
+      console.error("[Reservation] migrate detail→time:", migErr);
+      await sendReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
+      return true;
+    }
     await sendReply(replyToken, channelAccessToken, [
-      { type: "text", text: "文字数が長すぎます。短く入力してください。" },
+      { type: "text", text: RESERVATION_TEXT_ONLY_REMIND },
+      buildReservationTimePickerFlexMessage(),
     ]);
     return true;
   }
 
-  const { replyMessages } = await getReminderReplyConfig(supabase, cast.store_id);
-  const isSabaki = (schedule as { is_sabaki?: boolean }).is_sabaki === true;
-  await finalizeAttendingAttendance({
-    supabase,
-    cast,
-    scheduleId: schedule.id,
-    today: todayJst,
-    isSabaki,
-    hasReservation: true,
-    reservationDetails: text,
-    replyToken,
-    channelAccessToken,
-    replyMessageText: replyMessages.attending,
-  });
+  if (flow === PENDING_RESERVATION_TIME) {
+    await sendReply(replyToken, channelAccessToken, [
+      { type: "text", text: RESERVATION_TEXT_ONLY_REMIND },
+      buildReservationTimePickerFlexMessage(),
+    ]);
+    return true;
+  }
 
-  return true;
+  if (flow === PENDING_RESERVATION_GUESTS) {
+    await sendReply(replyToken, channelAccessToken, [
+      { type: "text", text: RESERVATION_TEXT_ONLY_REMIND },
+      buildReservationGuestsFlexMessage(),
+    ]);
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -403,47 +583,15 @@ export async function tryHandleCompletedFollowupText(
   return true;
 }
 
+/** @deprecated tryHandleReservationDetailText に統合（はい/いいえ以外は同ファイルで処理） */
 export async function tryHandleReservationAskInvalidText(
-  lineUserId: string,
-  rawText: string,
-  supabase: ReturnType<typeof createSupabaseClient>,
-  replyToken: string | undefined,
-  channelAccessToken: string | undefined
+  _lineUserId: string,
+  _rawText: string,
+  _supabase: ReturnType<typeof createSupabaseClient>,
+  _replyToken: string | undefined,
+  _channelAccessToken: string | undefined
 ): Promise<boolean> {
-  const tenantStoreId = getDefaultStoreIdOrNull();
-  if (!tenantStoreId || !replyToken || !channelAccessToken) return false;
-
-  const { data: cast } = await supabase
-    .from("casts")
-    .select("id, store_id")
-    .eq("line_user_id", lineUserId)
-    .eq("store_id", tenantStoreId)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (!cast) return false;
-
-  const todayJst = getTodayJst();
-  const { data: schedule } = await supabase
-    .from("attendance_schedules")
-    .select("id, pending_line_flow")
-    .eq("store_id", cast.store_id)
-    .eq("cast_id", cast.id)
-    .eq("scheduled_date", todayJst)
-    .maybeSingle();
-
-  if (!schedule?.id || schedule.pending_line_flow !== PENDING_RESERVATION_ASK) {
-    return false;
-  }
-
-  const t = String(rawText ?? "").trim();
-  if (!t) return true;
-
-  await sendReply(replyToken, channelAccessToken, [
-    { type: "text", text: RESERVATION_ASK_REMIND_TEXT },
-    buildReservationAskMessage(),
-  ]);
-  return true;
+  return false;
 }
 
 export async function tryHandleLateAbsentReasonText(
@@ -792,7 +940,7 @@ export async function handleReservationPostback(
   const { error: updErr } = await supabase
     .from("attendance_schedules")
     .update({
-      pending_line_flow: PENDING_RESERVATION_DETAIL,
+      pending_line_flow: PENDING_RESERVATION_TIME,
       pending_line_updated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
@@ -804,7 +952,7 @@ export async function handleReservationPostback(
     return;
   }
 
-  await safeReply([{ type: "text", text: RESERVATION_DETAIL_PROMPT }]);
+  await safeReply([buildReservationTimePickerFlexMessage()]);
 }
 
 export async function handleAttendanceResponse(
@@ -873,7 +1021,30 @@ export async function handleAttendanceResponse(
       const done = schedule.is_action_completed === true;
 
       if (pending === PENDING_RESERVATION_DETAIL) {
-        await safeReply(RESERVATION_DETAIL_PROMPT);
+        const nowIso = new Date().toISOString();
+        await supabase
+          .from("attendance_schedules")
+          .update({
+            pending_line_flow: PENDING_RESERVATION_TIME,
+            pending_line_updated_at: nowIso,
+            updated_at: nowIso,
+          })
+          .eq("id", scheduleId);
+        if (replyToken && channelAccessToken) {
+          await sendReply(replyToken, channelAccessToken, [buildReservationTimePickerFlexMessage()]);
+        }
+        return;
+      }
+      if (pending === PENDING_RESERVATION_TIME) {
+        if (replyToken && channelAccessToken) {
+          await sendReply(replyToken, channelAccessToken, [buildReservationTimePickerFlexMessage()]);
+        }
+        return;
+      }
+      if (pending === PENDING_RESERVATION_GUESTS) {
+        if (replyToken && channelAccessToken) {
+          await sendReply(replyToken, channelAccessToken, [buildReservationGuestsFlexMessage()]);
+        }
         return;
       }
       if (pending === PENDING_RESERVATION_ASK) {
@@ -1050,6 +1221,152 @@ export async function handleAttendanceResponse(
     console.error("[Attendance] 処理エラー:", err);
     await safeReply(ERROR_REPLY);
   }
+}
+
+function parseReservationGuestsFromData(raw: string): number | null {
+  const s = raw.trim();
+  if (!s.includes("reservation_guests_select")) return null;
+  const m = s.match(/(?:^|&)guests=(\d+)/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  if (Number.isNaN(n) || n < 1 || n > 4) return null;
+  return n;
+}
+
+/**
+ * 予約フロー: Datetimepicker（来店時間）と Postback（人数）。
+ * 対象 data のときのみ true。
+ */
+export async function handleReservationFollowupPostback(
+  lineUserId: string,
+  rawData: string,
+  params: { time?: string; date?: string; datetime?: string } | undefined,
+  supabase: ReturnType<typeof createSupabaseClient>,
+  replyToken: string | undefined,
+  channelAccessToken: string | undefined
+): Promise<boolean> {
+  if (!replyToken?.trim() || !channelAccessToken?.trim()) return false;
+
+  const data = String(rawData ?? "").trim();
+  if (data !== "action=reservation_time_select" && !data.includes("reservation_guests_select")) {
+    return false;
+  }
+
+  const safeReply = async (messages: LineReplyMessage[]) => {
+    await sendReply(replyToken, channelAccessToken, messages);
+  };
+
+  const tenantStoreId = getDefaultStoreIdOrNull();
+  if (!tenantStoreId) {
+    await safeReply([{ type: "text", text: ERROR_REPLY }]);
+    return true;
+  }
+
+  const { data: cast } = await supabase
+    .from("casts")
+    .select("id, store_id, name")
+    .eq("line_user_id", lineUserId)
+    .eq("store_id", tenantStoreId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (!cast) {
+    await safeReply([{ type: "text", text: CAST_NOT_FOUND_REPLY }]);
+    return true;
+  }
+
+  const today = getTodayJst();
+  const ensured = await ensureTodayAttendanceSchedule(supabase, cast, today);
+  if (!ensured) {
+    await safeReply([{ type: "text", text: ERROR_REPLY }]);
+    return true;
+  }
+
+  const { data: schedule } = await supabase
+    .from("attendance_schedules")
+    .select("id, pending_line_flow, reservation_details, is_sabaki")
+    .eq("id", ensured.id)
+    .maybeSingle();
+
+  if (!schedule?.id) {
+    await safeReply([{ type: "text", text: NO_SCHEDULE_FOR_TODAY_REPLY }]);
+    return true;
+  }
+
+  const nowIso = new Date().toISOString();
+
+  if (data === "action=reservation_time_select") {
+    if (schedule.pending_line_flow !== PENDING_RESERVATION_TIME) {
+      await safeReply([
+        { type: "text", text: "現在、来店時間の選択はできません。出勤確認の流れをご確認ください。" },
+      ]);
+      return true;
+    }
+    const hm = normalizeHmFromLineTime(params?.time);
+    if (!hm) {
+      await safeReply([{ type: "text", text: "時間を取得できませんでした。もう一度お試しください。" }]);
+      return true;
+    }
+    const pendingJson = JSON.stringify({ time: hm });
+    const { error: uErr } = await supabase
+      .from("attendance_schedules")
+      .update({
+        reservation_details: pendingJson,
+        pending_line_flow: PENDING_RESERVATION_GUESTS,
+        pending_line_updated_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq("id", schedule.id);
+    if (uErr) {
+      console.error("[Reservation] time step update:", uErr);
+      await safeReply([{ type: "text", text: ERROR_REPLY }]);
+      return true;
+    }
+    await safeReply([buildReservationGuestsFlexMessage()]);
+    return true;
+  }
+
+  const guests = parseReservationGuestsFromData(data);
+  if (guests == null) {
+    if (data.includes("reservation_guests_select")) {
+      await safeReply([{ type: "text", text: ERROR_REPLY }]);
+      return true;
+    }
+    return false;
+  }
+
+  if (schedule.pending_line_flow !== PENDING_RESERVATION_GUESTS) {
+    await safeReply([
+      { type: "text", text: "現在、人数の選択はできません。先に来店時間を選んでください。" },
+    ]);
+    return true;
+  }
+
+  const hm = parsePendingReservationTimeJson(schedule.reservation_details);
+  if (!hm) {
+    await safeReply([
+      { type: "text", text: "来店時間の情報が見つかりません。最初からやり直してください。" },
+    ]);
+    return true;
+  }
+
+  const detailStr = buildReservationDetailStored(hm, guests);
+  const completionMsg = buildReservationCompletionReply(hm, guests);
+
+  await finalizeAttendingAttendance({
+    supabase,
+    cast,
+    scheduleId: schedule.id,
+    today,
+    isSabaki: schedule.is_sabaki === true,
+    hasReservation: true,
+    reservationDetails: detailStr,
+    replyToken,
+    channelAccessToken,
+    replyMessageText: completionMsg,
+  });
+
+  return true;
 }
 
 const SABAKI_UNKNOWN_REPLY =
