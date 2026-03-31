@@ -332,10 +332,17 @@ async function runRemindForStore(
         }
         const name = casts.name ?? "キャスト";
         const scheduledTime = formatRemindScheduledTime(schedule.scheduled_time, schedule.is_dohan);
-        const bodyText = applyReminderMessageTemplate(messageTemplate, name, scheduledTime);
-        const message = buildAttendanceRemindFlexMessage(bodyText, store.name, {
-          enablePublicHoliday: holidayFlex.enablePublicHoliday,
-          enableHalfHoliday: holidayFlex.enableHalfHoliday,
+        const reminderMessageLine = applyReminderMessageTemplate(messageTemplate, name, scheduledTime);
+        const message = buildAttendanceRemindFlexMessage({
+          castName: name,
+          scheduledTimeDisplay: scheduledTime,
+          todayJst,
+          storeName: store.name,
+          flexOptions: {
+            enablePublicHoliday: holidayFlex.enablePublicHoliday,
+            enableHalfHoliday: holidayFlex.enableHalfHoliday,
+          },
+          reminderMessageLine,
         });
         await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);
         return schedule;
@@ -443,10 +450,17 @@ async function runRemindForStore(
 
       const name = casts.name ?? "キャスト";
       const scheduledTime = formatRemindScheduledTime(schedule.scheduled_time, schedule.is_dohan);
-      const bodyText = applyReminderMessageTemplate(messageTemplate, name, scheduledTime);
-      const message = buildAttendanceRemindFlexMessage(bodyText, store.name, {
-        enablePublicHoliday: holidayFlex.enablePublicHoliday,
-        enableHalfHoliday: holidayFlex.enableHalfHoliday,
+      const reminderMessageLine = applyReminderMessageTemplate(messageTemplate, name, scheduledTime);
+      const message = buildAttendanceRemindFlexMessage({
+        castName: name,
+        scheduledTimeDisplay: scheduledTime,
+        todayJst,
+        storeName: store.name,
+        flexOptions: {
+          enablePublicHoliday: holidayFlex.enablePublicHoliday,
+          enableHalfHoliday: holidayFlex.enableHalfHoliday,
+        },
+        reminderMessageLine,
       });
 
       try {

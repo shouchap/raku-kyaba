@@ -10,6 +10,7 @@ import {
 import { fetchAttendanceFlexHolidayOptions } from "@/lib/reminder-config";
 import { fetchReminderMessageTemplate } from "@/lib/reminder-config";
 import { assertStoreIdMatchesRequest } from "@/lib/current-store";
+import { getTodayJst } from "@/lib/date-utils";
 import { canUserEditStore } from "@/lib/admin-store-auth";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 
@@ -199,14 +200,18 @@ export async function POST(request: Request) {
   const storeRow = storeRes.data;
 
   const timeStr = formatRemindScheduledTime(scheduledTime, isDohan);
-  const bodyText = applyReminderMessageTemplate(
-    messageTemplate,
-    cast?.name ?? "キャスト",
-    timeStr
-  );
-  const flex = buildAttendanceRemindFlexMessage(bodyText, storeRow?.name, {
-    enablePublicHoliday: holidayFlex.enablePublicHoliday,
-    enableHalfHoliday: holidayFlex.enableHalfHoliday,
+  const castName = cast?.name ?? "キャスト";
+  const reminderMessageLine = applyReminderMessageTemplate(messageTemplate, castName, timeStr);
+  const flex = buildAttendanceRemindFlexMessage({
+    castName,
+    scheduledTimeDisplay: timeStr,
+    todayJst: getTodayJst(),
+    storeName: storeRow?.name,
+    flexOptions: {
+      enablePublicHoliday: holidayFlex.enablePublicHoliday,
+      enableHalfHoliday: holidayFlex.enableHalfHoliday,
+    },
+    reminderMessageLine,
   });
 
   try {
