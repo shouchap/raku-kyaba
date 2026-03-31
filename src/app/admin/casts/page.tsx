@@ -21,9 +21,9 @@ type Store = {
 };
 
 const EMPLOYMENT_OPTIONS: { value: CastEmploymentType; label: string }[] = [
-  { value: "admin", label: "管理者 (admin)" },
-  { value: "regular", label: "レギュラー (regular)" },
-  { value: "part_time", label: "バイト (part_time)" },
+  { value: "admin", label: "管理者" },
+  { value: "regular", label: "レギュラー" },
+  { value: "part_time", label: "バイト" },
 ];
 
 export default function AdminCastsPage() {
