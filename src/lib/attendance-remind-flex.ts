@@ -116,7 +116,7 @@ export type AttendanceRemindFlexInput = {
    * 店舗カスタム文言を本文に小さく表示するために使用
    */
   reminderMessageLine?: string;
-  /** 捌きリマインド時: 入店時間Datetimepicker・未定ボタンをフッター先頭に追加 */
+  /** 捌きリマインド時: フッターは「入店時間を選択」「まだ未定」の2ボタンのみ（通常の出勤ボタンは出さない） */
   showSabakiTimePicker?: boolean;
 };
 
@@ -174,8 +174,8 @@ function buildFooterButtons(flexOptions?: AttendanceRemindFlexOptions): object[]
   return out;
 }
 
-/** 捌き出勤向け: 入店時間の Datetimepicker と「まだ未定」 */
-function buildSabakiTimePickerFooterBlock(): object[] {
+/** 捌き出勤専用フッター: Datetimepicker と「まだ未定」のみ（出勤／遅刻等は含めない） */
+function buildSabakiOnlyFooterContents(): object[] {
   return [
     {
       type: "box",
@@ -210,11 +210,6 @@ function buildSabakiTimePickerFooterBlock(): object[] {
           },
         },
       ],
-    },
-    {
-      type: "separator",
-      margin: "md" as const,
-      color: COLOR_SEPARATOR,
     },
   ];
 }
@@ -279,11 +274,10 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
   const altText =
     altBase.length > 380 ? `${altBase.slice(0, 377)}…` : `${altBase}\n下のボタンから選択してください。`;
 
-  const footerContents: object[] = [];
-  if (input.showSabakiTimePicker === true) {
-    footerContents.push(...buildSabakiTimePickerFooterBlock());
-  }
-  footerContents.push(...buildFooterButtons(input.flexOptions));
+  const footerContents: object[] =
+    input.showSabakiTimePicker === true
+      ? buildSabakiOnlyFooterContents()
+      : buildFooterButtons(input.flexOptions);
 
   return {
     type: "flex",

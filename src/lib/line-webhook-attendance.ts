@@ -1151,16 +1151,47 @@ export async function handleSabakiTimePostback(
     return true;
   }
 
+  const nowIso = new Date().toISOString();
+
   const { error: updErr } = await supabase
     .from("attendance_schedules")
     .update({
       scheduled_time: sqlTime,
-      updated_at: new Date().toISOString(),
+      response_status: "attending",
+      is_absent: false,
+      is_late: false,
+      is_action_completed: true,
+      pending_line_flow: null,
+      pending_line_updated_at: null,
+      updated_at: nowIso,
     })
     .eq("id", schedule.id);
 
   if (updErr) {
-    console.error("[Sabaki] scheduled_time update:", updErr);
+    console.error("[Sabaki] attendance_schedules update:", updErr);
+    await safeReply(ERROR_REPLY);
+    return true;
+  }
+
+  const upsertLog = await supabase.from("attendance_logs").upsert(
+    {
+      store_id: cast.store_id,
+      cast_id: cast.id,
+      attendance_schedule_id: schedule.id,
+      attended_date: today,
+      status: "attending",
+      is_sabaki: true,
+      responded_at: nowIso,
+      updated_at: nowIso,
+    } as Record<string, unknown>,
+    {
+      onConflict: "store_id,cast_id,attended_date",
+      ignoreDuplicates: false,
+    }
+  );
+
+  if (upsertLog.error) {
+    console.error("[Sabaki] attendance_logs upsert:", upsertLog.error);
     await safeReply(ERROR_REPLY);
     return true;
   }
