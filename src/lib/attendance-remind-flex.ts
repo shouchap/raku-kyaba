@@ -219,7 +219,7 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
   bodyContents.push({
     type: "text",
     text: "本日もよろしくお願いします",
-    size: "xl" as const,
+    size: "lg" as const,
     weight: "bold" as const,
     color: COLOR_NAVY,
     wrap: true,
@@ -262,7 +262,10 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
       body: {
         type: "box",
         layout: "vertical" as const,
-        paddingAll: "20px",
+        paddingTop: "20px",
+        paddingBottom: "20px",
+        paddingStart: "12px",
+        paddingEnd: "12px",
         spacing: "md" as const,
         contents: bodyContents,
       },
