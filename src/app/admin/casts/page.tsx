@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
+import type { CastEmploymentType } from "@/types/entities";
 
 type Cast = {
   id: string;
@@ -10,6 +11,7 @@ type Cast = {
   store_id: string;
   line_user_id?: string;
   is_admin?: boolean;
+  employment_type?: CastEmploymentType | null;
   created_at?: string;
 };
 
@@ -17,6 +19,12 @@ type Store = {
   id: string;
   name: string;
 };
+
+const EMPLOYMENT_OPTIONS: { value: CastEmploymentType; label: string }[] = [
+  { value: "admin", label: "管理者 (admin)" },
+  { value: "regular", label: "レギュラー (regular)" },
+  { value: "part_time", label: "バイト (part_time)" },
+];
 
 export default function AdminCastsPage() {
   const activeStoreId = useActiveStoreId();
@@ -27,6 +35,7 @@ export default function AdminCastsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editIsAdmin, setEditIsAdmin] = useState(false);
+  const [editEmployment, setEditEmployment] = useState<CastEmploymentType>("part_time");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState<"success" | "error" | null>(null);
@@ -38,7 +47,7 @@ export default function AdminCastsPage() {
       const [castsRes, storesRes] = await Promise.all([
         supabase
           .from("casts")
-          .select("id, name, store_id, line_user_id, is_admin")
+          .select("id, name, store_id, line_user_id, is_admin, employment_type")
           .eq("store_id", storeId)
           .eq("is_active", true)
           .order("name"),
@@ -62,12 +71,17 @@ export default function AdminCastsPage() {
     setEditingId(cast.id);
     setEditName(cast.name.trim());
     setEditIsAdmin(cast.is_admin ?? false);
+    const em = cast.employment_type;
+    setEditEmployment(
+      em === "admin" || em === "regular" || em === "part_time" ? em : "part_time"
+    );
   };
 
   const handleCancelEdit = () => {
     setEditingId(null);
     setEditName("");
     setEditIsAdmin(false);
+    setEditEmployment("part_time");
   };
 
   const handleSaveEdit = async () => {
@@ -82,13 +96,15 @@ export default function AdminCastsPage() {
     try {
       const { error } = await supabase
         .from("casts")
-        .update({ name: newName, is_admin: editIsAdmin })
+        .update({ name: newName, is_admin: editIsAdmin, employment_type: editEmployment })
         .eq("id", editingId)
         .eq("store_id", activeStoreId);
       if (error) throw error;
       setCasts((prev) =>
         prev.map((c) =>
-          c.id === editingId ? { ...c, name: newName, is_admin: editIsAdmin } : c
+          c.id === editingId
+            ? { ...c, name: newName, is_admin: editIsAdmin, employment_type: editEmployment }
+            : c
         )
       );
       setMessage("success");
@@ -100,6 +116,7 @@ export default function AdminCastsPage() {
       setEditingId(null);
       setEditName("");
       setEditIsAdmin(false);
+      setEditEmployment("part_time");
     }
   };
 
@@ -125,6 +142,15 @@ export default function AdminCastsPage() {
     } finally {
       setDeletingId(null);
     }
+  };
+
+  const employmentLabel = (c: Cast | null): string => {
+    if (!c) return "";
+    const em = c.employment_type;
+    if (em === "admin") return "管理者";
+    if (em === "regular") return "レギュラー";
+    if (em === "part_time") return "バイト";
+    return "バイト";
   };
 
   if (loading) {
@@ -174,6 +200,22 @@ export default function AdminCastsPage() {
                           placeholder="名前"
                           autoFocus
                         />
+                        <label className="flex flex-col gap-1 min-w-0 flex-1 sm:max-w-xs">
+                          <span className="text-xs text-gray-500">権限・勤務形態</span>
+                          <select
+                            value={editEmployment}
+                            onChange={(e) =>
+                              setEditEmployment(e.target.value as CastEmploymentType)
+                            }
+                            className="min-h-[44px] px-3 py-2 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                          >
+                            {EMPLOYMENT_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                         <label className="flex items-center gap-2 shrink-0 cursor-pointer">
                           <input
                             type="checkbox"
@@ -181,7 +223,7 @@ export default function AdminCastsPage() {
                             onChange={(e) => setEditIsAdmin(e.target.checked)}
                             className="w-4 h-4 rounded border-gray-300 text-amber-500 focus:ring-amber-500"
                           />
-                          <span className="text-sm text-gray-700">管理者権限</span>
+                          <span className="text-sm text-gray-700">管理者通知</span>
                         </label>
                       </div>
                       <button
@@ -204,9 +246,12 @@ export default function AdminCastsPage() {
                   ) : (
                     <>
                       <span className="flex-1 min-w-0 font-medium text-gray-900 text-sm sm:text-base truncate">{cast.name}</span>
+                      <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
+                        {employmentLabel(cast)}
+                      </span>
                       {cast.is_admin && (
                         <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium">
-                          👑 管理者
+                          👑 通知
                         </span>
                       )}
                       <div className="flex gap-2 shrink-0">

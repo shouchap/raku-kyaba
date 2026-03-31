@@ -35,6 +35,8 @@ export interface Database {
           last_pre_open_report_date: string | null;
           /** 出勤回答後に予約（客予定）をヒアリングするか */
           enable_reservation_check: boolean;
+          /** 定休日（0=日曜〜6=土曜の曜日インデックス） */
+          regular_holidays: number[];
           created_at: string;
           updated_at: string;
         };
@@ -49,6 +51,7 @@ export interface Database {
           | "pre_open_report_hour_jst"
           | "last_pre_open_report_date"
           | "enable_reservation_check"
+          | "regular_holidays"
         > & {
           id?: string;
           created_at?: string;
@@ -59,6 +62,7 @@ export interface Database {
           pre_open_report_hour_jst?: number | null;
           last_pre_open_report_date?: string | null;
           enable_reservation_check?: boolean;
+          regular_holidays?: number[];
         };
         Update: Partial<Database["public"]["Tables"]["stores"]["Insert"]>;
       };
@@ -69,6 +73,11 @@ export interface Database {
           name: string;
           line_user_id: string;
           is_active: boolean;
+          is_admin: boolean;
+          /** 勤務形態: admin / regular / part_time（NULL はバイト扱い） */
+          employment_type: "admin" | "regular" | "part_time" | null;
+          /** シフトなしレギュラー向けリマインドの最終送信日（JST） */
+          last_reminder_sent_date: string | null;
           created_at: string;
           updated_at: string;
         };

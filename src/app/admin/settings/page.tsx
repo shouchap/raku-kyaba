@@ -12,6 +12,9 @@ const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => {
 /** 営業前サマリー送信 JST 時（stores.pre_open_report_hour_jst）。空文字は NULL（送信しない） */
 const PRE_OPEN_HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => h);
 
+/** 定休日: 0=日曜 … 6=土曜 */
+const WEEKDAY_HOLIDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"] as const;
+
 type ReminderConfig = {
   enabled: boolean;
   messageTemplate: string;
@@ -60,6 +63,8 @@ export default function AdminSettingsPage() {
   /** 空文字 = 送信しない（NULL）、"0"〜"23" = その時台に送信 */
   const [preOpenReportHourJst, setPreOpenReportHourJst] = useState("");
   const [enableReservationCheck, setEnableReservationCheck] = useState(false);
+  /** 定休日（曜日インデックス 0〜6） */
+  const [regularHolidays, setRegularHolidays] = useState<number[]>([]);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -79,6 +84,7 @@ export default function AdminSettingsPage() {
         enable_public_holiday?: boolean;
         enable_half_holiday?: boolean;
         enable_reservation_check?: boolean;
+        regular_holidays?: number[];
         reminder_config?: Record<string, unknown>;
       };
 
@@ -92,6 +98,16 @@ export default function AdminSettingsPage() {
       setEnablePublicHoliday(data.enable_public_holiday === true);
       setEnableHalfHoliday(data.enable_half_holiday === true);
       setEnableReservationCheck(data.enable_reservation_check === true);
+
+      if (Array.isArray(data.regular_holidays)) {
+        setRegularHolidays(
+          [...new Set(data.regular_holidays.filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort(
+            (a, b) => a - b
+          )
+        );
+      } else {
+        setRegularHolidays([]);
+      }
 
       const p = data.pre_open_report_hour_jst;
       if (typeof p === "number" && Number.isInteger(p) && p >= 0 && p <= 23) {
@@ -181,6 +197,7 @@ export default function AdminSettingsPage() {
           pre_open_report_hour_jst:
             preOpenReportHourJst === "" ? null : parseInt(preOpenReportHourJst, 10),
           enable_reservation_check: enableReservationCheck,
+          regular_holidays: regularHolidays,
         }),
       });
 
@@ -316,6 +333,36 @@ export default function AdminSettingsPage() {
               設定した時刻（分は常に :00）の日本時間に、本日未送信の店舗だけが対象でリマインドが送信されます。保存すると店舗マスタに反映されます。
               本番では毎時 GET /api/remind を呼ぶスケジューラが必要です（例: Google Cloud Scheduler、Vercel Pro の crons など）。
             </p>
+          </div>
+
+          <div className="mb-8 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-4">
+            <h3 className="text-sm font-medium text-gray-800 mb-3">定休日設定</h3>
+            <p className="text-xs text-gray-600 mb-3">
+              チェックした曜日は定休日として扱い、その日のリマインド一斉送信（タイマー起動時）をスキップします。インデックスは 0=日曜〜6=土曜です。
+            </p>
+            <div className="flex flex-wrap gap-3 sm:gap-4">
+              {WEEKDAY_HOLIDAY_LABELS.map((label, idx) => (
+                <label
+                  key={idx}
+                  className="inline-flex items-center gap-2 cursor-pointer text-sm text-gray-800"
+                >
+                  <input
+                    type="checkbox"
+                    checked={regularHolidays.includes(idx)}
+                    onChange={(e) => {
+                      setRegularHolidays((prev) => {
+                        if (e.target.checked) {
+                          return [...new Set([...prev, idx])].sort((a, b) => a - b);
+                        }
+                        return prev.filter((d) => d !== idx);
+                      });
+                    }}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
           </div>
 
           <div className="mb-8 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-4">

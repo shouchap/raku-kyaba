@@ -6,7 +6,12 @@ import {
   buildAttendanceRemindFlexMessage,
   formatRemindScheduledTime,
 } from "@/lib/attendance-remind-flex";
-import { getCurrentTimeJst, getTodayJst } from "@/lib/date-utils";
+import { getCurrentTimeJst, getTodayJst, getWeekdayJst } from "@/lib/date-utils";
+import {
+  buildRegularRemindMessageLine,
+  employmentUsesRegularRemindMessage,
+  shouldSkipRemindForCast,
+} from "@/lib/remind-employment";
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 import {
   logResolvedLineToken,
@@ -135,6 +140,8 @@ type StoreRow = {
   remind_time: string | null;
   last_reminded_date: string | null;
   line_channel_access_token: string | null;
+  /** 定休日（0=日〜6=土）。未マイグレーション時は null */
+  regular_holidays?: number[] | null;
 };
 
 async function loadReminderConfig(
@@ -224,6 +231,40 @@ const minutesFromScheduledTime = (time: string | null | undefined): number => {
   return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
 };
 
+type CastJoinRow = {
+  name?: string | null;
+  line_user_id?: string | null;
+  employment_type?: string | null;
+  is_admin?: boolean | null;
+};
+
+function parseCastJoinFromSchedule(schedule: { casts: unknown }): CastJoinRow | null {
+  const raw = schedule.casts as CastJoinRow | CastJoinRow[] | null;
+  const c = Array.isArray(raw) ? raw[0] : raw;
+  if (!c?.line_user_id || String(c.line_user_id).trim() === "") return null;
+  return c;
+}
+
+/** シフト行があるキャスト向け: レギュラーは固定文、バイト／未設定はテンプレ＋時刻 */
+function buildScheduleRemindParts(
+  messageTemplate: string,
+  castName: string,
+  schedule: { scheduled_time: string | null; is_dohan: boolean | null },
+  employmentType: string | null | undefined
+): { reminderMessageLine: string; scheduledTimeDisplay: string } {
+  const scheduledTime = formatRemindScheduledTime(schedule.scheduled_time, schedule.is_dohan);
+  if (employmentUsesRegularRemindMessage(employmentType)) {
+    return {
+      reminderMessageLine: buildRegularRemindMessageLine(castName),
+      scheduledTimeDisplay: scheduledTime,
+    };
+  }
+  return {
+    reminderMessageLine: applyReminderMessageTemplate(messageTemplate, castName, scheduledTime),
+    scheduledTimeDisplay: scheduledTime,
+  };
+}
+
 /**
  * 1店舗分のリマインド送信。
  * isManual: 設定画面のテスト用。時刻・店舗の last_reminded_date ゲートを無視し、送信枠 RPC も使わない（上書き更新）。
@@ -246,6 +287,15 @@ async function runRemindForStore(
   const remindHour = parseRemindHourJst(store.remind_time ?? "07:00");
   if (remindHour === null) {
     return { storeId, skipped: "invalid_remind_time", successCount: 0, failureCount: 0, totalCandidates: 0 };
+  }
+
+  const dowJst = getWeekdayJst(todayJst);
+  const closedDays = store.regular_holidays;
+  if (Array.isArray(closedDays) && closedDays.includes(dowJst)) {
+    console.info(
+      `[Remind] 定休日のためスキップ ${storeLabel} (ID: ${storeId}) weekday=${dowJst}`
+    );
+    return { storeId, skipped: "regular_holiday", successCount: 0, failureCount: 0, totalCandidates: 0 };
   }
 
   if (!isManual) {
@@ -289,7 +339,9 @@ async function runRemindForStore(
 
   const { data: rawSchedules, error } = await supabase
     .from("attendance_schedules")
-    .select("id, cast_id, store_id, scheduled_date, scheduled_time, is_dohan, last_reminded_at, casts(name, line_user_id)")
+    .select(
+      "id, cast_id, store_id, scheduled_date, scheduled_time, is_dohan, last_reminded_at, casts(name, line_user_id, employment_type, is_admin)"
+    )
     .eq("store_id", storeId)
     .eq("scheduled_date", todayJst)
     .not("scheduled_time", "is", null);
@@ -302,6 +354,9 @@ async function runRemindForStore(
   let schedules = (rawSchedules ?? []).filter((s) => {
     const t = s.scheduled_time;
     if (t == null || String(t).trim() === "") return false;
+    const c = parseCastJoinFromSchedule(s);
+    if (!c) return false;
+    if (shouldSkipRemindForCast(c.employment_type, c.is_admin)) return false;
     if (isManual) return true;
     const lastReminded = s.last_reminded_at;
     if (!lastReminded) return true;
@@ -312,30 +367,102 @@ async function runRemindForStore(
     return true;
   });
 
-  if (schedules.length === 0) {
+  const { data: existingTodaySched } = await supabase
+    .from("attendance_schedules")
+    .select("cast_id")
+    .eq("store_id", storeId)
+    .eq("scheduled_date", todayJst);
+
+  const castIdsWithAnyScheduleToday = new Set((existingTodaySched ?? []).map((r) => r.cast_id));
+
+  const { data: regularCastsRaw, error: regErr } = await supabase
+    .from("casts")
+    .select("id, name, line_user_id, employment_type, is_admin")
+    .eq("store_id", storeId)
+    .eq("is_active", true)
+    .eq("employment_type", "regular")
+    .not("line_user_id", "is", null);
+
+  if (regErr) {
+    logError(`レギュラーキャスト取得失敗 store=${storeId}`, regErr);
+  }
+
+  const regularNoSchedule = (regularCastsRaw ?? [])
+    .filter((c) => {
+      if (castIdsWithAnyScheduleToday.has(c.id)) return false;
+      if (shouldSkipRemindForCast(c.employment_type, c.is_admin)) return false;
+      return true;
+    })
+    .map((c) => ({
+      id: c.id,
+      name: c.name ?? "キャスト",
+      line_user_id: c.line_user_id as string,
+    }));
+
+  const totalCandidates = schedules.length + regularNoSchedule.length;
+
+  if (totalCandidates === 0) {
     return { storeId, skipped: "no_targets", successCount: 0, failureCount: 0, totalCandidates: 0 };
   }
 
   const nowIso = new Date().toISOString();
   type ScheduleRow = (typeof schedules)[number];
 
+  type SentItem = { name: string; timeDisplay: string; sortMinutes: number };
+
+  const buildSentItemFromSchedule = (s: ScheduleRow): SentItem => {
+    const c = parseCastJoinFromSchedule(s);
+    const name = c?.name ?? "キャスト";
+    if (employmentUsesRegularRemindMessage(c?.employment_type)) {
+      return {
+        name,
+        timeDisplay: "レギュラー（固定文）",
+        sortMinutes: minutesFromScheduledTime(s.scheduled_time),
+      };
+    }
+    const baseTime = formatRemindScheduledTime(s.scheduled_time, false);
+    const timeDisplay = `${baseTime}${s.is_dohan ? " 同伴" : ""}`.trim();
+    return {
+      name,
+      timeDisplay,
+      sortMinutes: minutesFromScheduledTime(s.scheduled_time),
+    };
+  };
+
+  const notifyAdmins = async (sentItems: SentItem[]) => {
+    if (sentItems.length === 0) return;
+    try {
+      const adminIds = await getAdminLineUserIds(supabase, storeId);
+      if (adminIds.length > 0) {
+        const sorted = [...sentItems].sort((a, b) => a.sortMinutes - b.sortMinutes);
+        const nameList = sorted
+          .map(({ name, timeDisplay }) => `・${name} (${timeDisplay})`)
+          .join("\n");
+        const adminMessage = `【システム通知】本日、以下の${sentItems.length}名に出勤確認のリマインドを送信しました。\n${nameList}`;
+        await sendMulticastMessage(adminIds, channelAccessToken, [
+          { type: "text", text: adminMessage },
+        ]);
+      }
+    } catch (adminErr) {
+      logError("管理者への送信完了報告失敗", adminErr);
+    }
+  };
+
   if (isManual) {
-    const lineResults = await Promise.allSettled(
-      schedules.map(async (schedule) => {
-        const rawCasts = schedule.casts as
-          | { name: string; line_user_id: string }
-          | { name: string; line_user_id: string }[]
-          | null;
-        const casts = Array.isArray(rawCasts) ? rawCasts[0] : rawCasts;
-        if (!casts?.line_user_id) {
-          throw new Error(`No line_user_id for schedule ${schedule.id}`);
-        }
-        const name = casts.name ?? "キャスト";
-        const scheduledTime = formatRemindScheduledTime(schedule.scheduled_time, schedule.is_dohan);
-        const reminderMessageLine = applyReminderMessageTemplate(messageTemplate, name, scheduledTime);
+    const lineResults = await Promise.allSettled([
+      ...schedules.map(async (schedule) => {
+        const c = parseCastJoinFromSchedule(schedule);
+        if (!c) throw new Error(`No cast for schedule ${schedule.id}`);
+        const name = c.name ?? "キャスト";
+        const { reminderMessageLine, scheduledTimeDisplay } = buildScheduleRemindParts(
+          messageTemplate,
+          name,
+          schedule,
+          c.employment_type
+        );
         const message = buildAttendanceRemindFlexMessage({
           castName: name,
-          scheduledTimeDisplay: scheduledTime,
+          scheduledTimeDisplay,
           todayJst,
           storeName: store.name,
           flexOptions: {
@@ -344,18 +471,45 @@ async function runRemindForStore(
           },
           reminderMessageLine,
         });
-        await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);
-        return schedule;
-      })
-    );
+        await sendPushMessage(c.line_user_id as string, channelAccessToken, [message]);
+        return { kind: "schedule" as const, schedule };
+      }),
+      ...regularNoSchedule.map(async (rc) => {
+        const reminderMessageLine = buildRegularRemindMessageLine(rc.name);
+        const message = buildAttendanceRemindFlexMessage({
+          castName: rc.name,
+          scheduledTimeDisplay: "—",
+          todayJst,
+          storeName: store.name,
+          flexOptions: {
+            enablePublicHoliday: holidayFlex.enablePublicHoliday,
+            enableHalfHoliday: holidayFlex.enableHalfHoliday,
+          },
+          reminderMessageLine,
+        });
+        await sendPushMessage(rc.line_user_id, channelAccessToken, [message]);
+        return { kind: "regular" as const, castId: rc.id };
+      }),
+    ]);
 
-    const lineSucceeded = lineResults
-      .map((r) => (r.status === "fulfilled" ? r.value : null))
-      .filter((s): s is ScheduleRow => s != null);
+    const fulfilled = lineResults.filter((r) => r.status === "fulfilled") as PromiseFulfilledResult<
+      | { kind: "schedule"; schedule: ScheduleRow }
+      | { kind: "regular"; castId: string }
+    >[];
 
-    if (lineSucceeded.length > 0) {
+    const okSchedules = fulfilled
+      .map((r) => r.value)
+      .filter((v): v is { kind: "schedule"; schedule: ScheduleRow } => v.kind === "schedule")
+      .map((v) => v.schedule);
+
+    const okRegularIds = fulfilled
+      .map((r) => r.value)
+      .filter((v): v is { kind: "regular"; castId: string } => v.kind === "regular")
+      .map((v) => v.castId);
+
+    if (okSchedules.length > 0) {
       await Promise.all(
-        lineSucceeded.map(async (schedule) => {
+        okSchedules.map(async (schedule) => {
           const { error: updateError } = await supabase
             .from("attendance_schedules")
             .update({ last_reminded_at: nowIso })
@@ -367,53 +521,50 @@ async function runRemindForStore(
       );
     }
 
-    const successCount = lineSucceeded.length;
+    if (okRegularIds.length > 0) {
+      await Promise.all(
+        okRegularIds.map(async (castId) => {
+          const { error: updErr } = await supabase
+            .from("casts")
+            .update({ last_reminder_sent_date: todayJst, updated_at: nowIso })
+            .eq("id", castId);
+          if (updErr) {
+            logError(`last_reminder_sent_date 更新失敗 castId=${castId}`, updErr);
+          }
+        })
+      );
+    }
+
+    const successCount = fulfilled.length;
     const failureCount = lineResults.filter((r) => r.status === "rejected").length;
 
     if (successCount > 0) {
-      const sentItems = lineSucceeded
-        .map((s) => {
-          const raw = s.casts as { name?: string } | { name?: string }[] | null;
-          const c = Array.isArray(raw) ? raw[0] : raw;
-          const name = c?.name ?? "キャスト";
-          const baseTime = formatRemindScheduledTime(s.scheduled_time, false);
-          const timeDisplay = `${baseTime}${s.is_dohan ? " 同伴" : ""}`.trim();
-          return {
-            name,
-            timeDisplay,
-            sortMinutes: minutesFromScheduledTime(s.scheduled_time),
-          };
-        })
-        .sort((a, b) => a.sortMinutes - b.sortMinutes)
-        .map(({ name, timeDisplay }) => ({ name, timeDisplay }));
-
-      try {
-        const adminIds = await getAdminLineUserIds(supabase, storeId);
-        if (adminIds.length > 0) {
-          const nameList = sentItems
-            .map(({ name, timeDisplay }) => `・${name} (${timeDisplay})`)
-            .join("\n");
-          const adminMessage = `【システム通知】本日、以下の${sentItems.length}名に出勤確認のリマインドを送信しました。\n${nameList}`;
-          await sendMulticastMessage(adminIds, channelAccessToken, [
-            { type: "text", text: adminMessage },
-          ]);
-        }
-      } catch (adminErr) {
-        logError("管理者への送信完了報告失敗（manual）", adminErr);
-      }
+      const sentItems: SentItem[] = [
+        ...okSchedules.map(buildSentItemFromSchedule),
+        ...regularNoSchedule
+          .filter((r) => okRegularIds.includes(r.id))
+          .map(
+            (r): SentItem => ({
+              name: r.name,
+              timeDisplay: "レギュラー（シフト未登録）",
+              sortMinutes: Number.MAX_SAFE_INTEGER,
+            })
+          ),
+      ];
+      await notifyAdmins(sentItems);
     }
 
     return {
       storeId,
       successCount,
       failureCount,
-      totalCandidates: schedules.length,
+      totalCandidates,
     };
   }
 
-  /** 本番: RPC で送信枠を確保 → 送信 → 失敗時のみ巻き戻し */
-  const lineResults = await Promise.allSettled(
-    schedules.map(async (schedule) => {
+  /** 本番: シフト行は RPC、シフトなしレギュラーは claim_reminder_cast_send */
+  const lineResults = await Promise.allSettled([
+    ...schedules.map(async (schedule) => {
       const { data: claimRows, error: claimErr } = await supabase.rpc(
         "claim_reminder_schedule_send",
         { p_schedule_id: schedule.id, p_today: todayJst }
@@ -432,15 +583,11 @@ async function runRemindForStore(
           : null;
 
       if (!claimed) {
-        return { schedule, skipped: true as const, prior: null as string | null };
+        return { kind: "schedule" as const, schedule, skipped: true as const, prior };
       }
 
-      const rawCasts = schedule.casts as
-        | { name: string; line_user_id: string }
-        | { name: string; line_user_id: string }[]
-        | null;
-      const casts = Array.isArray(rawCasts) ? rawCasts[0] : rawCasts;
-      if (!casts?.line_user_id) {
+      const c = parseCastJoinFromSchedule(schedule);
+      if (!c?.line_user_id) {
         await supabase.rpc("restore_reminder_schedule_last_reminded_at", {
           p_schedule_id: schedule.id,
           p_prior_last_reminded_at: prior,
@@ -448,12 +595,16 @@ async function runRemindForStore(
         throw new Error(`No line_user_id for schedule ${schedule.id}`);
       }
 
-      const name = casts.name ?? "キャスト";
-      const scheduledTime = formatRemindScheduledTime(schedule.scheduled_time, schedule.is_dohan);
-      const reminderMessageLine = applyReminderMessageTemplate(messageTemplate, name, scheduledTime);
+      const name = c.name ?? "キャスト";
+      const { reminderMessageLine, scheduledTimeDisplay } = buildScheduleRemindParts(
+        messageTemplate,
+        name,
+        schedule,
+        c.employment_type
+      );
       const message = buildAttendanceRemindFlexMessage({
         castName: name,
-        scheduledTimeDisplay: scheduledTime,
+        scheduledTimeDisplay,
         todayJst,
         storeName: store.name,
         flexOptions: {
@@ -464,7 +615,7 @@ async function runRemindForStore(
       });
 
       try {
-        await sendPushMessage(casts.line_user_id, channelAccessToken, [message]);
+        await sendPushMessage(c.line_user_id, channelAccessToken, [message]);
       } catch (pushErr) {
         await supabase.rpc("restore_reminder_schedule_last_reminded_at", {
           p_schedule_id: schedule.id,
@@ -473,25 +624,84 @@ async function runRemindForStore(
         throw pushErr;
       }
 
-      return { schedule, skipped: false as const, prior: null as string | null };
-    })
-  );
+      return { kind: "schedule" as const, schedule, skipped: false as const, prior };
+    }),
+    ...regularNoSchedule.map(async (rc) => {
+      const { data: claimRows, error: claimErr } = await supabase.rpc("claim_reminder_cast_send", {
+        p_cast_id: rc.id,
+        p_today: todayJst,
+      });
+
+      if (claimErr) {
+        logError(`claim_reminder_cast_send RPC 未適用または失敗 castId=${rc.id}`, claimErr);
+        throw claimErr;
+      }
+
+      const row = Array.isArray(claimRows) ? claimRows[0] : claimRows;
+      const claimed =
+        row && typeof row === "object" && (row as { claimed?: boolean }).claimed === true;
+      const priorDate =
+        row && typeof row === "object"
+          ? (row as { prior_last_reminder_sent_date: string | null }).prior_last_reminder_sent_date ??
+            null
+          : null;
+
+      if (!claimed) {
+        return { kind: "regular" as const, castId: rc.id, skipped: true as const, priorDate };
+      }
+
+      const reminderMessageLine = buildRegularRemindMessageLine(rc.name);
+      const message = buildAttendanceRemindFlexMessage({
+        castName: rc.name,
+        scheduledTimeDisplay: "—",
+        todayJst,
+        storeName: store.name,
+        flexOptions: {
+          enablePublicHoliday: holidayFlex.enablePublicHoliday,
+          enableHalfHoliday: holidayFlex.enableHalfHoliday,
+        },
+        reminderMessageLine,
+      });
+
+      try {
+        await sendPushMessage(rc.line_user_id, channelAccessToken, [message]);
+      } catch (pushErr) {
+        await supabase.rpc("restore_reminder_cast_last_reminder_sent_date", {
+          p_cast_id: rc.id,
+          p_prior: priorDate,
+        });
+        throw pushErr;
+      }
+
+      return { kind: "regular" as const, castId: rc.id, skipped: false as const, priorDate };
+    }),
+  ]);
 
   const sentSchedules: ScheduleRow[] = [];
+  const sentRegularIds: string[] = [];
+
   for (let i = 0; i < lineResults.length; i++) {
     const r = lineResults[i];
-    if (r.status === "fulfilled") {
-      const v = r.value;
-      if (!v.skipped && "schedule" in v) {
-        sentSchedules.push(v.schedule);
+    if (r.status !== "fulfilled") {
+      const idx = i;
+      if (idx < schedules.length) {
+        logError(`LINE Push 失敗 scheduleId=${schedules[idx]?.id}`, r.reason);
+      } else {
+        const rIdx = idx - schedules.length;
+        logError(`LINE Push 失敗 regular castId=${regularNoSchedule[rIdx]?.id}`, r.reason);
       }
-    } else {
-      const schedule = schedules[i];
-      logError(`LINE Push 失敗 scheduleId=${schedule.id}`, r.reason);
+      continue;
+    }
+    const v = r.value;
+    if (v.kind === "schedule" && !v.skipped) {
+      sentSchedules.push(v.schedule);
+    }
+    if (v.kind === "regular" && !v.skipped) {
+      sentRegularIds.push(v.castId);
     }
   }
 
-  const successCount = sentSchedules.length;
+  const successCount = sentSchedules.length + sentRegularIds.length;
   const failureCount = lineResults.filter((r) => r.status === "rejected").length;
 
   if (successCount > 0) {
@@ -504,43 +714,26 @@ async function runRemindForStore(
       logError(`last_reminded_date 更新失敗 store=${storeId}`, storeUpdErr);
     }
 
-    const sentItems = sentSchedules
-      .map((s) => {
-        const raw = s.casts as { name?: string } | { name?: string }[] | null;
-        const c = Array.isArray(raw) ? raw[0] : raw;
-        const name = c?.name ?? "キャスト";
-        const baseTime = formatRemindScheduledTime(s.scheduled_time, false);
-        const timeDisplay = `${baseTime}${s.is_dohan ? " 同伴" : ""}`.trim();
-        return {
-          name,
-          timeDisplay,
-          sortMinutes: minutesFromScheduledTime(s.scheduled_time),
-        };
-      })
-      .sort((a, b) => a.sortMinutes - b.sortMinutes)
-      .map(({ name, timeDisplay }) => ({ name, timeDisplay }));
-
-    try {
-      const adminIds = await getAdminLineUserIds(supabase, storeId);
-      if (adminIds.length > 0) {
-        const nameList = sentItems
-          .map(({ name, timeDisplay }) => `・${name} (${timeDisplay})`)
-          .join("\n");
-        const adminMessage = `【システム通知】本日、以下の${sentItems.length}名に出勤確認のリマインドを送信しました。\n${nameList}`;
-        await sendMulticastMessage(adminIds, channelAccessToken, [
-          { type: "text", text: adminMessage },
-        ]);
-      }
-    } catch (adminErr) {
-      logError("管理者への送信完了報告失敗", adminErr);
-    }
+    const sentItems: SentItem[] = [
+      ...sentSchedules.map(buildSentItemFromSchedule),
+      ...regularNoSchedule
+        .filter((r) => sentRegularIds.includes(r.id))
+        .map(
+          (r): SentItem => ({
+            name: r.name,
+            timeDisplay: "レギュラー（シフト未登録）",
+            sortMinutes: Number.MAX_SAFE_INTEGER,
+          })
+        ),
+    ];
+    await notifyAdmins(sentItems);
   }
 
   return {
     storeId,
     successCount,
     failureCount,
-    totalCandidates: schedules.length,
+    totalCandidates,
   };
 }
 
@@ -626,7 +819,7 @@ async function handleRemind(request: Request) {
 
     const { data: store, error: storeErr } = await supabase
       .from("stores")
-      .select("id, name, remind_time, last_reminded_date, line_channel_access_token")
+      .select("id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays")
       .eq("id", storeId)
       .single();
 
@@ -652,7 +845,7 @@ async function handleRemind(request: Request) {
 
   const { data: stores, error: storesErr } = await supabase
     .from("stores")
-    .select("id, name, remind_time, last_reminded_date, line_channel_access_token");
+    .select("id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays");
 
   if (storesErr) {
     logError("店舗一覧取得失敗", storesErr);

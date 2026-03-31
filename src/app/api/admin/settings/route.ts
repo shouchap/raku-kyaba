@@ -290,6 +290,36 @@ export async function GET(request: Request) {
           ?.enable_reservation_check === true;
     }
 
+    let regularHolidays: number[] = [];
+    const rhRes = await admin
+      .from("stores")
+      .select("regular_holidays")
+      .eq("id", storeId)
+      .maybeSingle();
+    if (rhRes.error) {
+      if (!isUndefinedColumnError(rhRes.error, "regular_holidays")) {
+        logPostgrestError("GET stores regular_holidays", rhRes.error);
+        return NextResponse.json(
+          {
+            error: "Failed to load store",
+            details: rhRes.error.message,
+            code: rhRes.error.code,
+          },
+          { status: 500 }
+        );
+      }
+      console.warn(
+        "[api/admin/settings] GET: stores.regular_holidays 未適用。マイグレーション 018 を適用してください。"
+      );
+    } else {
+      const rh = (rhRes.data as { regular_holidays?: number[] | null } | null)?.regular_holidays;
+      if (Array.isArray(rh)) {
+        regularHolidays = [...new Set(rh.filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort(
+          (a, b) => a - b
+        );
+      }
+    }
+
     return NextResponse.json({
       remind_time: remindTime,
       allow_shift_submission: allowShiftSubmission,
@@ -297,6 +327,7 @@ export async function GET(request: Request) {
       enable_reservation_check: enableReservationCheck,
       enable_public_holiday: settingsRow?.enable_public_holiday === true,
       enable_half_holiday: settingsRow?.enable_half_holiday === true,
+      regular_holidays: regularHolidays,
       reminder_config:
         settingsRow?.value && typeof settingsRow.value === "object"
           ? settingsRow.value
@@ -327,6 +358,8 @@ type PatchBody = {
   /** 未指定の場合は system_settings の該当カラムを更新しない（016 未適用時は無視） */
   enable_public_holiday?: boolean;
   enable_half_holiday?: boolean;
+  /** 定休日（0=日〜6=土）。未指定なら stores.regular_holidays を更新しない */
+  regular_holidays?: number[];
 };
 
 /**
@@ -362,6 +395,7 @@ export async function PATCH(request: Request) {
     body,
     "pre_open_report_hour_jst"
   );
+  const regularHolidaysProvided = Array.isArray(body.regular_holidays);
 
   if (!storeId || !isValidStoreId(storeId)) {
     return NextResponse.json({ error: "Valid storeId is required" }, { status: 400 });
@@ -383,6 +417,14 @@ export async function PATCH(request: Request) {
   }
   if (!reminderConfig || typeof reminderConfig !== "object" || Array.isArray(reminderConfig)) {
     return NextResponse.json({ error: "reminder_config must be an object" }, { status: 400 });
+  }
+  if (regularHolidaysProvided) {
+    if (!body.regular_holidays!.every((n) => Number.isInteger(n) && n >= 0 && n <= 6)) {
+      return NextResponse.json(
+        { error: "regular_holidays must be an array of integers from 0 (Sunday) to 6 (Saturday)" },
+        { status: 400 }
+      );
+    }
   }
 
   if (!canUserEditStore(user, storeId)) {
@@ -547,7 +589,7 @@ export async function PATCH(request: Request) {
       }
     }
 
-    const storePayload: Record<string, string | boolean | number | null> = {
+    const storePayload: Record<string, string | boolean | number | number[] | null> = {
       remind_time: remindTime,
       updated_at: nowIso,
     };
@@ -559,6 +601,10 @@ export async function PATCH(request: Request) {
     }
     if (preOpenReportHourProvided) {
       storePayload.pre_open_report_hour_jst = body.pre_open_report_hour_jst as number | null;
+    }
+    if (regularHolidaysProvided) {
+      const unique = [...new Set(body.regular_holidays as number[])].sort((a, b) => a - b);
+      storePayload.regular_holidays = unique;
     }
 
     const storeRes = await admin.from("stores").update(storePayload).eq("id", storeId);

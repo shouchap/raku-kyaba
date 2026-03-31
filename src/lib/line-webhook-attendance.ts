@@ -36,6 +36,50 @@ const RESERVATION_DETAIL_EMPTY_TEXT =
 const ATTENDING_ALREADY_DONE_REPLY =
   "既に出勤連絡を受け付けています。本日もよろしくお願い致します。";
 
+/**
+ * 当日の attendance_schedules が無い場合に作成（レギュラー等・シフト未登録でもボタン回答可能にする）
+ */
+async function ensureTodayAttendanceSchedule(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  cast: { id: string; store_id: string },
+  todayJst: string
+): Promise<{ id: string } | null> {
+  const { data: existing } = await supabase
+    .from("attendance_schedules")
+    .select("id")
+    .eq("store_id", cast.store_id)
+    .eq("cast_id", cast.id)
+    .eq("scheduled_date", todayJst)
+    .maybeSingle();
+
+  if (existing?.id) return { id: existing.id };
+
+  const { data: inserted, error } = await supabase
+    .from("attendance_schedules")
+    .insert({
+      store_id: cast.store_id,
+      cast_id: cast.id,
+      scheduled_date: todayJst,
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (inserted?.id) return { id: inserted.id };
+
+  if (error) {
+    const { data: again } = await supabase
+      .from("attendance_schedules")
+      .select("id")
+      .eq("store_id", cast.store_id)
+      .eq("cast_id", cast.id)
+      .eq("scheduled_date", todayJst)
+      .maybeSingle();
+    if (again?.id) return { id: again.id };
+    console.error("[Attendance] ensureTodayAttendanceSchedule insert failed:", error);
+  }
+  return null;
+}
+
 /** 出勤コマンド等はフォールバックで消費せず後段の Postback 相当処理へ */
 function isAttendanceCommandText(text: string): boolean {
   const t = String(text ?? "").trim();
@@ -239,12 +283,13 @@ export async function tryHandleReservationDetailText(
   if (!cast) return false;
 
   const todayJst = getTodayJst();
+  const ensured = await ensureTodayAttendanceSchedule(supabase, cast, todayJst);
+  if (!ensured) return false;
+
   const { data: schedule } = await supabase
     .from("attendance_schedules")
     .select("id, pending_line_flow")
-    .eq("store_id", cast.store_id)
-    .eq("cast_id", cast.id)
-    .eq("scheduled_date", todayJst)
+    .eq("id", ensured.id)
     .maybeSingle();
 
   if (!schedule?.id || schedule.pending_line_flow !== PENDING_RESERVATION_DETAIL) {
@@ -689,12 +734,16 @@ export async function handleReservationPostback(
   }
 
   const today = getTodayJst();
+  const ensured = await ensureTodayAttendanceSchedule(supabase, cast, today);
+  if (!ensured) {
+    await safeReply([{ type: "text", text: ERROR_REPLY }]);
+    return;
+  }
+
   const { data: schedule } = await supabase
     .from("attendance_schedules")
     .select("id, pending_line_flow")
-    .eq("store_id", cast.store_id)
-    .eq("cast_id", cast.id)
-    .eq("scheduled_date", today)
+    .eq("id", ensured.id)
     .maybeSingle();
 
   if (!schedule?.id) {
@@ -783,12 +832,16 @@ export async function handleAttendanceResponse(
 
     const today = getTodayJst();
 
+    const ensured = await ensureTodayAttendanceSchedule(supabase, cast, today);
+    if (!ensured) {
+      await safeReply(ERROR_REPLY);
+      return;
+    }
+
     const { data: schedule, error: scheduleFetchError } = await supabase
       .from("attendance_schedules")
       .select("id, pending_line_flow, response_status, is_action_completed")
-      .eq("store_id", cast.store_id)
-      .eq("cast_id", cast.id)
-      .eq("scheduled_date", today)
+      .eq("id", ensured.id)
       .maybeSingle();
 
     if (scheduleFetchError) {
@@ -797,7 +850,7 @@ export async function handleAttendanceResponse(
     }
 
     if (!schedule?.id) {
-      await safeReply(NO_SCHEDULE_FOR_TODAY_REPLY);
+      await safeReply(ERROR_REPLY);
       return;
     }
 
