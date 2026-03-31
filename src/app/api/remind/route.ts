@@ -497,6 +497,7 @@ async function runRemindForStore(
             enableHalfHoliday: holidayFlex.enableHalfHoliday,
           },
           reminderMessageLine,
+          showSabakiTimePicker: schedule.is_sabaki === true,
         });
         await sendPushMessage(c.line_user_id as string, channelAccessToken, [message]);
         return { kind: "schedule" as const, schedule };
@@ -643,6 +644,7 @@ async function runRemindForStore(
           enableHalfHoliday: holidayFlex.enableHalfHoliday,
         },
         reminderMessageLine,
+        showSabakiTimePicker: schedule.is_sabaki === true,
       });
 
       try {

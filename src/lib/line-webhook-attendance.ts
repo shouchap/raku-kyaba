@@ -1051,3 +1051,121 @@ export async function handleAttendanceResponse(
     await safeReply(ERROR_REPLY);
   }
 }
+
+const SABAKI_UNKNOWN_REPLY =
+  "承知いたしました。時間が分かり次第、また教えてください。";
+
+function normalizeLineTimeToSql(time: string | null | undefined): string | null {
+  const t = String(time ?? "").trim();
+  const m = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (Number.isNaN(h) || Number.isNaN(min) || h < 0 || h > 23 || min < 0 || min > 59) {
+    return null;
+  }
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}:00`;
+}
+
+function formatHmForSabakiReply(sqlTime: string): string {
+  const m = sqlTime.match(/^(\d{2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : sqlTime.slice(0, 5);
+}
+
+/**
+ * 捌きリマインドの Postback / Datetimepicker（入店時間・未定）。
+ * 対象の data のときのみ処理し true を返す。
+ */
+export async function handleSabakiTimePostback(
+  lineUserId: string,
+  rawData: string,
+  params: { date?: string; time?: string; datetime?: string } | undefined,
+  supabase: ReturnType<typeof createSupabaseClient>,
+  replyToken: string | undefined,
+  channelAccessToken: string | undefined
+): Promise<boolean> {
+  const data = String(rawData ?? "").trim();
+  if (data !== "action=sabaki_time_unknown" && data !== "action=sabaki_time_update") {
+    return false;
+  }
+
+  const safeReply = async (text: string) => {
+    if (replyToken && channelAccessToken) {
+      await sendReply(replyToken, channelAccessToken, [{ type: "text", text }]);
+    }
+  };
+
+  const tenantStoreId = getDefaultStoreIdOrNull();
+  if (!tenantStoreId) {
+    await safeReply(ERROR_REPLY);
+    return true;
+  }
+
+  const { data: cast } = await supabase
+    .from("casts")
+    .select("id, store_id, name")
+    .eq("line_user_id", lineUserId)
+    .eq("store_id", tenantStoreId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (!cast) {
+    await safeReply(CAST_NOT_FOUND_REPLY);
+    return true;
+  }
+
+  const today = getTodayJst();
+
+  if (data === "action=sabaki_time_unknown") {
+    await safeReply(SABAKI_UNKNOWN_REPLY);
+    return true;
+  }
+
+  const sqlTime = normalizeLineTimeToSql(params?.time);
+  if (!sqlTime) {
+    await safeReply("時間を取得できませんでした。もう一度お試しください。");
+    return true;
+  }
+
+  const { data: schedule, error: schedErr } = await supabase
+    .from("attendance_schedules")
+    .select("id, is_sabaki")
+    .eq("store_id", cast.store_id)
+    .eq("cast_id", cast.id)
+    .eq("scheduled_date", today)
+    .maybeSingle();
+
+  if (schedErr) {
+    console.error("[Sabaki] schedule fetch:", schedErr);
+    await safeReply(ERROR_REPLY);
+    return true;
+  }
+
+  if (!schedule?.id) {
+    await safeReply(NO_SCHEDULE_FOR_TODAY_REPLY);
+    return true;
+  }
+
+  if (schedule.is_sabaki !== true) {
+    await safeReply("捌き出勤の予定が見つかりません。管理者にご連絡ください。");
+    return true;
+  }
+
+  const { error: updErr } = await supabase
+    .from("attendance_schedules")
+    .update({
+      scheduled_time: sqlTime,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", schedule.id);
+
+  if (updErr) {
+    console.error("[Sabaki] scheduled_time update:", updErr);
+    await safeReply(ERROR_REPLY);
+    return true;
+  }
+
+  const hm = formatHmForSabakiReply(sqlTime);
+  await safeReply(`${hm}入りの連絡を受け付けました。お待ちしております。`);
+  return true;
+}

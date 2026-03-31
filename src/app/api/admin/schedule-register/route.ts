@@ -224,6 +224,7 @@ export async function POST(request: Request) {
       enableHalfHoliday: holidayFlex.enableHalfHoliday,
     },
     reminderMessageLine,
+    showSabakiTimePicker: sabaki,
   });
 
   try {

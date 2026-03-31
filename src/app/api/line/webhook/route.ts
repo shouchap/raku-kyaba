@@ -16,6 +16,7 @@ import type {
 import {
   handleAttendanceResponse,
   handleReservationPostback,
+  handleSabakiTimePostback,
   tryHandleLateAbsentReasonText,
   tryHandleReservationDetailText,
   tryHandleReservationAskInvalidText,
@@ -227,7 +228,21 @@ async function processWebhookEvent(
   switch (event.type) {
     case "postback": {
       const postbackEvent = event as LinePostbackEvent;
-      const rawData = postbackEvent.postback?.data;
+      const rawData = postbackEvent.postback?.data ?? "";
+
+      const sabakiHandled = await handleSabakiTimePostback(
+        userId,
+        rawData,
+        postbackEvent.postback.params,
+        supabase,
+        postbackEvent.replyToken,
+        channelAccessToken
+      );
+      if (sabakiHandled) {
+        console.log("[Webhook] 捌き入店時間 postback を処理しました");
+        break;
+      }
+
       const data = parsePostbackData(rawData);
 
       console.log("[Webhook] Postback受信 | rawData:", JSON.stringify(rawData), "| 判定:", data ?? "未対応");
