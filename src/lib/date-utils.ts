@@ -40,6 +40,29 @@ export function addCalendarDaysJst(ymd: string, delta: number): string {
 }
 
 /**
+ * JST の暦日 YYYY-MM-DD における曜日（0=日 … 6=土）。
+ * 正午 JST 基準で日付またぎのずれを避ける。
+ */
+export function getWeekdayJst(ymd: string): number {
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return 0;
+  const utc = Date.UTC(y, m - 1, d, 3, 0, 0);
+  return new Date(utc).getUTCDay();
+}
+
+/** 週の開始を月曜とする。その週の月曜日の YYYY-MM-DD（JST） */
+export function getMondayOfJstWeek(ymd: string): string {
+  const dow = getWeekdayJst(ymd);
+  const delta = dow === 0 ? -6 : 1 - dow;
+  return addCalendarDaysJst(ymd, delta);
+}
+
+/** 月曜始まりの週の日曜日 YYYY-MM-DD（JST） */
+export function getSundayOfJstWeekFromMonday(mondayYmd: string): string {
+  return addCalendarDaysJst(mondayYmd, 6);
+}
+
+/**
  * 日本時間（JST）の現在の「時」（0〜23）を返す
  */
 export function getCurrentHourJst(): number {

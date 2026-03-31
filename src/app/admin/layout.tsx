@@ -67,8 +67,8 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           activeStoreId={activeStoreId}
           isSuperAdmin={isSuperAdmin}
         />
-        <main className="flex-1 w-full px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pt-6 lg:px-8 lg:pt-8">
-          <div className="mx-auto w-full max-w-6xl overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm sm:rounded-2xl min-h-[min(50vh,calc(100dvh-10rem))]">
+        <main className="flex-1 w-full px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pt-6 lg:px-8 lg:pt-8 print:p-0 print:pb-0">
+          <div className="mx-auto w-full max-w-6xl overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm sm:rounded-2xl min-h-[min(50vh,calc(100dvh-10rem))] print:overflow-visible print:rounded-none print:border-0 print:shadow-none print:min-h-0">
             {children}
           </div>
         </main>

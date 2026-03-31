@@ -11,8 +11,14 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
-import { getTodayJst } from "@/lib/date-utils";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import {
+  addCalendarDaysJst,
+  getMondayOfJstWeek,
+  getSundayOfJstWeekFromMonday,
+  getTodayJst,
+} from "@/lib/date-utils";
+import { ChevronDown, ChevronRight, Printer } from "lucide-react";
+import "./report-print.css";
 
 type Cast = {
   id: string;
@@ -63,17 +69,17 @@ type CastReport = {
 
 type SortKey = "name" | "attendance" | "dohan" | "late" | "absent";
 
+type ViewMode = "month" | "week";
+
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-/** YYYY-MM-DD（JSTの今日）から { year, month } month は 1–12 */
 function parseYearMonthFromToday(today: string): { year: number; month: number } {
   const [y, m] = today.split("-").map(Number);
   return { year: y, month: m };
 }
 
-/** year, month（1–12）の月初・月末 YYYY-MM-DD */
 function getMonthRangeIso(year: number, month: number): { start: string; end: string } {
   const start = `${year}-${pad2(month)}-01`;
   const lastDay = new Date(year, month, 0).getDate();
@@ -81,7 +87,6 @@ function getMonthRangeIso(year: number, month: number): { start: string; end: st
   return { start, end };
 }
 
-/** ym クエリ "YYYY-MM" をパース。無効なら null */
 function parseYmParam(ym: string | null): { year: number; month: number } | null {
   if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return null;
   const [y, m] = ym.split("-").map(Number);
@@ -93,17 +98,20 @@ function formatYm(year: number, month: number): string {
   return `${year}-${pad2(month)}`;
 }
 
-/** "2026-03-15" → "3月15日" */
 function formatJaMonthDay(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
+  const [, m, d] = dateStr.split("-").map(Number);
   return `${m}月${d}日`;
+}
+
+function formatWeekRangeLabel(mondayYmd: string): string {
+  const sun = getSundayOfJstWeekFromMonday(mondayYmd);
+  return `${formatJaMonthDay(mondayYmd)}〜${formatJaMonthDay(sun)}`;
 }
 
 function rowIsAbsent(row: ScheduleRow): boolean {
   return row.is_absent === true || row.response_status === "absent";
 }
 
-/** 欠勤・半休・公休を含む「休み」扱いの日（出勤日数から除く） */
 function rowIsOffDay(row: ScheduleRow): boolean {
   return (
     rowIsAbsent(row) ||
@@ -116,10 +124,7 @@ function rowIsLate(row: ScheduleRow): boolean {
   return row.is_late === true || row.response_status === "late";
 }
 
-function buildCastReports(
-  casts: Cast[],
-  schedules: ScheduleRow[]
-): CastReport[] {
+function buildCastReports(casts: Cast[], schedules: ScheduleRow[]): CastReport[] {
   const byCast = new Map<string, ScheduleRow[]>();
   for (const s of schedules) {
     const list = byCast.get(s.cast_id) ?? [];
@@ -196,11 +201,25 @@ function AdminReportContent() {
   const searchParams = useSearchParams();
 
   const today = useMemo(() => getTodayJst(), []);
+
   const defaultYm = useMemo(() => parseYearMonthFromToday(today), [today]);
+
+  const viewMode: ViewMode =
+    searchParams.get("view") === "week" ? "week" : "month";
 
   const ymFromUrl = parseYmParam(searchParams.get("ym"));
   const [year, setYear] = useState(ymFromUrl?.year ?? defaultYm.year);
   const [month, setMonth] = useState(ymFromUrl?.month ?? defaultYm.month);
+
+  const weekParamRaw = searchParams.get("week")?.trim() ?? "";
+
+  const weekMonday = useMemo(() => {
+    if (viewMode !== "week") return getMondayOfJstWeek(today);
+    if (weekParamRaw && /^\d{4}-\d{2}-\d{2}$/.test(weekParamRaw)) {
+      return getMondayOfJstWeek(weekParamRaw);
+    }
+    return getMondayOfJstWeek(today);
+  }, [viewMode, weekParamRaw, today]);
 
   useEffect(() => {
     const parsed = parseYmParam(searchParams.get("ym"));
@@ -210,27 +229,44 @@ function AdminReportContent() {
     }
   }, [searchParams]);
 
-  const [store, setStore] = useState<Store | null>(null);
-  const [casts, setCasts] = useState<Cast[]>([]);
-  const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /** view=week だが week 未指定のとき URL を正規化 */
+  useEffect(() => {
+    if (viewMode !== "week") return;
+    if (weekParamRaw && /^\d{4}-\d{2}-\d{2}$/.test(weekParamRaw)) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", "week");
+    params.set("week", weekMonday);
+    router.replace(`/admin/report?${params.toString()}`);
+  }, [viewMode, weekParamRaw, weekMonday, router, searchParams]);
 
-  const { start, end } = useMemo(
-    () => getMonthRangeIso(year, month),
-    [year, month]
-  );
+  const { start, end } = useMemo(() => {
+    if (viewMode === "week") {
+      return {
+        start: weekMonday,
+        end: getSundayOfJstWeekFromMonday(weekMonday),
+      };
+    }
+    return getMonthRangeIso(year, month);
+  }, [viewMode, weekMonday, year, month]);
 
-  const setYm = useCallback(
+  const setMonthParams = useCallback(
     (y: number, m: number) => {
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams();
+      params.set("view", "month");
       params.set("ym", formatYm(y, m));
       router.push(`/admin/report?${params.toString()}`);
     },
-    [router, searchParams]
+    [router]
+  );
+
+  const setWeekParams = useCallback(
+    (mondayYmd: string) => {
+      const params = new URLSearchParams();
+      params.set("view", "week");
+      params.set("week", getMondayOfJstWeek(mondayYmd));
+      router.push(`/admin/report?${params.toString()}`);
+    },
+    [router]
   );
 
   const goPrevMonth = useCallback(() => {
@@ -240,8 +276,8 @@ function AdminReportContent() {
       mo = 12;
       y -= 1;
     }
-    setYm(y, mo);
-  }, [year, month, setYm]);
+    setMonthParams(y, mo);
+  }, [year, month, setMonthParams]);
 
   const goNextMonth = useCallback(() => {
     let y = year;
@@ -250,8 +286,38 @@ function AdminReportContent() {
       mo = 1;
       y += 1;
     }
-    setYm(y, mo);
-  }, [year, month, setYm]);
+    setMonthParams(y, mo);
+  }, [year, month, setMonthParams]);
+
+  const goPrevWeek = useCallback(() => {
+    setWeekParams(addCalendarDaysJst(weekMonday, -7));
+  }, [weekMonday, setWeekParams]);
+
+  const goNextWeek = useCallback(() => {
+    setWeekParams(addCalendarDaysJst(weekMonday, 7));
+  }, [weekMonday, setWeekParams]);
+
+  const switchToMonth = useCallback(() => {
+    const [sy, sm] = weekMonday.split("-").map(Number);
+    const params = new URLSearchParams();
+    params.set("view", "month");
+    params.set("ym", formatYm(sy, sm));
+    router.push(`/admin/report?${params.toString()}`);
+  }, [weekMonday, router]);
+
+  const switchToWeek = useCallback(() => {
+    const anchor = `${year}-${pad2(month)}-01`;
+    setWeekParams(getMondayOfJstWeek(anchor));
+  }, [year, month, setWeekParams]);
+
+  const [store, setStore] = useState<Store | null>(null);
+  const [casts, setCasts] = useState<Cast[]>([]);
+  const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -313,10 +379,7 @@ function AdminReportContent() {
     fetchData();
   }, [fetchData]);
 
-  const reports = useMemo(
-    () => buildCastReports(casts, schedules),
-    [casts, schedules]
-  );
+  const reports = useMemo(() => buildCastReports(casts, schedules), [casts, schedules]);
 
   const sortedReports = useMemo(() => {
     const list = [...reports];
@@ -365,47 +428,119 @@ function AdminReportContent() {
     });
   };
 
-  const titleLabel = `${year}年${month}月`;
+  const handlePrint = useCallback(() => {
+    window.print();
+  }, []);
+
+  const titleLabel =
+    viewMode === "week"
+      ? formatWeekRangeLabel(weekMonday)
+      : `${year}年${month}月`;
+
+  const periodKindLabel = viewMode === "week" ? "週間" : "月間";
+  const emptyMessage =
+    viewMode === "week" ? "この週のシフトデータはありません。" : "この月のシフトデータはありません。";
+
   const hasDetails = (r: CastReport) => r.incidents.length > 0;
 
   return (
-    <div className="p-4 sm:p-6">
+    <div className="admin-report-print-root p-4 sm:p-6">
       <div className="mb-6">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
-          月間レポート（集計）
+          レポート（{periodKindLabel}集計）
         </h1>
-        <p className="mt-1 text-sm text-gray-600">
+        <p className="mt-1 text-sm text-gray-600 print:text-xs">
           {store?.name ?? "店舗"} · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-2">
+      <div className="mb-4 flex flex-wrap gap-2 print:hidden">
+        <button
+          type="button"
+          onClick={switchToMonth}
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            viewMode === "month"
+              ? "bg-slate-900 text-white shadow"
+              : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+          }`}
+        >
+          月間
+        </button>
+        <button
+          type="button"
+          onClick={switchToWeek}
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            viewMode === "week"
+              ? "bg-slate-900 text-white shadow"
+              : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+          }`}
+        >
+          週間
+        </button>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          {viewMode === "month" ? (
+            <>
+              <button
+                type="button"
+                onClick={goPrevMonth}
+                className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                ＜ 先月
+              </button>
+              <span className="min-w-[10rem] text-center text-base font-semibold text-gray-900">
+                {titleLabel}
+              </span>
+              <button
+                type="button"
+                onClick={goNextMonth}
+                className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                次月 ＞
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={goPrevWeek}
+                className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                ＜ 先週
+              </button>
+              <span className="min-w-[12rem] text-center text-base font-semibold text-gray-900">
+                {titleLabel}
+              </span>
+              <button
+                type="button"
+                onClick={goNextWeek}
+                className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                次週 ＞
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-xs text-gray-500">
+            集計期間: {start} 〜 {end}
+          </p>
           <button
             type="button"
-            onClick={goPrevMonth}
-            className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+            onClick={handlePrint}
+            className="print:hidden inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50"
           >
-            ＜ 先月
-          </button>
-          <span className="min-w-[8rem] text-center text-base font-semibold text-gray-900">
-            {titleLabel}
-          </span>
-          <button
-            type="button"
-            onClick={goNextMonth}
-            className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-          >
-            次月 ＞
+            <Printer className="h-4 w-4" aria-hidden />
+            PDFで保存（印刷）
           </button>
         </div>
-        <p className="text-xs text-gray-500">
-          集計期間: {start} 〜 {end}
-        </p>
       </div>
 
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 print:hidden">
           {error}
         </div>
       )}
@@ -413,61 +548,76 @@ function AdminReportContent() {
       {loading ? (
         <p className="text-gray-600">読み込み中…</p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-          <table className="min-w-[640px] w-full text-left text-sm">
+        <div className="report-table-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
+          <table className="report-table min-w-[640px] w-full text-left text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="px-3 py-3 font-semibold text-gray-700 w-10" />
+                <th className="print:hidden px-1 py-3 w-10" />
                 <th className="px-3 py-3">
                   <button
                     type="button"
                     onClick={() => toggleSort("name")}
-                    className="font-semibold text-gray-900 hover:text-blue-700 inline-flex items-center gap-1"
+                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700 inline-flex items-center gap-1"
                   >
                     キャスト
                     {sortKey === "name" && (sortDir === "asc" ? " ↑" : " ↓")}
                   </button>
+                  <span className="hidden font-semibold text-gray-900 print:inline">
+                    キャスト
+                  </span>
                 </th>
                 <th className="px-3 py-3 text-right">
                   <button
                     type="button"
                     onClick={() => toggleSort("attendance")}
-                    className="font-semibold text-gray-900 hover:text-blue-700"
+                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
                   >
                     出勤日数
                     {sortKey === "attendance" &&
                       (sortDir === "asc" ? " ↑" : " ↓")}
                   </button>
+                  <span className="hidden font-semibold text-gray-900 print:inline">
+                    出勤日数
+                  </span>
                 </th>
                 <th className="px-3 py-3 text-right">
                   <button
                     type="button"
                     onClick={() => toggleSort("dohan")}
-                    className="font-semibold text-gray-900 hover:text-blue-700"
+                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
                   >
                     同伴
                     {sortKey === "dohan" && (sortDir === "asc" ? " ↑" : " ↓")}
                   </button>
+                  <span className="hidden font-semibold text-gray-900 print:inline">
+                    同伴
+                  </span>
                 </th>
                 <th className="px-3 py-3 text-right">
                   <button
                     type="button"
                     onClick={() => toggleSort("late")}
-                    className="font-semibold text-gray-900 hover:text-blue-700"
+                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
                   >
                     遅刻
                     {sortKey === "late" && (sortDir === "asc" ? " ↑" : " ↓")}
                   </button>
+                  <span className="hidden font-semibold text-gray-900 print:inline">
+                    遅刻
+                  </span>
                 </th>
                 <th className="px-3 py-3 text-right">
                   <button
                     type="button"
                     onClick={() => toggleSort("absent")}
-                    className="font-semibold text-gray-900 hover:text-blue-700"
+                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
                   >
                     休み
                     {sortKey === "absent" && (sortDir === "asc" ? " ↑" : " ↓")}
                   </button>
+                  <span className="hidden font-semibold text-gray-900 print:inline">
+                    休み
+                  </span>
                 </th>
               </tr>
             </thead>
@@ -478,7 +628,7 @@ function AdminReportContent() {
                     colSpan={6}
                     className="px-3 py-8 text-center text-gray-500"
                   >
-                    この月のシフトデータはありません。
+                    {emptyMessage}
                   </td>
                 </tr>
               ) : (
@@ -488,7 +638,7 @@ function AdminReportContent() {
                   return (
                     <Fragment key={r.castId}>
                       <tr className="border-b border-gray-100 hover:bg-gray-50/80">
-                        <td className="px-1 py-2 text-center">
+                        <td className="print:hidden px-1 py-2 text-center">
                           {showToggle ? (
                             <button
                               type="button"
@@ -523,8 +673,10 @@ function AdminReportContent() {
                           {r.absentCount}
                         </td>
                       </tr>
-                      {showToggle && open && (
-                        <tr className="bg-gray-50/90">
+                      {showToggle && (
+                        <tr
+                          className={`report-detail-row bg-gray-50/90 ${open ? "" : "hidden"}`}
+                        >
                           <td colSpan={6} className="px-4 py-3 text-sm text-gray-700">
                             <ul className="space-y-2 pl-2 border-l-2 border-blue-200">
                               {r.incidents.map((inc, idx) => {
@@ -564,9 +716,7 @@ function AdminReportContent() {
 }
 
 function ReportFallback() {
-  return (
-    <div className="p-6 text-gray-600">読み込み中…</div>
-  );
+  return <div className="p-6 text-gray-600">読み込み中…</div>;
 }
 
 export default function AdminReportPage() {

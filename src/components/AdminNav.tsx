@@ -131,7 +131,7 @@ export default function AdminNav({ stores, activeStoreId, isSuperAdmin }: Props)
   );
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200/90 bg-white/95 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/90 [padding-top:max(0.5rem,env(safe-area-inset-top))]">
+    <header className="sticky top-0 z-50 border-b border-slate-200/90 bg-white/95 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/90 [padding-top:max(0.5rem,env(safe-area-inset-top))] print:hidden">
       <div className="mx-auto max-w-6xl px-3 sm:px-5">
         <div className="flex items-center gap-2 sm:gap-3 py-2.5 sm:py-3">
           <button

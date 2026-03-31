@@ -1,0 +1,57 @@
+/**
+ * /admin/report 印刷・PDF 保存用（window.print）
+ * グローバルに .admin-report-print-root をスコープとして効かせる
+ */
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 12mm;
+  }
+
+  body {
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .admin-report-print-root {
+    padding: 0 !important;
+  }
+
+  /* アコーディオン詳細: 画面では折りたたみ、印刷時は常に表示 */
+  .admin-report-print-root tr.report-detail-row {
+    display: table-row !important;
+  }
+
+  .admin-report-print-root table.report-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+  }
+
+  .admin-report-print-root .report-table thead {
+    display: table-header-group;
+  }
+
+  .admin-report-print-root .report-table tbody tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .admin-report-print-root .report-table th,
+  .admin-report-print-root .report-table td {
+    border: 1px solid #d1d5db;
+    padding: 6px 8px;
+  }
+
+  .admin-report-print-root .report-table thead th {
+    background: #f3f4f6 !important;
+  }
+
+  .admin-report-print-root .report-table-wrap {
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+}
