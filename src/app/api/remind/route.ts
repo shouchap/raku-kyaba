@@ -241,6 +241,7 @@ async function runRemindForStore(
 }> {
   const { isManual, todayJst, hourJst } = opts;
   const storeId = store.id;
+  const storeLabel = (store.name ?? "").trim() || "（店舗名未設定）";
 
   const remindHour = parseRemindHourJst(store.remind_time ?? "07:00");
   if (remindHour === null) {
@@ -249,6 +250,9 @@ async function runRemindForStore(
 
   if (!isManual) {
     if (remindHour !== hourJst) {
+      console.info(
+        `[Remind] Skipping ${storeLabel} (ID: ${storeId}) - remind_time_hour (${remindHour}) does not match current_hour (${hourJst})`
+      );
       return { storeId, skipped: "hour_mismatch", successCount: 0, failureCount: 0, totalCandidates: 0 };
     }
     const sentDate = store.last_reminded_date?.trim() ?? null;
@@ -277,6 +281,9 @@ async function runRemindForStore(
   const { config, messageTemplate, holidayFlex } = loaded;
 
   if (config.enabled === false) {
+    console.info(
+      `[Remind] Skipping ${storeLabel} (ID: ${storeId}) - is_remind_active is false`
+    );
     return { storeId, skipped: "reminder_disabled", successCount: 0, failureCount: 0, totalCandidates: 0 };
   }
 
