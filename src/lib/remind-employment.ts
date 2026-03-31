@@ -14,10 +14,20 @@ export function shouldSkipRemindForCast(
   return false;
 }
 
-/** レギュラー向け固定文（シフトの有無に関わらず） */
-export function buildRegularRemindMessageLine(castName: string): string {
+/** DB 未設定・空文字時の本文（「○○さん、」の後） */
+export const DEFAULT_REGULAR_REMIND_BODY = "本日も出勤よろしくお願いいたします。";
+
+/**
+ * レギュラー向け1行メッセージ（シフトの有無に関わらず）
+ * @param storeBody stores.regular_remind_message（空なら DEFAULT_REGULAR_REMIND_BODY）
+ */
+export function buildRegularRemindMessageLine(
+  castName: string,
+  storeBody?: string | null
+): string {
   const n = (castName ?? "").trim() || "キャスト";
-  return `${n}さん、本日も出勤よろしくお願いいたします。`;
+  const body = String(storeBody ?? "").trim() || DEFAULT_REGULAR_REMIND_BODY;
+  return `${n}さん、${body}`;
 }
 
 /** バイト・未設定: テンプレート＋時刻表示 */

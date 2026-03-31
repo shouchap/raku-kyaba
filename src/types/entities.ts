@@ -19,4 +19,6 @@ export type Store = {
   id: string;
   name: string;
   regular_holidays?: number[];
+  /** レギュラー向けリマインド本文（DB `stores.regular_remind_message`） */
+  regular_remind_message?: string;
 };

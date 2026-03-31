@@ -142,6 +142,8 @@ type StoreRow = {
   line_channel_access_token: string | null;
   /** 定休日（0=日〜6=土）。未マイグレーション時は null */
   regular_holidays?: number[] | null;
+  /** レギュラー向け本文。未マイグレーション時は null */
+  regular_remind_message?: string | null;
 };
 
 async function loadReminderConfig(
@@ -245,17 +247,21 @@ function parseCastJoinFromSchedule(schedule: { casts: unknown }): CastJoinRow | 
   return c;
 }
 
-/** シフト行があるキャスト向け: レギュラーは固定文、バイト／未設定はテンプレ＋時刻 */
+/** シフト行があるキャスト向け: レギュラーは店舗設定本文、バイト／未設定はテンプレ＋時刻 */
 function buildScheduleRemindParts(
   messageTemplate: string,
   castName: string,
   schedule: { scheduled_time: string | null; is_dohan: boolean | null },
-  employmentType: string | null | undefined
+  employmentType: string | null | undefined,
+  regularRemindMessageFromStore: string | null | undefined
 ): { reminderMessageLine: string; scheduledTimeDisplay: string } {
   const scheduledTime = formatRemindScheduledTime(schedule.scheduled_time, schedule.is_dohan);
   if (employmentUsesRegularRemindMessage(employmentType)) {
     return {
-      reminderMessageLine: buildRegularRemindMessageLine(castName),
+      reminderMessageLine: buildRegularRemindMessageLine(
+        castName,
+        regularRemindMessageFromStore
+      ),
       scheduledTimeDisplay: scheduledTime,
     };
   }
@@ -329,6 +335,7 @@ async function runRemindForStore(
     return { storeId, skipped: "settings_error", successCount: 0, failureCount: 0, totalCandidates: 0 };
   }
   const { config, messageTemplate, holidayFlex } = loaded;
+  const regularRemindMessageFromStore = store.regular_remind_message;
 
   if (config.enabled === false) {
     console.info(
@@ -458,7 +465,8 @@ async function runRemindForStore(
           messageTemplate,
           name,
           schedule,
-          c.employment_type
+          c.employment_type,
+          regularRemindMessageFromStore
         );
         const message = buildAttendanceRemindFlexMessage({
           castName: name,
@@ -475,7 +483,10 @@ async function runRemindForStore(
         return { kind: "schedule" as const, schedule };
       }),
       ...regularNoSchedule.map(async (rc) => {
-        const reminderMessageLine = buildRegularRemindMessageLine(rc.name);
+        const reminderMessageLine = buildRegularRemindMessageLine(
+          rc.name,
+          regularRemindMessageFromStore
+        );
         const message = buildAttendanceRemindFlexMessage({
           castName: rc.name,
           scheduledTimeDisplay: "—",
@@ -600,7 +611,8 @@ async function runRemindForStore(
         messageTemplate,
         name,
         schedule,
-        c.employment_type
+        c.employment_type,
+        regularRemindMessageFromStore
       );
       const message = buildAttendanceRemindFlexMessage({
         castName: name,
@@ -650,7 +662,10 @@ async function runRemindForStore(
         return { kind: "regular" as const, castId: rc.id, skipped: true as const, priorDate };
       }
 
-      const reminderMessageLine = buildRegularRemindMessageLine(rc.name);
+      const reminderMessageLine = buildRegularRemindMessageLine(
+        rc.name,
+        regularRemindMessageFromStore
+      );
       const message = buildAttendanceRemindFlexMessage({
         castName: rc.name,
         scheduledTimeDisplay: "—",
@@ -819,7 +834,9 @@ async function handleRemind(request: Request) {
 
     const { data: store, error: storeErr } = await supabase
       .from("stores")
-      .select("id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays")
+      .select(
+        "id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays, regular_remind_message"
+      )
       .eq("id", storeId)
       .single();
 
@@ -845,7 +862,9 @@ async function handleRemind(request: Request) {
 
   const { data: stores, error: storesErr } = await supabase
     .from("stores")
-    .select("id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays");
+    .select(
+      "id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays, regular_remind_message"
+    );
 
   if (storesErr) {
     logError("店舗一覧取得失敗", storesErr);

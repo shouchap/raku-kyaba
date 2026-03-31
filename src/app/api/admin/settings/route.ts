@@ -5,6 +5,7 @@ import { isValidStoreId, parseActiveStoreIdFromCookieHeader } from "@/lib/curren
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { isSuperAdminUser } from "@/lib/super-admin";
 import { isUndefinedColumnError, logPostgrestError } from "@/lib/postgrest-error";
+import { DEFAULT_REGULAR_REMIND_BODY } from "@/lib/remind-employment";
 
 export const dynamic = "force-dynamic";
 
@@ -320,6 +321,34 @@ export async function GET(request: Request) {
       }
     }
 
+    let regularRemindMessage = DEFAULT_REGULAR_REMIND_BODY;
+    const rmRes = await admin
+      .from("stores")
+      .select("regular_remind_message")
+      .eq("id", storeId)
+      .maybeSingle();
+    if (rmRes.error) {
+      if (!isUndefinedColumnError(rmRes.error, "regular_remind_message")) {
+        logPostgrestError("GET stores regular_remind_message", rmRes.error);
+        return NextResponse.json(
+          {
+            error: "Failed to load store",
+            details: rmRes.error.message,
+            code: rmRes.error.code,
+          },
+          { status: 500 }
+        );
+      }
+      console.warn(
+        "[api/admin/settings] GET: stores.regular_remind_message 未適用。マイグレーション 019 を適用してください。"
+      );
+    } else {
+      const t = (rmRes.data as { regular_remind_message?: string | null } | null)?.regular_remind_message;
+      if (typeof t === "string" && t.trim()) {
+        regularRemindMessage = t.trim();
+      }
+    }
+
     return NextResponse.json({
       remind_time: remindTime,
       allow_shift_submission: allowShiftSubmission,
@@ -328,6 +357,7 @@ export async function GET(request: Request) {
       enable_public_holiday: settingsRow?.enable_public_holiday === true,
       enable_half_holiday: settingsRow?.enable_half_holiday === true,
       regular_holidays: regularHolidays,
+      regular_remind_message: regularRemindMessage,
       reminder_config:
         settingsRow?.value && typeof settingsRow.value === "object"
           ? settingsRow.value
@@ -360,6 +390,8 @@ type PatchBody = {
   enable_half_holiday?: boolean;
   /** 定休日（0=日〜6=土）。未指定なら stores.regular_holidays を更新しない */
   regular_holidays?: number[];
+  /** レギュラー向けリマインド本文。未指定なら stores.regular_remind_message を更新しない */
+  regular_remind_message?: string;
 };
 
 /**
@@ -396,6 +428,7 @@ export async function PATCH(request: Request) {
     "pre_open_report_hour_jst"
   );
   const regularHolidaysProvided = Array.isArray(body.regular_holidays);
+  const regularRemindMessageProvided = typeof body.regular_remind_message === "string";
 
   if (!storeId || !isValidStoreId(storeId)) {
     return NextResponse.json({ error: "Valid storeId is required" }, { status: 400 });
@@ -425,6 +458,12 @@ export async function PATCH(request: Request) {
         { status: 400 }
       );
     }
+  }
+  if (regularRemindMessageProvided && body.regular_remind_message!.length > 4000) {
+    return NextResponse.json(
+      { error: "regular_remind_message must be at most 4000 characters" },
+      { status: 400 }
+    );
   }
 
   if (!canUserEditStore(user, storeId)) {
@@ -605,6 +644,10 @@ export async function PATCH(request: Request) {
     if (regularHolidaysProvided) {
       const unique = [...new Set(body.regular_holidays as number[])].sort((a, b) => a - b);
       storePayload.regular_holidays = unique;
+    }
+    if (regularRemindMessageProvided) {
+      const t = String(body.regular_remind_message).trim();
+      storePayload.regular_remind_message = t || DEFAULT_REGULAR_REMIND_BODY;
     }
 
     const storeRes = await admin.from("stores").update(storePayload).eq("id", storeId);

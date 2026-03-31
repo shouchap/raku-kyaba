@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
+import { DEFAULT_REGULAR_REMIND_BODY } from "@/lib/remind-employment";
 
 /** 00:00〜23:00（1時間刻み） */
 const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => {
@@ -65,6 +66,8 @@ export default function AdminSettingsPage() {
   const [enableReservationCheck, setEnableReservationCheck] = useState(false);
   /** 定休日（曜日インデックス 0〜6） */
   const [regularHolidays, setRegularHolidays] = useState<number[]>([]);
+  /** レギュラー向けリマインド本文（「○○さん、」の後） */
+  const [regularRemindMessage, setRegularRemindMessage] = useState(DEFAULT_REGULAR_REMIND_BODY);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -85,6 +88,7 @@ export default function AdminSettingsPage() {
         enable_half_holiday?: boolean;
         enable_reservation_check?: boolean;
         regular_holidays?: number[];
+        regular_remind_message?: string;
         reminder_config?: Record<string, unknown>;
       };
 
@@ -107,6 +111,12 @@ export default function AdminSettingsPage() {
         );
       } else {
         setRegularHolidays([]);
+      }
+
+      if (typeof data.regular_remind_message === "string" && data.regular_remind_message.trim()) {
+        setRegularRemindMessage(data.regular_remind_message.trim());
+      } else {
+        setRegularRemindMessage(DEFAULT_REGULAR_REMIND_BODY);
       }
 
       const p = data.pre_open_report_hour_jst;
@@ -198,6 +208,8 @@ export default function AdminSettingsPage() {
             preOpenReportHourJst === "" ? null : parseInt(preOpenReportHourJst, 10),
           enable_reservation_check: enableReservationCheck,
           regular_holidays: regularHolidays,
+          regular_remind_message:
+            regularRemindMessage.trim() || DEFAULT_REGULAR_REMIND_BODY,
         }),
       });
 
@@ -332,6 +344,27 @@ export default function AdminSettingsPage() {
             <p className="text-xs text-gray-500 mt-2">
               設定した時刻（分は常に :00）の日本時間に、本日未送信の店舗だけが対象でリマインドが送信されます。保存すると店舗マスタに反映されます。
               本番では毎時 GET /api/remind を呼ぶスケジューラが必要です（例: Google Cloud Scheduler、Vercel Pro の crons など）。
+            </p>
+          </div>
+
+          <div className="mb-6">
+            <label
+              htmlFor="regularRemindMessage"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              レギュラー向けリマインドメッセージ
+            </label>
+            <textarea
+              id="regularRemindMessage"
+              value={regularRemindMessage}
+              onChange={(e) => setRegularRemindMessage(e.target.value)}
+              rows={3}
+              className="w-full min-h-[80px] px-4 py-3 text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"
+              placeholder={DEFAULT_REGULAR_REMIND_BODY}
+            />
+            <p className="text-xs text-gray-500 mt-2">
+              勤務形態が「レギュラー」のキャストに送る Flex 本文です。先頭に「（名前）さん、」が付きます。空にして保存した場合は「
+              {DEFAULT_REGULAR_REMIND_BODY}」が使われます。
             </p>
           </div>
 
