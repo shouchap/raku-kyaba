@@ -5,7 +5,18 @@ import type { LineReplyMessage } from "@/lib/line-reply";
 
 const BODY_COLOR = "#37474F";
 const BTN_PRIMARY = "#00838F";
-const BTN_MUTED = "#78909C";
+
+/** DB が NULL のとき cron / Flex で使う既定文 */
+export const DEFAULT_WELFARE_MESSAGE_MORNING =
+  "おはようございます！本日の作業を開始する際は、下のボタンを押してください。";
+export const DEFAULT_WELFARE_MESSAGE_MIDDAY = "お疲れ様です！本日の体調はどうですか？！";
+export const DEFAULT_WELFARE_MESSAGE_EVENING =
+  "本日の作業お疲れ様でした！作業終了の報告をお願いします。";
+
+function resolveWelfareBody(custom: string | null | undefined, fallback: string): string {
+  const t = typeof custom === "string" ? custom.trim() : "";
+  return t.length > 0 ? t : fallback;
+}
 
 function postbackButton(label: string, data: string): object {
   return {
@@ -23,8 +34,10 @@ function postbackButton(label: string, data: string): object {
 }
 
 /** ① 朝9:00 作業開始 */
-export function buildWelfareMorningStartFlexMessage(): LineReplyMessage {
-  const text = "おはようございます！本日の作業を開始する際は、下のボタンを押してください。";
+export function buildWelfareMorningStartFlexMessage(
+  bodyText?: string | null
+): LineReplyMessage {
+  const text = resolveWelfareBody(bodyText, DEFAULT_WELFARE_MESSAGE_MORNING);
   return {
     type: "flex",
     altText: `${text}（ボタンから操作）`,
@@ -60,8 +73,10 @@ export function buildWelfareMorningStartFlexMessage(): LineReplyMessage {
 }
 
 /** ② 昼12:00 体調 */
-export function buildWelfareMiddayHealthFlexMessage(): LineReplyMessage {
-  const text = "お疲れ様です！本日の体調はどうですか？！";
+export function buildWelfareMiddayHealthFlexMessage(
+  bodyText?: string | null
+): LineReplyMessage {
+  const text = resolveWelfareBody(bodyText, DEFAULT_WELFARE_MESSAGE_MIDDAY);
   return {
     type: "flex",
     altText: `${text}（ボタンから回答）`,
@@ -101,8 +116,10 @@ export function buildWelfareMiddayHealthFlexMessage(): LineReplyMessage {
 }
 
 /** ③ 夕方17:00 作業終了 */
-export function buildWelfareEveningEndFlexMessage(): LineReplyMessage {
-  const text = "本日の作業お疲れ様でした！作業終了の報告をお願いします。";
+export function buildWelfareEveningEndFlexMessage(
+  bodyText?: string | null
+): LineReplyMessage {
+  const text = resolveWelfareBody(bodyText, DEFAULT_WELFARE_MESSAGE_EVENING);
   return {
     type: "flex",
     altText: `${text}（ボタンから操作）`,

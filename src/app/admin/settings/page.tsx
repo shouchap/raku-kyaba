@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { DEFAULT_REGULAR_REMIND_BODY } from "@/lib/remind-employment";
+import {
+  DEFAULT_WELFARE_MESSAGE_EVENING,
+  DEFAULT_WELFARE_MESSAGE_MIDDAY,
+  DEFAULT_WELFARE_MESSAGE_MORNING,
+} from "@/lib/welfare-line-flex";
 
 /** 00:00〜23:00（1時間刻み） */
 const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => {
@@ -48,6 +53,10 @@ const DEFAULT_CONFIG: ReminderConfig = {
 
 export default function AdminSettingsPage() {
   const activeStoreId = useActiveStoreId();
+  const [businessType, setBusinessType] = useState<"cabaret" | "welfare_b">("cabaret");
+  const [welfareMorning, setWelfareMorning] = useState("");
+  const [welfareMidday, setWelfareMidday] = useState("");
+  const [welfareEvening, setWelfareEvening] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -81,6 +90,10 @@ export default function AdminSettingsPage() {
         return;
       }
       const data = (await res.json()) as {
+        business_type?: string;
+        welfare_message_morning?: string | null;
+        welfare_message_midday?: string | null;
+        welfare_message_evening?: string | null;
         remind_time?: string;
         allow_shift_submission?: boolean;
         pre_open_report_hour_jst?: number | null;
@@ -91,6 +104,17 @@ export default function AdminSettingsPage() {
         regular_remind_message?: string;
         reminder_config?: Record<string, unknown>;
       };
+
+      setBusinessType(data.business_type === "welfare_b" ? "welfare_b" : "cabaret");
+      setWelfareMorning(
+        typeof data.welfare_message_morning === "string" ? data.welfare_message_morning : ""
+      );
+      setWelfareMidday(
+        typeof data.welfare_message_midday === "string" ? data.welfare_message_midday : ""
+      );
+      setWelfareEvening(
+        typeof data.welfare_message_evening === "string" ? data.welfare_message_evening : ""
+      );
 
       if (
         typeof data.remind_time === "string" &&
@@ -181,6 +205,45 @@ export default function AdminSettingsPage() {
     setMessage(null);
     setSaveWarning(null);
     try {
+      if (businessType === "welfare_b") {
+        const res = await fetch("/api/admin/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            storeId: activeStoreId,
+            welfare_settings_patch: true,
+            welfare_message_morning: welfareMorning,
+            welfare_message_midday: welfareMidday,
+            welfare_message_evening: welfareEvening,
+          }),
+        });
+
+        const payload = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          details?: string;
+          code?: string;
+          hint?: string;
+        };
+
+        if (!res.ok) {
+          throw new Error(
+            typeof payload.error === "string"
+              ? [payload.error, payload.details, payload.code ? `code=${payload.code}` : ""]
+                  .filter(Boolean)
+                  .join(" — ")
+              : "保存に失敗しました"
+          );
+        }
+        if (payload.ok !== true) {
+          throw new Error(
+            typeof payload.error === "string" ? payload.error : "保存に失敗しました"
+          );
+        }
+        setMessage("success");
+        return;
+      }
+
       const value: Record<string, unknown> = {
         enabled: config.enabled,
         sendTime: remindTime,
@@ -293,7 +356,9 @@ export default function AdminSettingsPage() {
             システム設定
           </h1>
           <p className="text-xs sm:text-sm text-gray-600">
-            リマインド・各種設定を管理します
+            {businessType === "welfare_b"
+              ? "B型事業所向けの定期配信メッセージを管理します"
+              : "リマインド・各種設定を管理します"}
           </p>
         </div>
 
@@ -301,9 +366,77 @@ export default function AdminSettingsPage() {
           onSubmit={handleSave}
           className="rounded-lg border border-gray-200 bg-white shadow-sm p-4 sm:p-6"
         >
-          <h2 className="text-sm font-medium text-gray-700 mb-6">
-            リマインド設定
-          </h2>
+          {businessType === "welfare_b" ? (
+            <>
+              <h2 className="text-sm font-medium text-gray-700 mb-6">
+                B型・定期配信メッセージ
+              </h2>
+              <p className="text-xs sm:text-sm text-gray-600 mb-6">
+                朝9時・昼12時・夕17時の自動配信（GET /api/welfare/cron）に表示する本文です。空欄のまま保存するとシステム既定の文面が使われます。
+              </p>
+              <div className="mb-6">
+                <label
+                  htmlFor="welfareMorning"
+                  className="block text-sm font-medium text-gray-700 mb-2"
+                >
+                  朝の点呼・作業開始メッセージ
+                </label>
+                <textarea
+                  id="welfareMorning"
+                  value={welfareMorning}
+                  onChange={(e) => setWelfareMorning(e.target.value)}
+                  rows={4}
+                  placeholder={DEFAULT_WELFARE_MESSAGE_MORNING}
+                  className="w-full min-h-[96px] px-4 py-3 text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"
+                />
+              </div>
+              <div className="mb-6">
+                <label
+                  htmlFor="welfareMidday"
+                  className="block text-sm font-medium text-gray-700 mb-2"
+                >
+                  昼の体調確認メッセージ
+                </label>
+                <textarea
+                  id="welfareMidday"
+                  value={welfareMidday}
+                  onChange={(e) => setWelfareMidday(e.target.value)}
+                  rows={4}
+                  placeholder={DEFAULT_WELFARE_MESSAGE_MIDDAY}
+                  className="w-full min-h-[96px] px-4 py-3 text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"
+                />
+              </div>
+              <div className="mb-8">
+                <label
+                  htmlFor="welfareEvening"
+                  className="block text-sm font-medium text-gray-700 mb-2"
+                >
+                  夕方の終了報告メッセージ
+                </label>
+                <textarea
+                  id="welfareEvening"
+                  value={welfareEvening}
+                  onChange={(e) => setWelfareEvening(e.target.value)}
+                  rows={4}
+                  placeholder={DEFAULT_WELFARE_MESSAGE_EVENING}
+                  className="w-full min-h-[96px] px-4 py-3 text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"
+                />
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 min-h-[48px] h-12 px-6 bg-blue-600 text-white text-base font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                >
+                  {saving ? "保存中..." : "設定を保存"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 className="text-sm font-medium text-gray-700 mb-6">
+                リマインド設定
+              </h2>
 
           {/* 有効/無効 */}
           <div className="mb-6">
@@ -691,6 +824,8 @@ export default function AdminSettingsPage() {
                 : "今すぐテスト送信（本日分）"}
             </button>
           </div>
+            </>
+          )}
         </form>
 
         {message === "success" && (

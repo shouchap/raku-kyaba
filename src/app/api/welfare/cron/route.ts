@@ -15,6 +15,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendMulticastMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { isValidStoreId } from "@/lib/current-store";
+import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import {
   buildWelfareEveningEndFlexMessage,
   buildWelfareMiddayHealthFlexMessage,
@@ -39,54 +40,102 @@ function parseSegment(raw: string | null): Segment | null {
   return null;
 }
 
-function flexForSegment(seg: Segment) {
+type WelfareCronStoreRow = {
+  id: string;
+  welfare_message_morning: string | null;
+  welfare_message_midday: string | null;
+  welfare_message_evening: string | null;
+};
+
+function flexForSegment(seg: Segment, row: WelfareCronStoreRow) {
   switch (seg) {
     case "morning":
-      return buildWelfareMorningStartFlexMessage();
+      return buildWelfareMorningStartFlexMessage(row.welfare_message_morning);
     case "midday":
-      return buildWelfareMiddayHealthFlexMessage();
+      return buildWelfareMiddayHealthFlexMessage(row.welfare_message_midday);
     case "evening":
-      return buildWelfareEveningEndFlexMessage();
+      return buildWelfareEveningEndFlexMessage(row.welfare_message_evening);
     default:
-      return buildWelfareMorningStartFlexMessage();
+      return buildWelfareMorningStartFlexMessage(row.welfare_message_morning);
   }
 }
+
+const WELFARE_STORE_SELECT =
+  "id, welfare_message_morning, welfare_message_midday, welfare_message_evening";
 
 async function fetchWelfareStores(
   supabase: SupabaseClient,
   singleStoreId: string | null
-): Promise<{ id: string }[]> {
+): Promise<WelfareCronStoreRow[]> {
   if (singleStoreId) {
     const { data, error } = await supabase
       .from("stores")
-      .select("id")
+      .select(WELFARE_STORE_SELECT)
       .eq("id", singleStoreId)
       .eq("business_type", "welfare_b")
       .maybeSingle();
     if (error) {
+      if (isUndefinedColumnError(error, "welfare_message_morning")) {
+        console.warn(
+          `${LOG_PREFIX} welfare_message_* 未適用。024 適用までデフォルト文言で送信します。`
+        );
+        const fb = await supabase
+          .from("stores")
+          .select("id")
+          .eq("id", singleStoreId)
+          .eq("business_type", "welfare_b")
+          .maybeSingle();
+        if (fb.error || !fb.data?.id) return [];
+        return [normalizeWelfareCronRow(fb.data as Record<string, unknown>)];
+      }
       console.error(LOG_PREFIX, "single store fetch", error.message);
       return [];
     }
-    return data?.id ? [{ id: data.id }] : [];
+    if (!data?.id) return [];
+    return [normalizeWelfareCronRow(data as Record<string, unknown>)];
   }
 
   const { data, error } = await supabase
     .from("stores")
-    .select("id")
+    .select(WELFARE_STORE_SELECT)
     .eq("business_type", "welfare_b");
 
   if (error) {
+    if (isUndefinedColumnError(error, "welfare_message_morning")) {
+      console.warn(
+        `${LOG_PREFIX} welfare_message_* 未適用。024 適用までデフォルト文言で送信します。`
+      );
+      const fb = await supabase.from("stores").select("id").eq("business_type", "welfare_b");
+      if (fb.error) {
+        console.error(LOG_PREFIX, "stores list fallback", fb.error.message);
+        return [];
+      }
+      return (fb.data ?? []).map((r) => normalizeWelfareCronRow(r as Record<string, unknown>));
+    }
     console.error(LOG_PREFIX, "stores list", error.message);
     return [];
   }
-  return (data ?? []) as { id: string }[];
+  return (data ?? []).map((r) => normalizeWelfareCronRow(r as Record<string, unknown>));
+}
+
+function normalizeWelfareCronRow(r: Record<string, unknown>): WelfareCronStoreRow {
+  return {
+    id: String(r.id ?? ""),
+    welfare_message_morning:
+      typeof r.welfare_message_morning === "string" ? r.welfare_message_morning : null,
+    welfare_message_midday:
+      typeof r.welfare_message_midday === "string" ? r.welfare_message_midday : null,
+    welfare_message_evening:
+      typeof r.welfare_message_evening === "string" ? r.welfare_message_evening : null,
+  };
 }
 
 async function pushSegmentToStore(
   supabase: SupabaseClient,
-  storeId: string,
+  storeRow: WelfareCronStoreRow,
   segment: Segment
 ): Promise<{ ok: boolean; recipients: number; error?: string }> {
+  const storeId = storeRow.id;
   const resolved = await fetchResolvedLineChannelAccessTokenForStore(supabase, storeId, LOG_PREFIX);
   if (!resolved?.token) {
     return { ok: false, recipients: 0, error: "no_line_token" };
@@ -112,7 +161,7 @@ async function pushSegmentToStore(
     return { ok: true, recipients: 0 };
   }
 
-  const flex = flexForSegment(segment);
+  const flex = flexForSegment(segment, storeRow);
   const chunkSize = 500;
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
@@ -159,7 +208,7 @@ export async function GET(request: Request) {
     const results: { storeId: string; recipients: number; error?: string }[] = [];
 
     for (const s of stores) {
-      const r = await pushSegmentToStore(supabase, s.id, segment);
+      const r = await pushSegmentToStore(supabase, s, segment);
       results.push({
         storeId: s.id,
         recipients: r.recipients,

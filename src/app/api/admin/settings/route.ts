@@ -349,7 +349,59 @@ export async function GET(request: Request) {
       }
     }
 
+    let businessType: "cabaret" | "welfare_b" = "cabaret";
+    let welfare_message_morning: string | null = null;
+    let welfare_message_midday: string | null = null;
+    let welfare_message_evening: string | null = null;
+
+    const welfareRes = await admin
+      .from("stores")
+      .select("business_type, welfare_message_morning, welfare_message_midday, welfare_message_evening")
+      .eq("id", storeId)
+      .maybeSingle();
+
+    if (welfareRes.error) {
+      if (isUndefinedColumnError(welfareRes.error, "welfare_message_morning")) {
+        console.warn(
+          "[api/admin/settings] GET: stores.welfare_message_* 未適用。マイグレーション 024 を適用してください。"
+        );
+        const btRes = await admin.from("stores").select("business_type").eq("id", storeId).maybeSingle();
+        if (!btRes.error && btRes.data) {
+          const bt = (btRes.data as { business_type?: string | null }).business_type;
+          if (bt === "welfare_b") businessType = "welfare_b";
+        }
+      } else {
+        logPostgrestError("GET stores business_type / welfare messages", welfareRes.error);
+        return NextResponse.json(
+          {
+            error: "Failed to load store",
+            details: welfareRes.error.message,
+            code: welfareRes.error.code,
+          },
+          { status: 500 }
+        );
+      }
+    } else {
+      const w = welfareRes.data as {
+        business_type?: string | null;
+        welfare_message_morning?: string | null;
+        welfare_message_midday?: string | null;
+        welfare_message_evening?: string | null;
+      } | null;
+      if (w?.business_type === "welfare_b") businessType = "welfare_b";
+      welfare_message_morning =
+        typeof w?.welfare_message_morning === "string" ? w.welfare_message_morning : null;
+      welfare_message_midday =
+        typeof w?.welfare_message_midday === "string" ? w.welfare_message_midday : null;
+      welfare_message_evening =
+        typeof w?.welfare_message_evening === "string" ? w.welfare_message_evening : null;
+    }
+
     return NextResponse.json({
+      business_type: businessType,
+      welfare_message_morning,
+      welfare_message_midday,
+      welfare_message_evening,
       remind_time: remindTime,
       allow_shift_submission: allowShiftSubmission,
       pre_open_report_hour_jst: preOpenReportHourJst,
@@ -392,6 +444,11 @@ type PatchBody = {
   regular_holidays?: number[];
   /** レギュラー向けリマインド本文。未指定なら stores.regular_remind_message を更新しない */
   regular_remind_message?: string;
+  /** B型専用: このフラグが true のときは welfare メッセージ3件のみ更新（reminder_config 不要） */
+  welfare_settings_patch?: boolean;
+  welfare_message_morning?: string | null;
+  welfare_message_midday?: string | null;
+  welfare_message_evening?: string | null;
 };
 
 /**
@@ -419,6 +476,109 @@ export async function PATCH(request: Request) {
   }
 
   const storeId = body.storeId?.trim() ?? "";
+
+  if (!storeId || !isValidStoreId(storeId)) {
+    return NextResponse.json({ error: "Valid storeId is required" }, { status: 400 });
+  }
+
+  if (!canUserEditStore(user, storeId)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const patchCookieMismatch = storeIdForbiddenUnlessMatchesCookie(request, user, storeId);
+  if (patchCookieMismatch) return patchCookieMismatch;
+
+  /** B型: 朝・昼・夕の cron 用メッセージのみ保存（キャバクラ向け reminder_config は触らない） */
+  if (body.welfare_settings_patch === true) {
+    const wm = body.welfare_message_morning;
+    const wmd = body.welfare_message_midday;
+    const we = body.welfare_message_evening;
+    if (typeof wm !== "string" || typeof wmd !== "string" || typeof we !== "string") {
+      return NextResponse.json(
+        {
+          error:
+            "welfare_message_morning, welfare_message_midday, welfare_message_evening are required as strings (use empty string for default)",
+        },
+        { status: 400 }
+      );
+    }
+    if (wm.length > 4000 || wmd.length > 4000 || we.length > 4000) {
+      return NextResponse.json(
+        { error: "each welfare message must be at most 4000 characters" },
+        { status: 400 }
+      );
+    }
+
+    if (
+      !(process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim() ||
+      !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+    ) {
+      return serviceRoleEnvErrorResponse();
+    }
+
+    let adminWelfare: ReturnType<typeof createServiceRoleClient>;
+    try {
+      adminWelfare = createServiceRoleClient();
+    } catch (e) {
+      logPostgrestError("PATCH welfare createServiceRoleClient", e);
+      return NextResponse.json(
+        {
+          error: "Server configuration error (service role)",
+          details: e instanceof Error ? e.message : String(e),
+        },
+        { status: 500 }
+      );
+    }
+
+    const { data: stRow, error: stErr } = await adminWelfare
+      .from("stores")
+      .select("business_type")
+      .eq("id", storeId)
+      .maybeSingle();
+
+    if (stErr) {
+      logPostgrestError("PATCH welfare stores business_type", stErr);
+      return NextResponse.json(
+        { error: "Failed to load store", details: stErr.message, code: stErr.code },
+        { status: 500 }
+      );
+    }
+    if (stRow?.business_type !== "welfare_b") {
+      return NextResponse.json(
+        { error: "welfare_settings_patch is only for stores with business_type welfare_b" },
+        { status: 400 }
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    const payload = {
+      welfare_message_morning: wm.trim() === "" ? null : wm.trim(),
+      welfare_message_midday: wmd.trim() === "" ? null : wmd.trim(),
+      welfare_message_evening: we.trim() === "" ? null : we.trim(),
+      updated_at: nowIso,
+    };
+
+    const updRes = await adminWelfare.from("stores").update(payload).eq("id", storeId);
+    if (updRes.error) {
+      logPostgrestError("PATCH welfare stores update", updRes.error);
+      if (isUndefinedColumnError(updRes.error, "welfare_message_morning")) {
+        return NextResponse.json(
+          {
+            error: "welfare message columns are missing",
+            details: "Apply supabase/migrations/024_stores_welfare_messages.sql",
+          },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json(
+        { error: "Failed to save welfare messages", details: updRes.error.message, code: updRes.error.code },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ ok: true });
+  }
+
   const remindTime = body.remind_time?.trim() ?? "";
   const reminderConfig = body.reminder_config;
   const allowShiftSubmissionProvided = typeof body.allow_shift_submission === "boolean";
@@ -430,9 +590,6 @@ export async function PATCH(request: Request) {
   const regularHolidaysProvided = Array.isArray(body.regular_holidays);
   const regularRemindMessageProvided = typeof body.regular_remind_message === "string";
 
-  if (!storeId || !isValidStoreId(storeId)) {
-    return NextResponse.json({ error: "Valid storeId is required" }, { status: 400 });
-  }
   if (preOpenReportHourProvided) {
     const v = body.pre_open_report_hour_jst;
     if (v !== null && (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 23)) {
@@ -465,13 +622,6 @@ export async function PATCH(request: Request) {
       { status: 400 }
     );
   }
-
-  if (!canUserEditStore(user, storeId)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const patchCookieMismatch = storeIdForbiddenUnlessMatchesCookie(request, user, storeId);
-  if (patchCookieMismatch) return patchCookieMismatch;
 
   if (
     !(process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim() ||

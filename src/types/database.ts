@@ -43,6 +43,10 @@ export interface Database {
           regular_holidays: number[];
           /** レギュラー向けリマインド本文（「○○さん、」の後） */
           regular_remind_message: string;
+          /** B型: 朝の点呼 Flex 本文（NULL でデフォルト） */
+          welfare_message_morning: string | null;
+          welfare_message_midday: string | null;
+          welfare_message_evening: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -60,6 +64,9 @@ export interface Database {
           | "enable_reservation_check"
           | "regular_holidays"
           | "regular_remind_message"
+          | "welfare_message_morning"
+          | "welfare_message_midday"
+          | "welfare_message_evening"
         > & {
           id?: string;
           created_at?: string;
@@ -73,6 +80,9 @@ export interface Database {
           enable_reservation_check?: boolean;
           regular_holidays?: number[];
           regular_remind_message?: string;
+          welfare_message_morning?: string | null;
+          welfare_message_midday?: string | null;
+          welfare_message_evening?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["stores"]["Insert"]>;
       };
