@@ -14,6 +14,7 @@ import { assertStoreIdMatchesRequest } from "@/lib/current-store";
 import { getTodayJst } from "@/lib/date-utils";
 import { canUserEditStore } from "@/lib/admin-store-auth";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
+import { createServiceRoleClient } from "@/lib/supabase-service";
 
 export const dynamic = "force-dynamic";
 
@@ -113,7 +114,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { data: insertRow, error: insertError } = await supabase
+  let admin: ReturnType<typeof createServiceRoleClient>;
+  try {
+    admin = createServiceRoleClient();
+  } catch (e) {
+    console.error("[schedule-register] service role:", e);
+    return NextResponse.json(
+      { error: "Server configuration error (service role)" },
+      { status: 500 }
+    );
+  }
+
+  const { data: insertRow, error: insertError } = await admin
     .from("attendance_schedules")
     .insert({
       store_id: storeId,
@@ -145,7 +157,7 @@ export async function POST(request: Request) {
   }
 
   const tokenResult = await fetchResolvedLineChannelAccessTokenForStore(
-    supabase,
+    admin,
     storeId,
     "[schedule-register]"
   );
@@ -160,7 +172,7 @@ export async function POST(request: Request) {
   }
   const channelAccessToken = tokenResult.token;
 
-  const { data: cast, error: castError } = await supabase
+  const { data: cast, error: castError } = await admin
     .from("casts")
     .select("line_user_id, name")
     .eq("id", castId)
@@ -190,7 +202,7 @@ export async function POST(request: Request) {
 
   let messageTemplate: string;
   try {
-    messageTemplate = await fetchReminderMessageTemplate(supabase, storeId);
+    messageTemplate = await fetchReminderMessageTemplate(admin, storeId);
   } catch (e) {
     console.error("[schedule-register] template fetch:", e);
     messageTemplate =
@@ -198,8 +210,8 @@ export async function POST(request: Request) {
   }
 
   const [storeRes, holidayFlex] = await Promise.all([
-    supabase.from("stores").select("name").eq("id", storeId).maybeSingle(),
-    fetchAttendanceFlexHolidayOptions(supabase, storeId),
+    admin.from("stores").select("name").eq("id", storeId).maybeSingle(),
+    fetchAttendanceFlexHolidayOptions(admin, storeId),
   ]);
   const storeRow = storeRes.data;
 
@@ -242,7 +254,7 @@ export async function POST(request: Request) {
   }
 
   const nowIso = new Date().toISOString();
-  const { error: updateErr } = await supabase
+  const { error: updateErr } = await admin
     .from("attendance_schedules")
     .update({ last_reminded_at: nowIso })
     .eq("id", scheduleId);

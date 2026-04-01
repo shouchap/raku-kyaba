@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sendPushMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 import { formatScheduleTimeLabel } from "@/lib/attendance-remind-flex";
+import { createServiceRoleClient } from "@/lib/supabase-service";
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -23,14 +23,12 @@ function formatDateJa(dateStr: string): string {
  * Body: { startDate: "2026-03-20", castId: "uuid" }
  */
 export async function POST(request: Request) {
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
-  const supabaseKey =
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !supabaseKey) {
+  let admin: ReturnType<typeof createServiceRoleClient>;
+  try {
+    admin = createServiceRoleClient();
+  } catch {
     return NextResponse.json(
-      { error: "Supabase URL or key is not configured" },
+      { error: "Server configuration error (service role)" },
       { status: 500 }
     );
   }
@@ -59,8 +57,6 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
 
   let expectedStoreId: string;
   try {
@@ -96,7 +92,7 @@ export async function POST(request: Request) {
   }
 
   // キャスト情報（line_user_id 必須）
-  const { data: cast, error: castError } = await supabase
+  const { data: cast, error: castError } = await admin
     .from("casts")
     .select("id, name, line_user_id, store_id")
     .eq("id", castId)
@@ -115,7 +111,7 @@ export async function POST(request: Request) {
   }
 
   const tokenResult = await fetchResolvedLineChannelAccessTokenForStore(
-    supabase,
+    admin,
     cast.store_id,
     "[NotifyIndividual]"
   );
@@ -139,7 +135,7 @@ export async function POST(request: Request) {
   }
 
   // 該当キャストの7日間シフト（同伴・捌き含む）
-  const { data: schedules } = await supabase
+  const { data: schedules } = await admin
     .from("attendance_schedules")
     .select("scheduled_date, scheduled_time, is_dohan, is_sabaki")
     .eq("cast_id", castId)

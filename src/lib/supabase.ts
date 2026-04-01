@@ -5,7 +5,8 @@ import { createClient } from "@supabase/supabase-js";
  *
  * 設計意図:
  * - WebhookはLINEからのサーバー間通信のため、ユーザー認証なしでサービスロールを使用
- * - RLSはバイパスされ、store_idによるテナントフィルタはアプリケーション層で実施
+ * - service_role は RLS をバイパスする。テナント分離は API / Webhook 側で store_id を検証
+ * - 管理画面ブラウザは anon＋ログイン JWT 経由。RLS は JWT の store_admin / super_admin を参照（021 マイグレーション）
  * - 型は簡易的に指定。本格運用時は `supabase gen types typescript` で生成を推奨
  */
 export function createSupabaseClient() {

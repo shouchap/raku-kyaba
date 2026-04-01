@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sendPushMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 import { formatScheduleTimeLabel } from "@/lib/attendance-remind-flex";
+import { createServiceRoleClient } from "@/lib/supabase-service";
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -23,14 +23,12 @@ function formatDateJa(dateStr: string): string {
  * Body: { startDate: "2026-03-20" }
  */
 export async function POST(request: Request) {
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
-  const supabaseKey =
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !supabaseKey) {
+  let admin: ReturnType<typeof createServiceRoleClient>;
+  try {
+    admin = createServiceRoleClient();
+  } catch {
     return NextResponse.json(
-      { error: "Supabase URL or key is not configured" },
+      { error: "Server configuration error (service role)" },
       { status: 500 }
     );
   }
@@ -52,8 +50,6 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
 
   let storeId: string;
   try {
@@ -80,7 +76,7 @@ export async function POST(request: Request) {
   }
 
   const tokenResult = await fetchResolvedLineChannelAccessTokenForStore(
-    supabase,
+    admin,
     storeId,
     "[NotifyWeekly]"
   );
@@ -105,7 +101,7 @@ export async function POST(request: Request) {
   }
 
   // 全キャスト（LINE連携あり）を取得（休みの人にも通知するため）
-  const { data: allCasts, error: castsError } = await supabase
+  const { data: allCasts, error: castsError } = await admin
     .from("casts")
     .select("id, name, line_user_id")
     .eq("store_id", storeId)
@@ -130,7 +126,7 @@ export async function POST(request: Request) {
   }
 
   // 7日間の attendance_schedules を casts と JOIN して取得（同伴・捌き含む）
-  const { data: schedules, error: scheduleError } = await supabase
+  const { data: schedules, error: scheduleError } = await admin
     .from("attendance_schedules")
     .select("cast_id, scheduled_date, scheduled_time, is_dohan, is_sabaki, casts(name, line_user_id)")
     .eq("store_id", storeId)
