@@ -2,6 +2,8 @@
  * Supabase 自動生成型のプレースホルダー
  * 実際の開発では `supabase gen types typescript` で生成を推奨
  */
+import type { StoreBusinessType } from "./entities";
+
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
 export type AttendanceStatus =
@@ -18,6 +20,8 @@ export interface Database {
         Row: {
           id: string;
           name: string;
+          /** 業態: cabaret / welfare_b（022） */
+          business_type: StoreBusinessType;
           line_channel_id: string | null;
           line_channel_secret: string;
           line_channel_access_token: string | null;
@@ -47,6 +51,7 @@ export interface Database {
           | "id"
           | "created_at"
           | "updated_at"
+          | "business_type"
           | "remind_time"
           | "last_reminded_date"
           | "allow_shift_submission"
@@ -59,6 +64,7 @@ export interface Database {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          business_type?: StoreBusinessType;
           remind_time?: string;
           last_reminded_date?: string | null;
           allow_shift_submission?: boolean;

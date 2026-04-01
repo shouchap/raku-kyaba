@@ -2,6 +2,9 @@
  * アプリ共通の店舗・キャスト型（UI・API で共有）
  */
 
+/** 店舗業態（stores.business_type）。Webhook / Cron で早期分岐に利用 */
+export type StoreBusinessType = "cabaret" | "welfare_b";
+
 export type CastEmploymentType = "admin" | "regular" | "part_time";
 
 export type Cast = {
@@ -18,6 +21,8 @@ export type Cast = {
 export type Store = {
   id: string;
   name: string;
+  /** DB 既定は cabaret。未読込時はキャバクラ扱いに倒すなら呼び出し側で ?? 'cabaret' */
+  business_type?: StoreBusinessType;
   regular_holidays?: number[];
   /** レギュラー向けリマインド本文（DB `stores.regular_remind_message`） */
   regular_remind_message?: string;
