@@ -13,8 +13,12 @@ import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendMulticastMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
-import { getTodayJst, getCurrentTimeJst } from "@/lib/date-utils";
-import { buildPreOpenReportMessage, type PreOpenScheduleRow } from "@/lib/pre-open-report-message";
+import { getTodayJst, getCurrentTimeJst, getWeekdayJst } from "@/lib/date-utils";
+import {
+  buildPreOpenReportMessage,
+  countPreOpenWorkingCasts,
+  type PreOpenScheduleRow,
+} from "@/lib/pre-open-report-message";
 import { isValidStoreId } from "@/lib/current-store";
 
 export const dynamic = "force-dynamic";
@@ -142,7 +146,16 @@ type StoreRow = {
   name: string | null;
   pre_open_report_hour_jst: number | null;
   last_pre_open_report_date: string | null;
+  regular_holidays?: number[] | null;
 };
+
+/** 定休日（stores.regular_holidays: 0=日〜6=土）なら true */
+function isRegularHolidayDay(regularHolidays: number[] | null | undefined, todayJst: string): boolean {
+  const arr = Array.isArray(regularHolidays) ? regularHolidays : [];
+  if (arr.length === 0) return false;
+  const wd = getWeekdayJst(todayJst);
+  return arr.includes(wd);
+}
 
 type ProcessResult = {
   storeId: string;
@@ -181,6 +194,13 @@ async function processPreOpenReportForStore(
       if (sentDate === todayJst) {
         return { storeId: sid, skipped: "already_sent_today" };
       }
+
+      if (isRegularHolidayDay(store.regular_holidays, todayJst)) {
+        console.info(
+          `${LOG_PREFIX} 定休日のためサマリー送信をスキップ storeId=${sid} todayJst=${todayJst} weekday=${getWeekdayJst(todayJst)}`
+        );
+        return { storeId: sid, skipped: "regular_holiday" };
+      }
     }
 
     const resolved = await fetchResolvedLineChannelAccessTokenForStore(supabase, sid, LOG_PREFIX);
@@ -204,8 +224,10 @@ async function processPreOpenReportForStore(
     }
 
     const schedules = rawSchedules ?? [];
-    if (schedules.length === 0 && !force) {
-      return { storeId: sid, skipped: "no_schedules_today" };
+
+    if (!force && countPreOpenWorkingCasts(schedules) === 0) {
+      console.info(`${LOG_PREFIX} 出勤者0人のためサマリー送信をスキップ storeId=${sid}`);
+      return { storeId: sid, skipped: "no_working_casts" };
     }
 
     let body: string;
@@ -383,7 +405,7 @@ export async function GET(request: Request) {
 
     const { data: stores, error: storesErr } = await supabase
       .from("stores")
-      .select("id, name, pre_open_report_hour_jst, last_pre_open_report_date");
+      .select("id, name, pre_open_report_hour_jst, last_pre_open_report_date, regular_holidays");
 
     if (storesErr) {
       console.error(`${LOG_PREFIX} batch fetch stores`, {

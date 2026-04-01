@@ -76,10 +76,20 @@ function sectionForRow(row: PreOpenScheduleRow): "attending" | "late" | "off" | 
   return "unanswered";
 }
 
+/** 出勤確定（予約ヒアリング中含む）または遅刻の人数。送信スキップ判定用 */
+export function countPreOpenWorkingCasts(rows: PreOpenScheduleRow[]): number {
+  let n = 0;
+  for (const r of rows) {
+    const s = sectionForRow(r);
+    if (s === "attending" || s === "late") n++;
+  }
+  return n;
+}
+
 function blockAttending(row: PreOpenScheduleRow): string {
   const name = castName(row);
   const time = formatScheduleTimeLabel(row.scheduled_time, row.is_dohan, row.is_sabaki);
-  const head = `👤 ${name}（${time}）`;
+  const head = `${name} (${time})`;
   const subs = formatReservationSubLines(row);
   if (subs.length === 0) return head;
   return [head, ...subs].join("\n");
@@ -88,32 +98,32 @@ function blockAttending(row: PreOpenScheduleRow): string {
 function blockLate(row: PreOpenScheduleRow): string {
   const name = castName(row);
   const time = formatScheduleTimeLabel(row.scheduled_time, row.is_dohan, row.is_sabaki);
-  const head = `👤 ${name}（${time}）`;
+  const head = `${name} (${time})`;
   const reason = (row.late_reason ?? "").trim();
   if (!reason) {
-    return `${head}\n　⏰ 遅刻`;
+    return `${head}\n遅刻`;
   }
   return [head, ...formatReasonSubLines("遅刻", reason)].join("\n");
 }
 
 function blockOff(row: PreOpenScheduleRow): string {
   const name = castName(row);
-  const head = `👤 ${name}`;
+  const head = name;
   const rs = row.response_status;
   if (rs === "absent") {
     const r = (row.absent_reason ?? "").trim();
     if (r) return [head, ...formatReasonSubLines("欠勤", r)].join("\n");
-    return `${head}\n　❌ 欠勤`;
+    return `${head}\n欠勤`;
   }
   if (rs === "half_holiday") {
     const r = (row.half_holiday_reason ?? "").trim();
     if (r) return [head, ...formatReasonSubLines("半休", r)].join("\n");
-    return `${head}\n　❌ 半休`;
+    return `${head}\n半休`;
   }
   if (rs === "public_holiday") {
     const r = (row.public_holiday_reason ?? "").trim();
     if (r) return [head, ...formatReasonSubLines("公休", r)].join("\n");
-    return `${head}\n　❌ 公休`;
+    return `${head}\n公休`;
   }
   return head;
 }
@@ -121,12 +131,12 @@ function blockOff(row: PreOpenScheduleRow): string {
 function blockUnanswered(row: PreOpenScheduleRow): string {
   const name = castName(row);
   const time = formatScheduleTimeLabel(row.scheduled_time, row.is_dohan, row.is_sabaki);
-  return `👤 ${name}（${time}）`;
+  return `${name} (${time})`;
 }
 
-function sectionBlock(emojiTitle: string, subtitle: string | null, body: string): string[] {
+function sectionBlock(title: string, subtitle: string | null, body: string): string[] {
   const lines: string[] = [];
-  lines.push(emojiTitle);
+  lines.push(`【${title}】`);
   if (subtitle) lines.push(subtitle);
   lines.push(RULE_THICK);
   lines.push("");
@@ -157,29 +167,29 @@ export function buildPreOpenReportMessage(storeName: string, todayJst: string, r
   const out: string[] = [];
 
   out.push("【本日の営業前サマリー】");
-  out.push(`🏪 ${storeName.trim() || "店舗"}`);
-  out.push(`📅 ${todayJst}（JST）`);
+  out.push(storeName.trim() || "店舗");
+  out.push(`${todayJst} (JST)`);
   out.push("");
   out.push(RULE_THICK);
   out.push("");
 
   const attendingBody = attending.length ? attending.map(blockAttending).join("\n\n") : "（なし）";
-  out.push(...sectionBlock("✅ 出勤予定", null, attendingBody));
+  out.push(...sectionBlock("出勤予定", null, attendingBody));
   out.push("");
   out.push("");
 
   const lateBody = late.length ? late.map(blockLate).join("\n\n") : "（なし）";
-  out.push(...sectionBlock("⏰ 遅刻", null, lateBody));
+  out.push(...sectionBlock("遅刻", null, lateBody));
   out.push("");
   out.push("");
 
   const offBody = offSorted.length ? offSorted.map(blockOff).join("\n\n") : "（なし）";
-  out.push(...sectionBlock("🛌 お休み", "　欠勤・半休・公休", offBody));
+  out.push(...sectionBlock("お休み", "欠勤・半休・公休", offBody));
   out.push("");
   out.push("");
 
   const unansweredBody = unanswered.length ? unanswered.map(blockUnanswered).join("\n\n") : "（なし）";
-  out.push(...sectionBlock("❓ 未回答", "　出勤確認が未完了の方", unansweredBody));
+  out.push(...sectionBlock("未回答", "出勤確認が未完了の方", unansweredBody));
 
   return out.join("\n");
 }
