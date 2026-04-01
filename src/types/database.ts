@@ -127,6 +127,37 @@ export interface Database {
         };
         Update: Partial<Database["public"]["Tables"]["attendance_logs"]["Insert"]>;
       };
+      welfare_daily_logs: {
+        Row: {
+          id: string;
+          store_id: string;
+          cast_id: string;
+          work_date: string;
+          started_at: string | null;
+          ended_at: string | null;
+          health_status: "good" | "soso" | "bad" | null;
+          health_reason: string | null;
+          work_item: string | null;
+          pending_line_flow: "welfare_health_reason" | "welfare_work_item" | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          store_id: string;
+          cast_id: string;
+          work_date: string;
+          started_at?: string | null;
+          ended_at?: string | null;
+          health_status?: "good" | "soso" | "bad" | null;
+          health_reason?: string | null;
+          work_item?: string | null;
+          pending_line_flow?: "welfare_health_reason" | "welfare_work_item" | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["welfare_daily_logs"]["Insert"]>;
+      };
     };
   };
 }

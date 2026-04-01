@@ -5,7 +5,10 @@ import { verifyLineSignature } from "@/lib/line-signature";
 import { sendReply, sendMulticastMessage, getLineProfile } from "@/lib/line-reply";
 import { isMaintenanceMode, MAINTENANCE_LINE_REPLY_TEXT } from "@/lib/maintenance";
 import { createSupabaseClient } from "@/lib/supabase";
-import { getDefaultStoreIdOrNull, runWithWebhookStoreContext } from "@/lib/current-store";
+import {
+  getDefaultStoreIdOrNull,
+  runWithWebhookStoreContext,
+} from "@/lib/current-store";
 import type {
   LineWebhookBody,
   LineMessageEvent,
@@ -22,6 +25,7 @@ import {
   tryHandleReservationDetailText,
   tryHandleCompletedFollowupText,
 } from "@/lib/line-webhook-attendance";
+import { handleWelfareWebhook, type WelfareStoreContext } from "@/lib/welfare-line-webhook";
 
 const app = new Hono();
 
@@ -90,6 +94,8 @@ app.post("*", async (c) => {
 
     const botUserId = body.destination?.trim() ?? "";
     let resolvedStoreId: string | null = null;
+    /** destination 照合時の店舗行（業態分岐用） */
+    let storeRowForBusinessType: WelfareStoreContext | null = null;
     let channelSecret: string | undefined = process.env.LINE_CHANNEL_SECRET;
     let channelAccessToken: string | undefined =
       process.env.LINE_CHANNEL_ACCESS_TOKEN ?? undefined;
@@ -97,7 +103,7 @@ app.post("*", async (c) => {
     if (botUserId) {
       const { data: storeData, error: storeLookupErr } = await supabase
         .from("stores")
-        .select("id, line_channel_secret, line_channel_access_token")
+        .select("id, line_channel_secret, line_channel_access_token, business_type")
         .eq("line_bot_user_id", botUserId)
         .maybeSingle();
 
@@ -106,7 +112,13 @@ app.post("*", async (c) => {
       }
 
       resolvedStoreId = storeData?.id ?? null;
-      if (resolvedStoreId) {
+      if (resolvedStoreId && storeData?.id) {
+        storeRowForBusinessType = {
+          id: storeData.id,
+          business_type: String(
+            (storeData as { business_type?: string | null }).business_type ?? "cabaret"
+          ),
+        };
         console.log(`[Webhook] destination に対応する store_id=${resolvedStoreId}`);
       }
 
@@ -173,6 +185,26 @@ app.post("*", async (c) => {
     }
 
     await runWithWebhookStoreContext(resolvedStoreId, async () => {
+      let welfareStoreContext: WelfareStoreContext | null = storeRowForBusinessType;
+      if (!welfareStoreContext) {
+        const sid = getDefaultStoreIdOrNull();
+        if (sid) {
+          const { data: fb } = await supabase
+            .from("stores")
+            .select("id, business_type")
+            .eq("id", sid)
+            .maybeSingle();
+          if (fb?.id) {
+            welfareStoreContext = {
+              id: fb.id,
+              business_type: String(
+                (fb as { business_type?: string | null }).business_type ?? "cabaret"
+              ),
+            };
+          }
+        }
+      }
+
       for (let i = 0; i < events.length; i++) {
         const event = events[i];
         const eventType = event?.type ?? "(unknown)";
@@ -186,7 +218,13 @@ app.post("*", async (c) => {
         }
 
         try {
-          await processWebhookEvent(event, body.destination, supabase, channelAccessToken);
+          await processWebhookEvent(
+            event,
+            body.destination,
+            supabase,
+            channelAccessToken,
+            welfareStoreContext
+          );
         } catch (err) {
           console.error("[Webhook] イベント処理エラー:", webhookId, err);
 
@@ -217,11 +255,21 @@ async function processWebhookEvent(
   event: LineWebhookBody["events"][number],
   _destination: string | undefined,
   supabase: ReturnType<typeof createSupabaseClient>,
-  channelAccessToken?: string
+  channelAccessToken?: string,
+  welfareStoreContext?: WelfareStoreContext | null
 ): Promise<void> {
   const userId = event.source?.userId;
   if (!userId) {
     console.log("[Webhook] userId なし（グループ等）のためスキップ");
+    return;
+  }
+
+  /** B型専用フロー（友だち追加・follow は従来のキャスト登録フローを利用） */
+  if (
+    welfareStoreContext?.business_type === "welfare_b" &&
+    event.type !== "follow"
+  ) {
+    await handleWelfareWebhook(event, welfareStoreContext, supabase, channelAccessToken);
     return;
   }
 
