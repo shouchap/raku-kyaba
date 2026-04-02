@@ -84,9 +84,7 @@ export function formatReservationSubLines(row: ReservationFields): string[] {
     }
     return ["（詳細あり・未入力）"];
   }
-  if (row.has_reservation === false) {
-    return ["予約なし"];
-  }
+  /** has_reservation が false / null: 予約サブ行なし（false 時も「予約なし」は出さず、名前行＋出勤時刻のみ） */
   return [];
 }
 
