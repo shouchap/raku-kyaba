@@ -745,11 +745,11 @@ function AdminReportContent() {
                     onClick={() => toggleSort("name")}
                     className="print:hidden font-semibold text-gray-900 hover:text-blue-700 inline-flex items-center gap-1"
                   >
-                    キャスト
+                    利用者名
                     {sortKey === "name" && (sortDir === "asc" ? " ↑" : " ↓")}
                   </button>
                   <span className="hidden font-semibold text-gray-900 print:inline">
-                    キャスト
+                    利用者名
                   </span>
                 </th>
                 <th className="px-3 py-3 text-right">

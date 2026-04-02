@@ -26,6 +26,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   let stores: { id: string; name: string }[] = [];
   let isSuperAdmin = false;
+  let businessType: "cabaret" | "welfare_b" = "cabaret";
   try {
     const supabase = await createSupabaseServerClient();
     const {
@@ -43,6 +44,16 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         const { data } = await admin.from("stores").select("id, name").eq("id", sid).maybeSingle();
         stores = data ? [data] : [];
       }
+    }
+
+    if (activeStoreId) {
+      const { data: btRow } = await admin
+        .from("stores")
+        .select("business_type")
+        .eq("id", activeStoreId)
+        .maybeSingle();
+      const bt = (btRow as { business_type?: string | null } | null)?.business_type;
+      if (bt === "welfare_b") businessType = "welfare_b";
     }
   } catch {
     // SUPABASE_SERVICE_ROLE_KEY 未設定時など
@@ -66,6 +77,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           stores={stores}
           activeStoreId={activeStoreId}
           isSuperAdmin={isSuperAdmin}
+          businessType={businessType}
         />
         <main className="flex-1 w-full px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pt-6 lg:px-8 lg:pt-8 print:p-0 print:pb-0">
           <div className="mx-auto w-full max-w-6xl overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm sm:rounded-2xl min-h-[min(50vh,calc(100dvh-10rem))] print:overflow-visible print:rounded-none print:border-0 print:shadow-none print:min-h-0">

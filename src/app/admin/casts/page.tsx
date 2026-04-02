@@ -18,6 +18,7 @@ type Cast = {
 type Store = {
   id: string;
   name: string;
+  business_type?: string | null;
 };
 
 const EMPLOYMENT_OPTIONS: { value: CastEmploymentType; label: string }[] = [
@@ -51,7 +52,7 @@ export default function AdminCastsPage() {
           .eq("store_id", storeId)
           .eq("is_active", true)
           .order("name"),
-        supabase.from("stores").select("id, name").eq("id", storeId).single(),
+        supabase.from("stores").select("id, name, business_type").eq("id", storeId).single(),
       ]);
       if (castsRes.data) setCasts(castsRes.data as Cast[]);
       if (storesRes.data) setStore(storesRes.data as Store);
@@ -161,12 +162,14 @@ export default function AdminCastsPage() {
     );
   }
 
+  const isWelfare = store?.business_type === "welfare_b";
+
   return (
     <div className="min-h-screen bg-gray-50 py-4 sm:py-6 px-3 sm:px-6">
       <div className="max-w-2xl mx-auto">
         <div className="mb-4 sm:mb-6">
           <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
-            キャスト管理
+            {isWelfare ? "利用者管理" : "キャスト管理"}
           </h1>
           <p className="text-xs sm:text-sm text-gray-600">
             {store?.name ?? "店舗"}
@@ -177,7 +180,9 @@ export default function AdminCastsPage() {
           <ul className="divide-y divide-gray-200">
             {casts.length === 0 ? (
               <li className="px-3 sm:px-4 py-6 sm:py-8 text-center text-gray-500 text-sm">
-                キャストが登録されていません。LINEで友だち追加すると自動登録されます。
+                {isWelfare
+                  ? "利用者が登録されていません。LINEで友だち追加すると自動登録されます。"
+                  : "キャストが登録されていません。LINEで友だち追加すると自動登録されます。"}
               </li>
             ) : (
               casts.map((cast) => (
@@ -197,7 +202,7 @@ export default function AdminCastsPage() {
                             if (e.key === "Escape") handleCancelEdit();
                           }}
                           className="flex-1 min-w-0 min-h-[44px] px-3 py-2 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                          placeholder="名前"
+                          placeholder={isWelfare ? "利用者名" : "名前"}
                           autoFocus
                         />
                         <label className="flex flex-col gap-1 min-w-0 flex-1 sm:max-w-xs">
@@ -246,9 +251,11 @@ export default function AdminCastsPage() {
                   ) : (
                     <>
                       <span className="flex-1 min-w-0 font-medium text-gray-900 text-sm sm:text-base truncate">{cast.name}</span>
-                      <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
-                        {employmentLabel(cast)}
-                      </span>
+                      {!isWelfare && (
+                        <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
+                          {employmentLabel(cast)}
+                        </span>
+                      )}
                       {cast.is_admin && (
                         <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium">
                           👑 通知

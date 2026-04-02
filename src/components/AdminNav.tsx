@@ -7,13 +7,15 @@ import { LogOut, Menu, X } from "lucide-react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 
 const NAV_ITEMS = [
-  { href: "/admin/weekly", label: "シフト入力" },
-  { href: "/admin/view", label: "シフト一覧" },
-  { href: "/admin/schedule", label: "単日登録" },
+  { href: "/admin/weekly", label: "シフト入力", hideForWelfare: true },
+  { href: "/admin/view", label: "シフト一覧", hideForWelfare: true },
+  { href: "/admin/schedule", label: "単日登録", hideForWelfare: true },
   { href: "/admin/casts", label: "キャスト管理" },
   { href: "/admin/report", label: "月間レポート" },
   { href: "/admin/settings", label: "システム設定" },
 ] as const;
+
+const WELFARE_CASTS_LABEL = "利用者管理";
 
 type StoreOption = { id: string; name: string };
 
@@ -21,6 +23,8 @@ type Props = {
   stores: StoreOption[];
   activeStoreId: string;
   isSuperAdmin: boolean;
+  /** アクティブ店舗の業態（就労B型ではシフト系メニューを隠す） */
+  businessType: "cabaret" | "welfare_b";
 };
 
 function navLinkClass(isActive: boolean, vertical: boolean): string {
@@ -37,7 +41,21 @@ function navLinkClass(isActive: boolean, vertical: boolean): string {
   ].join(" ");
 }
 
-export default function AdminNav({ stores, activeStoreId, isSuperAdmin }: Props) {
+export default function AdminNav({
+  stores,
+  activeStoreId,
+  isSuperAdmin,
+  businessType,
+}: Props) {
+  const isWelfare = businessType === "welfare_b";
+  const navEntries = NAV_ITEMS.filter((item) =>
+    isWelfare && "hideForWelfare" in item && item.hideForWelfare ? false : true
+  ).map((item) =>
+    item.href === "/admin/casts" && isWelfare
+      ? { href: item.href, label: WELFARE_CASTS_LABEL }
+      : { href: item.href, label: item.label }
+  );
+  const homeHref = isWelfare ? "/admin/casts" : "/admin/weekly";
   const pathname = usePathname();
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -93,7 +111,7 @@ export default function AdminNav({ stores, activeStoreId, isSuperAdmin }: Props)
 
   const NavLinks = ({ vertical }: { vertical: boolean }) => (
     <>
-      {NAV_ITEMS.map((item) => {
+      {navEntries.map((item) => {
         const isActive = pathname === item.href;
         return (
           <Link
@@ -146,7 +164,7 @@ export default function AdminNav({ stores, activeStoreId, isSuperAdmin }: Props)
           </button>
 
           <Link
-            href="/admin/weekly"
+            href={homeHref}
             className="hidden shrink-0 sm:flex flex-col leading-tight"
           >
             <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
