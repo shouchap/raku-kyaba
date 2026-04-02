@@ -597,6 +597,18 @@ export async function PATCH(request: Request) {
       );
     }
 
+    const rhWelfare = body.regular_holidays;
+    if (!Array.isArray(rhWelfare) || !rhWelfare.every((n) => Number.isInteger(n) && n >= 0 && n <= 6)) {
+      return NextResponse.json(
+        {
+          error:
+            "regular_holidays must be an array of integers from 0 (Sunday) to 6 (Saturday)",
+        },
+        { status: 400 }
+      );
+    }
+    const regular_holidays_sorted = [...new Set(rhWelfare)].sort((a, b) => a - b);
+
     if (
       !(process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim() ||
       !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
@@ -645,6 +657,7 @@ export async function PATCH(request: Request) {
       welfare_message_evening: we.trim() === "" ? null : we.trim(),
       welfare_message_welcome: ww.trim() === "" ? null : ww.trim(),
       welfare_work_items: wwiRaw.trim() === "" ? null : wwiRaw.trim(),
+      regular_holidays: regular_holidays_sorted,
       updated_at: nowIso,
     };
 
@@ -674,6 +687,15 @@ export async function PATCH(request: Request) {
           {
             error: "welfare message columns are missing",
             details: "Apply supabase/migrations/024_stores_welfare_messages.sql",
+          },
+          { status: 500 }
+        );
+      }
+      if (isUndefinedColumnError(updRes.error, "regular_holidays")) {
+        return NextResponse.json(
+          {
+            error: "regular_holidays column is missing",
+            details: "Apply supabase/migrations/018_stores_regular_holidays_casts_employment.sql",
           },
           { status: 500 }
         );

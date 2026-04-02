@@ -238,6 +238,7 @@ export default function AdminSettingsPage() {
             welfare_message_evening: welfareEvening,
             welfare_message_welcome: welfareWelcome,
             welfare_work_items: welfareWorkItemRows.map((s) => s.trim()).filter(Boolean).join(","),
+            regular_holidays: regularHolidays,
           }),
         });
 
@@ -517,6 +518,35 @@ export default function AdminSettingsPage() {
                   1行に1項目。すべて空欄で保存すると既定（{DEFAULT_WELFARE_WORK_ITEMS_CSV}
                   ）が使われます。夕方の「作業を終了する」後のボタンに反映されます。
                 </p>
+              </div>
+              <div className="mb-8 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-4">
+                <h3 className="text-sm font-medium text-gray-800 mb-3">定休日設定</h3>
+                <p className="text-xs text-gray-600 mb-3">
+                  チェックした曜日は定休日として扱い、その日の朝・昼・夕の自動配信（GET /api/welfare/cron）をスキップします。0=日曜〜6=土曜です。
+                </p>
+                <div className="flex flex-wrap gap-3 sm:gap-4">
+                  {WEEKDAY_HOLIDAY_LABELS.map((label, idx) => (
+                    <label
+                      key={idx}
+                      className="inline-flex items-center gap-2 cursor-pointer text-sm text-gray-800"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={regularHolidays.includes(idx)}
+                        onChange={(e) => {
+                          setRegularHolidays((prev) => {
+                            if (e.target.checked) {
+                              return [...new Set([...prev, idx])].sort((a, b) => a - b);
+                            }
+                            return prev.filter((d) => d !== idx);
+                          });
+                        }}
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-3">
                 <button

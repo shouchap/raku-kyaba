@@ -16,6 +16,7 @@ import { sendMulticastMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { isValidStoreId } from "@/lib/current-store";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
+import { getTodayJst, getWeekdayJst } from "@/lib/date-utils";
 import {
   buildWelfareEveningEndFlexMessage,
   buildWelfareMiddayHealthFlexMessage,
@@ -45,7 +46,20 @@ type WelfareCronStoreRow = {
   welfare_message_morning: string | null;
   welfare_message_midday: string | null;
   welfare_message_evening: string | null;
+  /** 定休日（0=日〜6=土）。未設定・空はスキップしない */
+  regular_holidays: number[] | null;
 };
+
+/** 定休日なら true（stores.regular_holidays と JST 暦日の曜日を照合） */
+function isRegularHolidayDay(
+  regularHolidays: number[] | null | undefined,
+  todayJst: string
+): boolean {
+  const arr = Array.isArray(regularHolidays) ? regularHolidays : [];
+  if (arr.length === 0) return false;
+  const wd = getWeekdayJst(todayJst);
+  return arr.includes(wd);
+}
 
 function flexForSegment(seg: Segment, row: WelfareCronStoreRow) {
   switch (seg) {
@@ -61,6 +75,9 @@ function flexForSegment(seg: Segment, row: WelfareCronStoreRow) {
 }
 
 const WELFARE_STORE_SELECT =
+  "id, welfare_message_morning, welfare_message_midday, welfare_message_evening, regular_holidays";
+
+const WELFARE_STORE_SELECT_NO_REGULAR =
   "id, welfare_message_morning, welfare_message_midday, welfare_message_evening";
 
 async function fetchWelfareStores(
@@ -68,12 +85,25 @@ async function fetchWelfareStores(
   singleStoreId: string | null
 ): Promise<WelfareCronStoreRow[]> {
   if (singleStoreId) {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("stores")
       .select(WELFARE_STORE_SELECT)
       .eq("id", singleStoreId)
       .eq("business_type", "welfare_b")
       .maybeSingle();
+    if (error && isUndefinedColumnError(error, "regular_holidays")) {
+      console.warn(
+        `${LOG_PREFIX} stores.regular_holidays 未適用。定休スキップなし。マイグレーション 018 を適用してください。`
+      );
+      const retry = await supabase
+        .from("stores")
+        .select(WELFARE_STORE_SELECT_NO_REGULAR)
+        .eq("id", singleStoreId)
+        .eq("business_type", "welfare_b")
+        .maybeSingle();
+      data = retry.data as typeof data;
+      error = retry.error;
+    }
     if (error) {
       if (isUndefinedColumnError(error, "welfare_message_morning")) {
         console.warn(
@@ -95,10 +125,22 @@ async function fetchWelfareStores(
     return [normalizeWelfareCronRow(data as Record<string, unknown>)];
   }
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("stores")
     .select(WELFARE_STORE_SELECT)
     .eq("business_type", "welfare_b");
+
+  if (error && isUndefinedColumnError(error, "regular_holidays")) {
+    console.warn(
+      `${LOG_PREFIX} stores.regular_holidays 未適用。定休スキップなし。マイグレーション 018 を適用してください。`
+    );
+    const retry = await supabase
+      .from("stores")
+      .select(WELFARE_STORE_SELECT_NO_REGULAR)
+      .eq("business_type", "welfare_b");
+    data = retry.data as typeof data;
+    error = retry.error;
+  }
 
   if (error) {
     if (isUndefinedColumnError(error, "welfare_message_morning")) {
@@ -119,6 +161,13 @@ async function fetchWelfareStores(
 }
 
 function normalizeWelfareCronRow(r: Record<string, unknown>): WelfareCronStoreRow {
+  const rh = r.regular_holidays;
+  let regular_holidays: number[] | null = null;
+  if (Array.isArray(rh)) {
+    regular_holidays = [...new Set(rh.filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort(
+      (a, b) => a - b
+    );
+  }
   return {
     id: String(r.id ?? ""),
     welfare_message_morning:
@@ -127,6 +176,7 @@ function normalizeWelfareCronRow(r: Record<string, unknown>): WelfareCronStoreRo
       typeof r.welfare_message_midday === "string" ? r.welfare_message_midday : null,
     welfare_message_evening:
       typeof r.welfare_message_evening === "string" ? r.welfare_message_evening : null,
+    regular_holidays,
   };
 }
 
@@ -206,8 +256,20 @@ export async function GET(request: Request) {
 
     const stores = await fetchWelfareStores(supabase, singleStoreId);
     const results: { storeId: string; recipients: number; error?: string }[] = [];
+    const todayJst = getTodayJst();
 
     for (const s of stores) {
+      if (isRegularHolidayDay(s.regular_holidays, todayJst)) {
+        results.push({
+          storeId: s.id,
+          recipients: 0,
+          error: "regular_holiday",
+        });
+        console.info(
+          `${LOG_PREFIX} segment=${segment} storeId=${s.id} skipped=regular_holiday weekday=${getWeekdayJst(todayJst)}`
+        );
+        continue;
+      }
       const r = await pushSegmentToStore(supabase, s, segment);
       results.push({
         storeId: s.id,

@@ -89,7 +89,7 @@ type CastReport = {
 
 type SortKey = "name" | "attendance" | "dohan" | "sabaki" | "late" | "absent";
 
-type ViewMode = "month" | "week";
+type ViewMode = "month" | "week" | "day";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -121,6 +121,13 @@ function formatYm(year: number, month: number): string {
 function formatJaMonthDay(dateStr: string): string {
   const [, m, d] = dateStr.split("-").map(Number);
   return `${m}月${d}日`;
+}
+
+/** 日別タブ用: 2026年4月3日 */
+function formatJaFullDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return dateStr;
+  return `${y}年${m}月${d}日`;
 }
 
 function formatWeekRangeLabel(mondayYmd: string): string {
@@ -263,13 +270,18 @@ function AdminReportContent() {
   const defaultYm = useMemo(() => parseYearMonthFromToday(today), [today]);
 
   const viewMode: ViewMode =
-    searchParams.get("view") === "week" ? "week" : "month";
+    searchParams.get("view") === "week"
+      ? "week"
+      : searchParams.get("view") === "day"
+        ? "day"
+        : "month";
 
   const ymFromUrl = parseYmParam(searchParams.get("ym"));
   const [year, setYear] = useState(ymFromUrl?.year ?? defaultYm.year);
   const [month, setMonth] = useState(ymFromUrl?.month ?? defaultYm.month);
 
   const weekParamRaw = searchParams.get("week")?.trim() ?? "";
+  const dayParamRaw = searchParams.get("date")?.trim() ?? "";
 
   const weekMonday = useMemo(() => {
     if (viewMode !== "week") return getMondayOfJstWeek(today);
@@ -278,6 +290,12 @@ function AdminReportContent() {
     }
     return getMondayOfJstWeek(today);
   }, [viewMode, weekParamRaw, today]);
+
+  const dayDate = useMemo(() => {
+    if (viewMode !== "day") return today;
+    if (dayParamRaw && /^\d{4}-\d{2}-\d{2}$/.test(dayParamRaw)) return dayParamRaw;
+    return today;
+  }, [viewMode, dayParamRaw, today]);
 
   useEffect(() => {
     const parsed = parseYmParam(searchParams.get("ym"));
@@ -297,7 +315,20 @@ function AdminReportContent() {
     router.replace(`/admin/report?${params.toString()}`);
   }, [viewMode, weekParamRaw, weekMonday, router, searchParams]);
 
+  /** view=day だが date 未指定のとき URL を正規化 */
+  useEffect(() => {
+    if (viewMode !== "day") return;
+    if (dayParamRaw && /^\d{4}-\d{2}-\d{2}$/.test(dayParamRaw)) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", "day");
+    params.set("date", today);
+    router.replace(`/admin/report?${params.toString()}`);
+  }, [viewMode, dayParamRaw, today, router, searchParams]);
+
   const { start, end } = useMemo(() => {
+    if (viewMode === "day") {
+      return { start: dayDate, end: dayDate };
+    }
     if (viewMode === "week") {
       return {
         start: weekMonday,
@@ -305,7 +336,7 @@ function AdminReportContent() {
       };
     }
     return getMonthRangeIso(year, month);
-  }, [viewMode, weekMonday, year, month]);
+  }, [viewMode, dayDate, weekMonday, year, month]);
 
   const setMonthParams = useCallback(
     (y: number, m: number) => {
@@ -356,17 +387,40 @@ function AdminReportContent() {
   }, [weekMonday, setWeekParams]);
 
   const switchToMonth = useCallback(() => {
-    const [sy, sm] = weekMonday.split("-").map(Number);
+    const anchor = viewMode === "day" ? dayDate : weekMonday;
+    const [sy, sm] = anchor.split("-").map(Number);
     const params = new URLSearchParams();
     params.set("view", "month");
     params.set("ym", formatYm(sy, sm));
     router.push(`/admin/report?${params.toString()}`);
-  }, [weekMonday, router]);
+  }, [viewMode, dayDate, weekMonday, router]);
 
   const switchToWeek = useCallback(() => {
-    const anchor = `${year}-${pad2(month)}-01`;
+    const anchor = viewMode === "day" ? dayDate : `${year}-${pad2(month)}-01`;
     setWeekParams(getMondayOfJstWeek(anchor));
-  }, [year, month, setWeekParams]);
+  }, [viewMode, dayDate, year, month, setWeekParams]);
+
+  const setDayParams = useCallback(
+    (ymd: string) => {
+      const params = new URLSearchParams();
+      params.set("view", "day");
+      params.set("date", ymd);
+      router.push(`/admin/report?${params.toString()}`);
+    },
+    [router]
+  );
+
+  const switchToDay = useCallback(() => {
+    setDayParams(today);
+  }, [today, setDayParams]);
+
+  const goPrevDay = useCallback(() => {
+    setDayParams(addCalendarDaysJst(dayDate, -1));
+  }, [dayDate, setDayParams]);
+
+  const goNextDay = useCallback(() => {
+    setDayParams(addCalendarDaysJst(dayDate, 1));
+  }, [dayDate, setDayParams]);
 
   const [store, setStore] = useState<Store | null>(null);
   const [businessType, setBusinessType] = useState<"cabaret" | "welfare_b">("cabaret");
@@ -378,6 +432,16 @@ function AdminReportContent() {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  /** 日別は B型のみ。キャバクラで view=day の URL なら月表示へ戻す（業態確定後） */
+  useEffect(() => {
+    if (loading || businessType !== "cabaret" || viewMode !== "day") return;
+    const [sy, sm] = dayDate.split("-").map(Number);
+    const params = new URLSearchParams();
+    params.set("view", "month");
+    params.set("ym", formatYm(sy, sm));
+    router.replace(`/admin/report?${params.toString()}`);
+  }, [loading, businessType, viewMode, dayDate, router]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -413,10 +477,11 @@ function AdminReportContent() {
       if (bt === "welfare_b") {
         setSchedules([]);
         setCasts([]);
-        const reportRes = await fetch(
-          `/api/admin/report?storeId=${encodeURIComponent(tenantId)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
-          { credentials: "include" }
-        );
+        const reportUrl =
+          viewMode === "day"
+            ? `/api/admin/report?storeId=${encodeURIComponent(tenantId)}&view=day&date=${encodeURIComponent(dayDate)}`
+            : `/api/admin/report?storeId=${encodeURIComponent(tenantId)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+        const reportRes = await fetch(reportUrl, { credentials: "include" });
         const payload = (await reportRes.json().catch(() => ({}))) as {
           ok?: boolean;
           welfare_rows?: WelfareReportRow[];
@@ -464,7 +529,7 @@ function AdminReportContent() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, start, end, activeStoreId]);
+  }, [supabase, start, end, activeStoreId, viewMode, dayDate]);
 
   useEffect(() => {
     fetchData();
@@ -527,16 +592,21 @@ function AdminReportContent() {
   }, []);
 
   const titleLabel =
-    viewMode === "week"
-      ? formatWeekRangeLabel(weekMonday)
-      : `${year}年${month}月`;
+    viewMode === "day"
+      ? formatJaFullDate(dayDate)
+      : viewMode === "week"
+        ? formatWeekRangeLabel(weekMonday)
+        : `${year}年${month}月`;
 
-  const periodKindLabel = viewMode === "week" ? "週間" : "月間";
+  const periodKindLabel =
+    viewMode === "day" ? "日別" : viewMode === "week" ? "週間" : "月間";
   const emptyMessage =
     businessType === "welfare_b"
-      ? viewMode === "week"
-        ? "この週の日報はありません。"
-        : "この月の日報はありません。"
+      ? viewMode === "day"
+        ? "この日の日報はありません。"
+        : viewMode === "week"
+          ? "この週の日報はありません。"
+          : "この月の日報はありません。"
       : viewMode === "week"
         ? "この週のシフトデータはありません。"
         : "この月のシフトデータはありません。";
@@ -583,6 +653,19 @@ function AdminReportContent() {
         >
           週間
         </button>
+        {businessType === "welfare_b" && (
+          <button
+            type="button"
+            onClick={switchToDay}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              viewMode === "day"
+                ? "bg-slate-900 text-white shadow"
+                : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            日別
+          </button>
+        )}
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -607,7 +690,7 @@ function AdminReportContent() {
                 次月 ＞
               </button>
             </>
-          ) : (
+          ) : viewMode === "week" ? (
             <>
               <button
                 type="button"
@@ -627,12 +710,34 @@ function AdminReportContent() {
                 次週 ＞
               </button>
             </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={goPrevDay}
+                className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                ＜ 先日
+              </button>
+              <span className="min-w-[12rem] text-center text-base font-semibold text-gray-900">
+                {titleLabel}
+              </span>
+              <button
+                type="button"
+                onClick={goNextDay}
+                className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                翌日 ＞
+              </button>
+            </>
           )}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-xs text-gray-500">
-            集計期間: {start} 〜 {end}
+            {viewMode === "day"
+              ? `表示日: ${dayDate}`
+              : `集計期間: ${start} 〜 ${end}`}
           </p>
           <button
             type="button"
@@ -661,9 +766,11 @@ function AdminReportContent() {
                 <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 whitespace-nowrap">
                   利用者名
                 </th>
-                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 whitespace-nowrap">
-                  日付
-                </th>
+                {viewMode !== "day" && (
+                  <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 whitespace-nowrap">
+                    日付
+                  </th>
+                )}
                 <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 whitespace-nowrap">
                   作業開始
                 </th>
@@ -690,7 +797,10 @@ function AdminReportContent() {
             <tbody>
               {welfareRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-8 text-center text-gray-500">
+                  <td
+                    colSpan={viewMode === "day" ? 8 : 9}
+                    className="px-3 py-8 text-center text-gray-500"
+                  >
                     {emptyMessage}
                   </td>
                 </tr>
@@ -703,9 +813,11 @@ function AdminReportContent() {
                     <td className="px-2 py-2 sm:px-3 sm:py-3 font-medium text-gray-900">
                       {row.cast_name || "—"}
                     </td>
-                    <td className="px-2 py-2 sm:px-3 sm:py-3 tabular-nums text-gray-800 whitespace-nowrap">
-                      {row.work_date}
-                    </td>
+                    {viewMode !== "day" && (
+                      <td className="px-2 py-2 sm:px-3 sm:py-3 tabular-nums text-gray-800 whitespace-nowrap">
+                        {row.work_date}
+                      </td>
+                    )}
                     <td className="px-2 py-2 sm:px-3 sm:py-3 tabular-nums text-gray-800 whitespace-nowrap">
                       {formatTimeJstFromIso(row.started_at)}
                     </td>

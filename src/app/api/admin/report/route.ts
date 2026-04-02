@@ -29,6 +29,7 @@ function storeIdForbiddenUnlessMatchesCookie(
 /**
  * 月間レポート用データ（B型は welfare_daily_logs + casts 名）
  * GET /api/admin/report?storeId=uuid&start=YYYY-MM-DD&end=YYYY-MM-DD
+ * 単日: GET /api/admin/report?storeId=uuid&view=day&date=YYYY-MM-DD
  */
 export async function GET(request: Request) {
   const { user, error } = await getAuthedUserForAdminApi();
@@ -41,20 +42,37 @@ export async function GET(request: Request) {
 
   const sp = new URL(request.url).searchParams;
   const storeId = sp.get("storeId")?.trim() ?? "";
-  const start = sp.get("start")?.trim() ?? "";
-  const end = sp.get("end")?.trim() ?? "";
+  const view = sp.get("view")?.trim().toLowerCase() ?? "";
+
+  let start: string;
+  let end: string;
+
+  if (view === "day") {
+    const dayOnly = sp.get("date")?.trim() ?? "";
+    if (!DATE_RE.test(dayOnly)) {
+      return NextResponse.json(
+        { error: "view=day requires date=YYYY-MM-DD (single JST calendar day)" },
+        { status: 400 }
+      );
+    }
+    start = dayOnly;
+    end = dayOnly;
+  } else {
+    start = sp.get("start")?.trim() ?? "";
+    end = sp.get("end")?.trim() ?? "";
+    if (!DATE_RE.test(start) || !DATE_RE.test(end)) {
+      return NextResponse.json(
+        { error: "start and end must be YYYY-MM-DD (JST range as calendar dates)" },
+        { status: 400 }
+      );
+    }
+    if (start > end) {
+      return NextResponse.json({ error: "start must be <= end" }, { status: 400 });
+    }
+  }
 
   if (!storeId || !isValidStoreId(storeId)) {
     return NextResponse.json({ error: "Valid storeId is required" }, { status: 400 });
-  }
-  if (!DATE_RE.test(start) || !DATE_RE.test(end)) {
-    return NextResponse.json(
-      { error: "start and end must be YYYY-MM-DD (JST range as calendar dates)" },
-      { status: 400 }
-    );
-  }
-  if (start > end) {
-    return NextResponse.json({ error: "start must be <= end" }, { status: 400 });
   }
 
   if (!canUserEditStore(user, storeId)) {
