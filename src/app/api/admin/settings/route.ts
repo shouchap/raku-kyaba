@@ -353,18 +353,70 @@ export async function GET(request: Request) {
     let welfare_message_morning: string | null = null;
     let welfare_message_midday: string | null = null;
     let welfare_message_evening: string | null = null;
+    let welfare_message_welcome: string | null = null;
     let welfare_work_items: string | null = null;
 
     const welfareRes = await admin
       .from("stores")
       .select(
-        "business_type, welfare_message_morning, welfare_message_midday, welfare_message_evening, welfare_work_items"
+        "business_type, welfare_message_morning, welfare_message_midday, welfare_message_evening, welfare_message_welcome, welfare_work_items"
       )
       .eq("id", storeId)
       .maybeSingle();
 
     if (welfareRes.error) {
-      if (isUndefinedColumnError(welfareRes.error, "welfare_message_morning")) {
+      if (isUndefinedColumnError(welfareRes.error, "welfare_message_welcome")) {
+        const w2 = await admin
+          .from("stores")
+          .select(
+            "business_type, welfare_message_morning, welfare_message_midday, welfare_message_evening, welfare_work_items"
+          )
+          .eq("id", storeId)
+          .maybeSingle();
+        if (w2.error) {
+          if (isUndefinedColumnError(w2.error, "welfare_message_morning")) {
+            console.warn(
+              "[api/admin/settings] GET: stores.welfare_message_* 未適用。マイグレーション 024 を適用してください。"
+            );
+            const btRes = await admin.from("stores").select("business_type").eq("id", storeId).maybeSingle();
+            if (!btRes.error && btRes.data) {
+              const bt = (btRes.data as { business_type?: string | null }).business_type;
+              if (bt === "welfare_b") businessType = "welfare_b";
+            }
+          } else {
+            logPostgrestError("GET stores business_type / welfare messages (no welcome)", w2.error);
+            return NextResponse.json(
+              {
+                error: "Failed to load store",
+                details: w2.error.message,
+                code: w2.error.code,
+              },
+              { status: 500 }
+            );
+          }
+        } else {
+          const w = w2.data as {
+            business_type?: string | null;
+            welfare_message_morning?: string | null;
+            welfare_message_midday?: string | null;
+            welfare_message_evening?: string | null;
+            welfare_work_items?: string | null;
+          } | null;
+          if (w?.business_type === "welfare_b") businessType = "welfare_b";
+          welfare_message_morning =
+            typeof w?.welfare_message_morning === "string" ? w.welfare_message_morning : null;
+          welfare_message_midday =
+            typeof w?.welfare_message_midday === "string" ? w.welfare_message_midday : null;
+          welfare_message_evening =
+            typeof w?.welfare_message_evening === "string" ? w.welfare_message_evening : null;
+          welfare_work_items =
+            typeof w?.welfare_work_items === "string" ? w.welfare_work_items : null;
+          welfare_message_welcome = null;
+          console.warn(
+            "[api/admin/settings] GET: stores.welfare_message_welcome 未適用。マイグレーション 027 を適用してください。"
+          );
+        }
+      } else if (isUndefinedColumnError(welfareRes.error, "welfare_message_morning")) {
         console.warn(
           "[api/admin/settings] GET: stores.welfare_message_* 未適用。マイグレーション 024 を適用してください。"
         );
@@ -390,6 +442,8 @@ export async function GET(request: Request) {
         welfare_message_morning?: string | null;
         welfare_message_midday?: string | null;
         welfare_message_evening?: string | null;
+        welfare_message_welcome?: string | null;
+        welfare_work_items?: string | null;
       } | null;
       if (w?.business_type === "welfare_b") businessType = "welfare_b";
       welfare_message_morning =
@@ -398,10 +452,10 @@ export async function GET(request: Request) {
         typeof w?.welfare_message_midday === "string" ? w.welfare_message_midday : null;
       welfare_message_evening =
         typeof w?.welfare_message_evening === "string" ? w.welfare_message_evening : null;
+      welfare_message_welcome =
+        typeof w?.welfare_message_welcome === "string" ? w.welfare_message_welcome : null;
       welfare_work_items =
-        typeof (w as { welfare_work_items?: string | null }).welfare_work_items === "string"
-          ? (w as { welfare_work_items: string }).welfare_work_items
-          : null;
+        typeof w?.welfare_work_items === "string" ? w.welfare_work_items : null;
     }
 
     return NextResponse.json({
@@ -409,6 +463,7 @@ export async function GET(request: Request) {
       welfare_message_morning,
       welfare_message_midday,
       welfare_message_evening,
+      welfare_message_welcome,
       welfare_work_items,
       remind_time: remindTime,
       allow_shift_submission: allowShiftSubmission,
@@ -457,6 +512,7 @@ type PatchBody = {
   welfare_message_morning?: string | null;
   welfare_message_midday?: string | null;
   welfare_message_evening?: string | null;
+  welfare_message_welcome?: string | null;
   /** カンマ区切り作業項目。未指定なら更新しない */
   welfare_work_items?: string | null;
 };
@@ -503,16 +559,22 @@ export async function PATCH(request: Request) {
     const wm = body.welfare_message_morning;
     const wmd = body.welfare_message_midday;
     const we = body.welfare_message_evening;
-    if (typeof wm !== "string" || typeof wmd !== "string" || typeof we !== "string") {
+    const ww = body.welfare_message_welcome;
+    if (
+      typeof wm !== "string" ||
+      typeof wmd !== "string" ||
+      typeof we !== "string" ||
+      typeof ww !== "string"
+    ) {
       return NextResponse.json(
         {
           error:
-            "welfare_message_morning, welfare_message_midday, welfare_message_evening are required as strings (use empty string for default)",
+            "welfare_message_morning, welfare_message_midday, welfare_message_evening, welfare_message_welcome are required as strings (use empty string for default)",
         },
         { status: 400 }
       );
     }
-    if (wm.length > 4000 || wmd.length > 4000 || we.length > 4000) {
+    if (wm.length > 4000 || wmd.length > 4000 || we.length > 4000 || ww.length > 4000) {
       return NextResponse.json(
         { error: "each welfare message must be at most 4000 characters" },
         { status: 400 }
@@ -581,6 +643,7 @@ export async function PATCH(request: Request) {
       welfare_message_morning: wm.trim() === "" ? null : wm.trim(),
       welfare_message_midday: wmd.trim() === "" ? null : wmd.trim(),
       welfare_message_evening: we.trim() === "" ? null : we.trim(),
+      welfare_message_welcome: ww.trim() === "" ? null : ww.trim(),
       welfare_work_items: wwiRaw.trim() === "" ? null : wwiRaw.trim(),
       updated_at: nowIso,
     };
@@ -588,6 +651,15 @@ export async function PATCH(request: Request) {
     const updRes = await adminWelfare.from("stores").update(payload).eq("id", storeId);
     if (updRes.error) {
       logPostgrestError("PATCH welfare stores update", updRes.error);
+      if (isUndefinedColumnError(updRes.error, "welfare_message_welcome")) {
+        return NextResponse.json(
+          {
+            error: "welfare_message_welcome column is missing",
+            details: "Apply supabase/migrations/027_stores_welfare_message_welcome.sql",
+          },
+          { status: 500 }
+        );
+      }
       if (isUndefinedColumnError(updRes.error, "welfare_work_items")) {
         return NextResponse.json(
           {

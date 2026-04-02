@@ -26,6 +26,7 @@ import {
   tryHandleCompletedFollowupText,
 } from "@/lib/line-webhook-attendance";
 import { handleWelfareWebhook, type WelfareStoreContext } from "@/lib/welfare-line-webhook";
+import { isUndefinedColumnError } from "@/lib/postgrest-error";
 
 const app = new Hono();
 
@@ -473,6 +474,71 @@ async function getFollowConfig(
   };
 }
 
+type StoreFollowRow = {
+  id: string;
+  admin_line_user_id: string | null;
+  business_type: string | null;
+  welfare_message_welcome: string | null;
+};
+
+/**
+ * follow 処理用に店舗行を取得。027 未適用時は welfare_message_welcome なしで再取得する。
+ */
+async function fetchStoreRowForFollow(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  storeId: string
+): Promise<{ data: StoreFollowRow | null; error: Error | null }> {
+  const res = await supabase
+    .from("stores")
+    .select("id, admin_line_user_id, business_type, welfare_message_welcome")
+    .eq("id", storeId)
+    .single();
+
+  if (res.error) {
+    if (isUndefinedColumnError(res.error, "welfare_message_welcome")) {
+      const fb = await supabase
+        .from("stores")
+        .select("id, admin_line_user_id, business_type")
+        .eq("id", storeId)
+        .single();
+      if (fb.error || !fb.data) {
+        return { data: null, error: new Error(fb.error?.message ?? "store fetch failed") };
+      }
+      const row = fb.data as { id: string; admin_line_user_id: string | null; business_type: string | null };
+      return {
+        data: {
+          id: row.id,
+          admin_line_user_id: row.admin_line_user_id,
+          business_type: row.business_type,
+          welfare_message_welcome: null,
+        },
+        error: null,
+      };
+    }
+    return { data: null, error: new Error(res.error.message) };
+  }
+
+  const row = res.data as StoreFollowRow;
+  return { data: row, error: null };
+}
+
+/**
+ * welfare_b かつ DB にカスタムがある場合はそのまま（改行保持）。それ以外は reminder_config ベース。
+ */
+function resolveFollowWelcomeMessage(
+  store: StoreFollowRow | null,
+  reminderConfigWelcome: string
+): string {
+  if (
+    store?.business_type === "welfare_b" &&
+    typeof store.welfare_message_welcome === "string" &&
+    store.welfare_message_welcome.trim() !== ""
+  ) {
+    return store.welfare_message_welcome;
+  }
+  return reminderConfigWelcome;
+}
+
 async function getAdminLineUserIds(
   supabase: ReturnType<typeof createSupabaseClient>,
   storeId: string
@@ -530,22 +596,23 @@ async function handleFollowEvent(
     return;
   }
 
-  const { adminNotifyNewCast, welcomeMessage } = await getFollowConfig(supabase, storeId);
+  const { adminNotifyNewCast, welcomeMessage: reminderWelcome } = await getFollowConfig(
+    supabase,
+    storeId
+  );
   const applyName = (template: string) => template.replace(/\{name\}/g, displayName || "キャスト");
 
-  const { data: store, error: storeError } = await supabase
-    .from("stores")
-    .select("id, admin_line_user_id")
-    .eq("id", storeId)
-    .single();
+  const { data: store, error: storeFetchErr } = await fetchStoreRowForFollow(supabase, storeId);
 
-  if (storeError || !store) {
-    console.error("[Follow] 店舗取得エラー:", storeError?.message);
+  if (storeFetchErr || !store) {
+    console.error("[Follow] 店舗取得エラー:", storeFetchErr?.message);
     await sendReply(replyToken, channelAccessToken, [
-      { type: "text", text: applyName(welcomeMessage) },
+      { type: "text", text: applyName(reminderWelcome) },
     ]);
     return;
   }
+
+  const welcomeMessage = resolveFollowWelcomeMessage(store, reminderWelcome);
 
   const { data: existingCast, error: selectError } = await supabase
     .from("casts")

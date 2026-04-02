@@ -58,6 +58,8 @@ export default function AdminSettingsPage() {
   const [welfareMorning, setWelfareMorning] = useState("");
   const [welfareMidday, setWelfareMidday] = useState("");
   const [welfareEvening, setWelfareEvening] = useState("");
+  /** LINE 友だち追加時（follow）の返信。空欄でキャバクラ系既定へフォールバック */
+  const [welfareWelcome, setWelfareWelcome] = useState("");
   /** 作業項目（1行1項目）。保存時にカンマ結合 */
   const [welfareWorkItemRows, setWelfareWorkItemRows] = useState<string[]>([""]);
   const [loading, setLoading] = useState(true);
@@ -97,6 +99,7 @@ export default function AdminSettingsPage() {
         welfare_message_morning?: string | null;
         welfare_message_midday?: string | null;
         welfare_message_evening?: string | null;
+        welfare_message_welcome?: string | null;
         welfare_work_items?: string | null;
         remind_time?: string;
         allow_shift_submission?: boolean;
@@ -118,6 +121,9 @@ export default function AdminSettingsPage() {
       );
       setWelfareEvening(
         typeof data.welfare_message_evening === "string" ? data.welfare_message_evening : ""
+      );
+      setWelfareWelcome(
+        typeof data.welfare_message_welcome === "string" ? data.welfare_message_welcome : ""
       );
       {
         const csv =
@@ -230,6 +236,7 @@ export default function AdminSettingsPage() {
             welfare_message_morning: welfareMorning,
             welfare_message_midday: welfareMidday,
             welfare_message_evening: welfareEvening,
+            welfare_message_welcome: welfareWelcome,
             welfare_work_items: welfareWorkItemRows.map((s) => s.trim()).filter(Boolean).join(","),
           }),
         });
@@ -436,6 +443,28 @@ export default function AdminSettingsPage() {
                   rows={4}
                   placeholder={DEFAULT_WELFARE_MESSAGE_EVENING}
                   className="w-full min-h-[96px] px-4 py-3 text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"
+                />
+              </div>
+              <div className="mb-8">
+                <label
+                  htmlFor="welfareWelcome"
+                  className="block text-sm font-medium text-gray-700 mb-2"
+                >
+                  ウェルカムメッセージ（友だち追加時）
+                </label>
+                <p className="text-xs sm:text-sm text-gray-600 mb-3">
+                  LINE で事業所の公式アカウントを友だち追加した直後に送るテキストです。文面中の{" "}
+                  <code className="text-gray-800 bg-gray-100 px-1 rounded">{"{name}"}</code>
+                  {" "}
+                  は表示名に置き換えられます。空欄のまま保存すると、キャバクラ向けの既定文面（システム設定のウェルカムと同じ系統）にフォールバックします。改行はそのまま送信されます。
+                </p>
+                <textarea
+                  id="welfareWelcome"
+                  value={welfareWelcome}
+                  onChange={(e) => setWelfareWelcome(e.target.value)}
+                  rows={5}
+                  placeholder={DEFAULT_CONFIG.welcome_message}
+                  className="w-full min-h-[120px] px-4 py-3 text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y whitespace-pre-wrap"
                 />
               </div>
               <div className="mb-8">
