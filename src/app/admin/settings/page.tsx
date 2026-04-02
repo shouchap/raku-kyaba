@@ -58,7 +58,8 @@ export default function AdminSettingsPage() {
   const [welfareMorning, setWelfareMorning] = useState("");
   const [welfareMidday, setWelfareMidday] = useState("");
   const [welfareEvening, setWelfareEvening] = useState("");
-  const [welfareWorkItems, setWelfareWorkItems] = useState("");
+  /** 作業項目（1行1項目）。保存時にカンマ結合 */
+  const [welfareWorkItemRows, setWelfareWorkItemRows] = useState<string[]>([""]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -118,9 +119,17 @@ export default function AdminSettingsPage() {
       setWelfareEvening(
         typeof data.welfare_message_evening === "string" ? data.welfare_message_evening : ""
       );
-      setWelfareWorkItems(
-        typeof data.welfare_work_items === "string" ? data.welfare_work_items : ""
-      );
+      {
+        const csv =
+          typeof data.welfare_work_items === "string" ? data.welfare_work_items.trim() : "";
+        const parts = csv
+          ? csv
+              .split(",")
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0)
+          : [];
+        setWelfareWorkItemRows(parts.length > 0 ? parts : [""]);
+      }
 
       if (
         typeof data.remind_time === "string" &&
@@ -221,7 +230,7 @@ export default function AdminSettingsPage() {
             welfare_message_morning: welfareMorning,
             welfare_message_midday: welfareMidday,
             welfare_message_evening: welfareEvening,
-            welfare_work_items: welfareWorkItems,
+            welfare_work_items: welfareWorkItemRows.map((s) => s.trim()).filter(Boolean).join(","),
           }),
         });
 
@@ -430,23 +439,54 @@ export default function AdminSettingsPage() {
                 />
               </div>
               <div className="mb-8">
-                <label
-                  htmlFor="welfareWorkItems"
-                  className="block text-sm font-medium text-gray-700 mb-2"
-                >
-                  作業項目の設定
-                </label>
-                <textarea
-                  id="welfareWorkItems"
-                  value={welfareWorkItems}
-                  onChange={(e) => setWelfareWorkItems(e.target.value)}
-                  rows={3}
-                  placeholder={DEFAULT_WELFARE_WORK_ITEMS_CSV}
-                  className="w-full min-h-[72px] px-4 py-3 text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"
-                />
-                <p className="text-xs text-gray-500 mt-2">
-                  カンマ区切りで複数入力（例: {DEFAULT_WELFARE_WORK_ITEMS_CSV}
-                  ）。空欄で保存すると既定の「A作業」「B作業」が使われます。夕方の「作業を終了する」後のボタンに反映されます。
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <span className="block text-sm font-medium text-gray-700">作業項目の設定</span>
+                  <button
+                    type="button"
+                    onClick={() => setWelfareWorkItemRows((rows) => [...rows, ""])}
+                    className="text-sm font-medium text-blue-700 hover:text-blue-900 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100"
+                  >
+                    項目の追加
+                  </button>
+                </div>
+                <ul className="space-y-3">
+                  {welfareWorkItemRows.map((value, index) => (
+                    <li key={index} className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                      <input
+                        type="text"
+                        id={`welfareWorkItem-${index}`}
+                        name={`welfareWorkItem-${index}`}
+                        value={value}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setWelfareWorkItemRows((rows) =>
+                            rows.map((row, i) => (i === index ? v : row))
+                          );
+                        }}
+                        placeholder={
+                          index === 0 ? DEFAULT_WELFARE_WORK_ITEMS_CSV.split(",")[0] : "作業名"
+                        }
+                        className="flex-1 min-h-[48px] px-4 py-3 text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setWelfareWorkItemRows((rows) => {
+                            if (rows.length <= 1) return [""];
+                            return rows.filter((_, i) => i !== index);
+                          })
+                        }
+                        className="shrink-0 min-h-[48px] px-4 py-2 text-sm font-medium text-red-700 border border-red-200 rounded-lg bg-red-50 hover:bg-red-100 sm:w-24"
+                      >
+                        削除
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-gray-500 mt-3">
+                  1行に1項目。すべて空欄で保存すると既定（{DEFAULT_WELFARE_WORK_ITEMS_CSV}
+                  ）が使われます。夕方の「作業を終了する」後のボタンに反映されます。
                 </p>
               </div>
               <div className="flex flex-col sm:flex-row gap-3">

@@ -204,9 +204,7 @@ export async function tryHandleWelfareWorkJournalText(
     return true;
   }
 
-  await safeReply(replyToken, channelAccessToken, [
-    { type: "text", text: "日報の記録が完了しました。本日もお疲れ様でした！" },
-  ]);
+  /** 成功時は返信せず既読のみ（フロー完了） */
   return true;
 }
 
@@ -387,7 +385,7 @@ async function handleWelfarePostback(
     await safeReply(replyToken, channelAccessToken, [
       {
         type: "text",
-        text: `作業項目「${action.item}」を記録しました。\n続けて、本日の【作業個数】と【作業内容（日誌）】をこのメッセージに返信してください。（例：30個、集中して作業できました）`,
+        text: `作業項目「${action.item}」を記録しました。\n\n続けて、本日の【作業個数】と【作業内容（日誌）】をこのメッセージに返信してください。\n\n（例：30個、集中して作業できました）`,
       },
     ]);
   }
