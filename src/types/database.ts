@@ -47,6 +47,8 @@ export interface Database {
           welfare_message_morning: string | null;
           welfare_message_midday: string | null;
           welfare_message_evening: string | null;
+          /** B型: 作業項目（カンマ区切り）。NULL で Flex は既定 */
+          welfare_work_items: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -67,6 +69,7 @@ export interface Database {
           | "welfare_message_morning"
           | "welfare_message_midday"
           | "welfare_message_evening"
+          | "welfare_work_items"
         > & {
           id?: string;
           created_at?: string;
@@ -83,6 +86,7 @@ export interface Database {
           welfare_message_morning?: string | null;
           welfare_message_midday?: string | null;
           welfare_message_evening?: string | null;
+          welfare_work_items?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["stores"]["Insert"]>;
       };
@@ -145,7 +149,7 @@ export interface Database {
           work_date: string;
           started_at: string | null;
           ended_at: string | null;
-          health_status: "good" | "soso" | "bad" | null;
+          health_status: "good" | "soso" | "bad" | "contact" | null;
           health_reason: string | null;
           work_item: string | null;
           work_details: string | null;
@@ -162,7 +166,7 @@ export interface Database {
           work_date: string;
           started_at?: string | null;
           ended_at?: string | null;
-          health_status?: "good" | "soso" | "bad" | null;
+          health_status?: "good" | "soso" | "bad" | "contact" | null;
           health_reason?: string | null;
           work_item?: string | null;
           work_details?: string | null;

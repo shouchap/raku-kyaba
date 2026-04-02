@@ -28,6 +28,7 @@ type WelfareAction =
   | { kind: "health_good" }
   | { kind: "health_soso" }
   | { kind: "health_bad" }
+  | { kind: "health_contact" }
   | { kind: "end_work" }
   | { kind: "work_item"; item: string };
 
@@ -41,6 +42,7 @@ export function parseWelfarePostbackData(raw: string): WelfareAction | null {
   if (action === "health_good") return { kind: "health_good" };
   if (action === "health_soso") return { kind: "health_soso" };
   if (action === "health_bad") return { kind: "health_bad" };
+  if (action === "health_contact") return { kind: "health_contact" };
   if (action === "end_work") return { kind: "end_work" };
   if (action === "work_item") {
     const item = sp.get("item")?.trim();
@@ -151,6 +153,63 @@ export async function tryHandleWelfareHealthReasonText(
   return true;
 }
 
+/**
+ * 作業項目確定後の日誌（個数・内容）自由記述
+ * 条件: 本日ログがあり ended_at と work_item があり、work_details が未入力
+ */
+export async function tryHandleWelfareWorkJournalText(
+  lineUserId: string,
+  rawText: string,
+  supabase: ReturnType<typeof createSupabaseClient>,
+  storeId: string,
+  replyToken: string | undefined,
+  channelAccessToken: string | undefined
+): Promise<boolean> {
+  const t = String(rawText ?? "").trim();
+  if (!t) return false;
+
+  const cast = await getCastForWelfare(supabase, storeId, lineUserId);
+  if (!cast) return false;
+
+  const todayJst = getTodayJst();
+  const { data: row } = await supabase
+    .from("welfare_daily_logs")
+    .select("id, ended_at, work_item, work_details, pending_line_flow")
+    .eq("cast_id", cast.id)
+    .eq("work_date", todayJst)
+    .maybeSingle();
+
+  if (!row?.id) return false;
+  if (row.pending_line_flow === WELFARE_PENDING_HEALTH_REASON) return false;
+  if (!row.ended_at) return false;
+  const wi = typeof row.work_item === "string" ? row.work_item.trim() : "";
+  if (!wi) return false;
+  const wd = row.work_details;
+  if (wd !== null && String(wd).trim() !== "") return false;
+
+  const excerpt = t.length > 2000 ? `${t.slice(0, 2000)}…` : t;
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from("welfare_daily_logs")
+    .update({
+      work_details: excerpt,
+      pending_line_flow: null,
+      updated_at: nowIso,
+    })
+    .eq("id", row.id);
+
+  if (error) {
+    console.error("[Welfare] work_details update:", error);
+    await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
+    return true;
+  }
+
+  await safeReply(replyToken, channelAccessToken, [
+    { type: "text", text: "日報の記録が完了しました。本日もお疲れ様でした！" },
+  ]);
+  return true;
+}
+
 async function handleWelfarePostback(
   lineUserId: string,
   rawData: string,
@@ -199,8 +258,37 @@ async function handleWelfarePostback(
     return;
   }
 
-  if (action.kind === "health_good" || action.kind === "health_soso" || action.kind === "health_bad") {
-    const status = action.kind === "health_good" ? "good" : action.kind === "health_soso" ? "soso" : "bad";
+  if (
+    action.kind === "health_good" ||
+    action.kind === "health_soso" ||
+    action.kind === "health_bad" ||
+    action.kind === "health_contact"
+  ) {
+    if (action.kind === "health_contact") {
+      const { error } = await supabase
+        .from("welfare_daily_logs")
+        .update({
+          health_status: "contact",
+          pending_line_flow: null,
+          updated_at: nowIso,
+        })
+        .eq("id", log.id);
+      if (error) {
+        console.error("[Welfare] health_contact:", error);
+        await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
+        return;
+      }
+      await safeReply(replyToken, channelAccessToken, [
+        {
+          type: "text",
+          text: "担当者に連絡が必要な旨を記録しました。担当より連絡します。",
+        },
+      ]);
+      return;
+    }
+
+    const status =
+      action.kind === "health_good" ? "good" : action.kind === "health_soso" ? "soso" : "bad";
     if (status === "bad") {
       const { error } = await supabase
         .from("welfare_daily_logs")
@@ -256,7 +344,16 @@ async function handleWelfarePostback(
       await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
       return;
     }
-    await safeReply(replyToken, channelAccessToken, [buildWelfareWorkItemSelectFlexMessage()]);
+    const { data: storeRow } = await supabase
+      .from("stores")
+      .select("welfare_work_items")
+      .eq("id", store.id)
+      .maybeSingle();
+    const csv =
+      storeRow && typeof (storeRow as { welfare_work_items?: unknown }).welfare_work_items === "string"
+        ? (storeRow as { welfare_work_items: string }).welfare_work_items
+        : null;
+    await safeReply(replyToken, channelAccessToken, [buildWelfareWorkItemSelectFlexMessage(csv)]);
     return;
   }
 
@@ -288,7 +385,10 @@ async function handleWelfarePostback(
       return;
     }
     await safeReply(replyToken, channelAccessToken, [
-      { type: "text", text: `作業項目「${action.item}」で終了を記録しました。お疲れ様でした！` },
+      {
+        type: "text",
+        text: `作業項目「${action.item}」を記録しました。\n続けて、本日の【作業個数】と【作業内容（日誌）】をこのメッセージに返信してください。（例：30個、集中して作業できました）`,
+      },
     ]);
   }
 }
@@ -323,9 +423,19 @@ export async function handleWelfareWebhook(
     case "message": {
       const me = event as LineMessageEvent;
       if (me.message?.type === "text") {
-        await tryHandleWelfareHealthReasonText(
+        const text = me.message.text ?? "";
+        const handledHealth = await tryHandleWelfareHealthReasonText(
           userId,
-          me.message.text ?? "",
+          text,
+          supabase,
+          store.id,
+          replyToken,
+          channelAccessToken
+        );
+        if (handledHealth) break;
+        await tryHandleWelfareWorkJournalText(
+          userId,
+          text,
           supabase,
           store.id,
           replyToken,

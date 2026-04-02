@@ -353,10 +353,13 @@ export async function GET(request: Request) {
     let welfare_message_morning: string | null = null;
     let welfare_message_midday: string | null = null;
     let welfare_message_evening: string | null = null;
+    let welfare_work_items: string | null = null;
 
     const welfareRes = await admin
       .from("stores")
-      .select("business_type, welfare_message_morning, welfare_message_midday, welfare_message_evening")
+      .select(
+        "business_type, welfare_message_morning, welfare_message_midday, welfare_message_evening, welfare_work_items"
+      )
       .eq("id", storeId)
       .maybeSingle();
 
@@ -395,6 +398,10 @@ export async function GET(request: Request) {
         typeof w?.welfare_message_midday === "string" ? w.welfare_message_midday : null;
       welfare_message_evening =
         typeof w?.welfare_message_evening === "string" ? w.welfare_message_evening : null;
+      welfare_work_items =
+        typeof (w as { welfare_work_items?: string | null }).welfare_work_items === "string"
+          ? (w as { welfare_work_items: string }).welfare_work_items
+          : null;
     }
 
     return NextResponse.json({
@@ -402,6 +409,7 @@ export async function GET(request: Request) {
       welfare_message_morning,
       welfare_message_midday,
       welfare_message_evening,
+      welfare_work_items,
       remind_time: remindTime,
       allow_shift_submission: allowShiftSubmission,
       pre_open_report_hour_jst: preOpenReportHourJst,
@@ -449,6 +457,8 @@ type PatchBody = {
   welfare_message_morning?: string | null;
   welfare_message_midday?: string | null;
   welfare_message_evening?: string | null;
+  /** カンマ区切り作業項目。未指定なら更新しない */
+  welfare_work_items?: string | null;
 };
 
 /**
@@ -508,6 +518,22 @@ export async function PATCH(request: Request) {
         { status: 400 }
       );
     }
+    const wwiRaw = body.welfare_work_items;
+    if (typeof wwiRaw !== "string") {
+      return NextResponse.json(
+        {
+          error:
+            "welfare_work_items is required as a string (comma-separated work item labels; empty uses app default)",
+        },
+        { status: 400 }
+      );
+    }
+    if (wwiRaw.length > 4000) {
+      return NextResponse.json(
+        { error: "welfare_work_items must be at most 4000 characters" },
+        { status: 400 }
+      );
+    }
 
     if (
       !(process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim() ||
@@ -555,12 +581,22 @@ export async function PATCH(request: Request) {
       welfare_message_morning: wm.trim() === "" ? null : wm.trim(),
       welfare_message_midday: wmd.trim() === "" ? null : wmd.trim(),
       welfare_message_evening: we.trim() === "" ? null : we.trim(),
+      welfare_work_items: wwiRaw.trim() === "" ? null : wwiRaw.trim(),
       updated_at: nowIso,
     };
 
     const updRes = await adminWelfare.from("stores").update(payload).eq("id", storeId);
     if (updRes.error) {
       logPostgrestError("PATCH welfare stores update", updRes.error);
+      if (isUndefinedColumnError(updRes.error, "welfare_work_items")) {
+        return NextResponse.json(
+          {
+            error: "welfare_work_items column is missing",
+            details: "Apply supabase/migrations/026_stores_welfare_work_items.sql",
+          },
+          { status: 500 }
+        );
+      }
       if (isUndefinedColumnError(updRes.error, "welfare_message_morning")) {
         return NextResponse.json(
           {

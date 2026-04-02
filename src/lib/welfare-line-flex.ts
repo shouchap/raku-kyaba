@@ -13,9 +13,23 @@ export const DEFAULT_WELFARE_MESSAGE_MIDDAY = "お疲れ様です！本日の体
 export const DEFAULT_WELFARE_MESSAGE_EVENING =
   "本日の作業お疲れ様でした！作業終了の報告をお願いします。";
 
+/** stores.welfare_work_items 未設定時の既定（カンマ区切りと同じ並び） */
+export const DEFAULT_WELFARE_WORK_ITEMS_CSV = "A作業,B作業";
+
 function resolveWelfareBody(custom: string | null | undefined, fallback: string): string {
   const t = typeof custom === "string" ? custom.trim() : "";
   return t.length > 0 ? t : fallback;
+}
+
+/**
+ * 管理画面のカンマ区切り文字列から作業項目ラベル配列を得る（未設定・空は既定）
+ * LINE ボタン数の上限を考慮し最大10件
+ */
+export function parseWelfareWorkItemLabels(raw: string | null | undefined): string[] {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  const source = s.length > 0 ? s : DEFAULT_WELFARE_WORK_ITEMS_CSV;
+  const labels = [...new Set(source.split(",").map((x) => x.trim()).filter(Boolean))];
+  return labels.slice(0, 10);
 }
 
 function postbackButton(label: string, data: string): object {
@@ -66,13 +80,13 @@ export function buildWelfareMorningStartFlexMessage(
         paddingAll: "20px",
         paddingTop: "12px",
         spacing: "sm" as const,
-        contents: [postbackButton("▶️ 作業を開始する", "welfare_action=start_work")],
+        contents: [postbackButton("作業を開始する", "welfare_action=start_work")],
       },
     },
   };
 }
 
-/** ② 昼12:00 体調 */
+/** ② 昼12:00 体調（良好 / 不調 / 担当者に連絡） */
 export function buildWelfareMiddayHealthFlexMessage(
   bodyText?: string | null
 ): LineReplyMessage {
@@ -106,16 +120,16 @@ export function buildWelfareMiddayHealthFlexMessage(
         paddingTop: "12px",
         spacing: "sm" as const,
         contents: [
-          postbackButton("😆 良好", "welfare_action=health_good"),
-          postbackButton("😖 少ししんどい", "welfare_action=health_soso"),
-          postbackButton("🤢 不調", "welfare_action=health_bad"),
+          postbackButton("良好", "welfare_action=health_good"),
+          postbackButton("不調", "welfare_action=health_bad"),
+          postbackButton("担当者に連絡", "welfare_action=health_contact"),
         ],
       },
     },
   };
 }
 
-/** ③ 夕方17:00 作業終了 */
+/** ③ 夕方17:00 作業終了（終了ボタンのみ） */
 export function buildWelfareEveningEndFlexMessage(
   bodyText?: string | null
 ): LineReplyMessage {
@@ -148,15 +162,26 @@ export function buildWelfareEveningEndFlexMessage(
         paddingAll: "20px",
         paddingTop: "12px",
         spacing: "sm" as const,
-        contents: [postbackButton("⏹️ 作業を終了する", "welfare_action=end_work")],
+        contents: [postbackButton("作業を終了する", "welfare_action=end_work")],
       },
     },
   };
 }
 
-/** end_work 後：作業項目選択 */
-export function buildWelfareWorkItemSelectFlexMessage(): LineReplyMessage {
+/**
+ * end_work 後：作業項目選択（stores.welfare_work_items のカンマ区切りから動的生成）
+ */
+export function buildWelfareWorkItemSelectFlexMessage(
+  welfareWorkItemsFromDb: string | null | undefined
+): LineReplyMessage {
+  const labels = parseWelfareWorkItemLabels(welfareWorkItemsFromDb);
   const text = "本日の作業項目を選んでください。";
+  const buttons = labels.map((item) =>
+    postbackButton(
+      item.length > 40 ? `${item.slice(0, 37)}...` : item,
+      `welfare_action=work_item&item=${encodeURIComponent(item)}`
+    )
+  );
   return {
     type: "flex",
     altText: `${text}（ボタンから選択）`,
@@ -185,10 +210,7 @@ export function buildWelfareWorkItemSelectFlexMessage(): LineReplyMessage {
         paddingAll: "20px",
         paddingTop: "12px",
         spacing: "sm" as const,
-        contents: [
-          postbackButton("A作業", "welfare_action=work_item&item=A"),
-          postbackButton("B作業", "welfare_action=work_item&item=B"),
-        ],
+        contents: buttons,
       },
     },
   };

@@ -146,6 +146,7 @@ function formatHealthCondition(status: string | null): string {
   if (status === "good") return "良好";
   if (status === "soso") return "やや不調";
   if (status === "bad") return "不調";
+  if (status === "contact") return "担当者連絡";
   return status;
 }
 

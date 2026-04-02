@@ -7,6 +7,7 @@ import {
   DEFAULT_WELFARE_MESSAGE_EVENING,
   DEFAULT_WELFARE_MESSAGE_MIDDAY,
   DEFAULT_WELFARE_MESSAGE_MORNING,
+  DEFAULT_WELFARE_WORK_ITEMS_CSV,
 } from "@/lib/welfare-line-flex";
 
 /** 00:00〜23:00（1時間刻み） */
@@ -57,6 +58,7 @@ export default function AdminSettingsPage() {
   const [welfareMorning, setWelfareMorning] = useState("");
   const [welfareMidday, setWelfareMidday] = useState("");
   const [welfareEvening, setWelfareEvening] = useState("");
+  const [welfareWorkItems, setWelfareWorkItems] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -94,6 +96,7 @@ export default function AdminSettingsPage() {
         welfare_message_morning?: string | null;
         welfare_message_midday?: string | null;
         welfare_message_evening?: string | null;
+        welfare_work_items?: string | null;
         remind_time?: string;
         allow_shift_submission?: boolean;
         pre_open_report_hour_jst?: number | null;
@@ -114,6 +117,9 @@ export default function AdminSettingsPage() {
       );
       setWelfareEvening(
         typeof data.welfare_message_evening === "string" ? data.welfare_message_evening : ""
+      );
+      setWelfareWorkItems(
+        typeof data.welfare_work_items === "string" ? data.welfare_work_items : ""
       );
 
       if (
@@ -215,6 +221,7 @@ export default function AdminSettingsPage() {
             welfare_message_morning: welfareMorning,
             welfare_message_midday: welfareMidday,
             welfare_message_evening: welfareEvening,
+            welfare_work_items: welfareWorkItems,
           }),
         });
 
@@ -421,6 +428,26 @@ export default function AdminSettingsPage() {
                   placeholder={DEFAULT_WELFARE_MESSAGE_EVENING}
                   className="w-full min-h-[96px] px-4 py-3 text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"
                 />
+              </div>
+              <div className="mb-8">
+                <label
+                  htmlFor="welfareWorkItems"
+                  className="block text-sm font-medium text-gray-700 mb-2"
+                >
+                  作業項目の設定
+                </label>
+                <textarea
+                  id="welfareWorkItems"
+                  value={welfareWorkItems}
+                  onChange={(e) => setWelfareWorkItems(e.target.value)}
+                  rows={3}
+                  placeholder={DEFAULT_WELFARE_WORK_ITEMS_CSV}
+                  className="w-full min-h-[72px] px-4 py-3 text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  カンマ区切りで複数入力（例: {DEFAULT_WELFARE_WORK_ITEMS_CSV}
+                  ）。空欄で保存すると既定の「A作業」「B作業」が使われます。夕方の「作業を終了する」後のボタンに反映されます。
+                </p>
               </div>
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
