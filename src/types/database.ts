@@ -148,6 +148,9 @@ export interface Database {
           health_status: "good" | "soso" | "bad" | null;
           health_reason: string | null;
           work_item: string | null;
+          work_details: string | null;
+          quantity: number | null;
+          health_notes: string | null;
           pending_line_flow: "welfare_health_reason" | "welfare_work_item" | null;
           created_at: string;
           updated_at: string;
@@ -162,6 +165,9 @@ export interface Database {
           health_status?: "good" | "soso" | "bad" | null;
           health_reason?: string | null;
           work_item?: string | null;
+          work_details?: string | null;
+          quantity?: number | null;
+          health_notes?: string | null;
           pending_line_flow?: "welfare_health_reason" | "welfare_work_item" | null;
           created_at?: string;
           updated_at?: string;

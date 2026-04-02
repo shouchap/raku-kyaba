@@ -29,6 +29,23 @@ type Cast = {
 type Store = {
   id: string;
   name: string;
+  business_type?: string | null;
+};
+
+/** GET /api/admin/report の welfare 行（B型） */
+type WelfareReportRow = {
+  id: string;
+  cast_id: string;
+  cast_name: string;
+  work_date: string;
+  started_at: string | null;
+  ended_at: string | null;
+  work_item: string | null;
+  work_details: string | null;
+  quantity: number | null;
+  health_status: string | null;
+  health_reason: string | null;
+  health_notes: string | null;
 };
 
 type ScheduleRow = {
@@ -109,6 +126,33 @@ function formatJaMonthDay(dateStr: string): string {
 function formatWeekRangeLabel(mondayYmd: string): string {
   const sun = getSundayOfJstWeekFromMonday(mondayYmd);
   return `${formatJaMonthDay(mondayYmd)}〜${formatJaMonthDay(sun)}`;
+}
+
+function formatTimeJstFromIso(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d);
+}
+
+/** DB health_status → 表示用（体調） */
+function formatHealthCondition(status: string | null): string {
+  if (!status) return "—";
+  if (status === "good") return "良好";
+  if (status === "soso") return "やや不調";
+  if (status === "bad") return "不調";
+  return status;
+}
+
+/** 体調詳細: health_notes と health_reason（LINE 不調理由）を併記 */
+function formatHealthNotesCell(notes: string | null, reason: string | null): string {
+  const parts = [notes?.trim(), reason?.trim()].filter(Boolean);
+  return parts.length > 0 ? parts.join(" / ") : "—";
 }
 
 function rowIsAbsent(row: ScheduleRow): boolean {
@@ -324,6 +368,8 @@ function AdminReportContent() {
   }, [year, month, setWeekParams]);
 
   const [store, setStore] = useState<Store | null>(null);
+  const [businessType, setBusinessType] = useState<"cabaret" | "welfare_b">("cabaret");
+  const [welfareRows, setWelfareRows] = useState<WelfareReportRow[]>([]);
   const [casts, setCasts] = useState<Cast[]>([]);
   const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -344,7 +390,7 @@ function AdminReportContent() {
           .eq("store_id", tenantId)
           .eq("is_active", true)
           .order("name"),
-        supabase.from("stores").select("id, name").eq("id", tenantId).single(),
+        supabase.from("stores").select("id, name, business_type").eq("id", tenantId).single(),
       ]);
 
       if (castsRes.error) throw castsRes.error;
@@ -352,11 +398,41 @@ function AdminReportContent() {
         setCasts([]);
         setStore(null);
         setSchedules([]);
+        setWelfareRows([]);
+        setBusinessType("cabaret");
         return;
       }
 
       const st = storesRes.data as Store;
       setStore(st);
+      const bt =
+        st.business_type === "welfare_b" ? "welfare_b" : "cabaret";
+      setBusinessType(bt);
+
+      if (bt === "welfare_b") {
+        setSchedules([]);
+        setCasts([]);
+        const reportRes = await fetch(
+          `/api/admin/report?storeId=${encodeURIComponent(tenantId)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
+          { credentials: "include" }
+        );
+        const payload = (await reportRes.json().catch(() => ({}))) as {
+          ok?: boolean;
+          welfare_rows?: WelfareReportRow[];
+          error?: string;
+          details?: string;
+        };
+        if (!reportRes.ok) {
+          throw new Error(
+            [payload.error, payload.details].filter(Boolean).join(" — ") ||
+              "日報データの取得に失敗しました"
+          );
+        }
+        setWelfareRows(Array.isArray(payload.welfare_rows) ? payload.welfare_rows : []);
+        return;
+      }
+
+      setWelfareRows([]);
       const castList = (castsRes.data ?? []) as Cast[];
       setCasts(castList);
 
@@ -383,6 +459,7 @@ function AdminReportContent() {
       console.error(e);
       setError(e instanceof Error ? e.message : "データの取得に失敗しました");
       setSchedules([]);
+      setWelfareRows([]);
     } finally {
       setLoading(false);
     }
@@ -455,7 +532,13 @@ function AdminReportContent() {
 
   const periodKindLabel = viewMode === "week" ? "週間" : "月間";
   const emptyMessage =
-    viewMode === "week" ? "この週のシフトデータはありません。" : "この月のシフトデータはありません。";
+    businessType === "welfare_b"
+      ? viewMode === "week"
+        ? "この週の日報はありません。"
+        : "この月の日報はありません。"
+      : viewMode === "week"
+        ? "この週のシフトデータはありません。"
+        : "この月のシフトデータはありません。";
 
   const hasDetails = (r: CastReport) =>
     r.incidents.length > 0 || r.sabakiDates.length > 0;
@@ -464,10 +547,15 @@ function AdminReportContent() {
     <div className="admin-report-print-root p-4 sm:p-6">
       <div className="mb-6">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
-          レポート（{periodKindLabel}集計）
+          {businessType === "welfare_b"
+            ? `日報一覧（${periodKindLabel}）`
+            : `レポート（${periodKindLabel}集計）`}
         </h1>
         <p className="mt-1 text-sm text-gray-600 print:text-xs">
-          {store?.name ?? "店舗"} · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。
+          {store?.name ?? "店舗"}
+          {businessType === "welfare_b"
+            ? " · 就労継続支援B型の日次記録（作業・体調）を一覧表示します。"
+            : " · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。"}
         </p>
       </div>
 
@@ -564,6 +652,86 @@ function AdminReportContent() {
 
       {loading ? (
         <p className="text-gray-600">読み込み中…</p>
+      ) : businessType === "welfare_b" ? (
+        <div className="report-table-wrap report-table-welfare-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
+          <table className="report-table report-table-welfare min-w-[920px] w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50">
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 whitespace-nowrap">
+                  利用者名
+                </th>
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 whitespace-nowrap">
+                  日付
+                </th>
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 whitespace-nowrap">
+                  作業開始
+                </th>
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 whitespace-nowrap">
+                  作業終了
+                </th>
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 min-w-[4rem]">
+                  作業項目
+                </th>
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 min-w-[6rem]">
+                  作業内容
+                </th>
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 text-right w-12">
+                  個数
+                </th>
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 whitespace-nowrap">
+                  体調
+                </th>
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 min-w-[6rem]">
+                  体調詳細
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {welfareRows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-3 py-8 text-center text-gray-500">
+                    {emptyMessage}
+                  </td>
+                </tr>
+              ) : (
+                welfareRows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className="border-b border-gray-100 hover:bg-gray-50/80 align-top"
+                  >
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 font-medium text-gray-900">
+                      {row.cast_name || "—"}
+                    </td>
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 tabular-nums text-gray-800 whitespace-nowrap">
+                      {row.work_date}
+                    </td>
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 tabular-nums text-gray-800 whitespace-nowrap">
+                      {formatTimeJstFromIso(row.started_at)}
+                    </td>
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 tabular-nums text-gray-800 whitespace-nowrap">
+                      {formatTimeJstFromIso(row.ended_at)}
+                    </td>
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 text-gray-800 break-words">
+                      {row.work_item?.trim() || "—"}
+                    </td>
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 text-gray-800 break-words">
+                      {row.work_details?.trim() || "—"}
+                    </td>
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 text-right tabular-nums text-gray-800">
+                      {row.quantity === null || row.quantity === undefined ? "—" : row.quantity}
+                    </td>
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 text-gray-800 whitespace-nowrap">
+                      {formatHealthCondition(row.health_status)}
+                    </td>
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 text-gray-800 break-words">
+                      {formatHealthNotesCell(row.health_notes, row.health_reason)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <div className="report-table-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
           <table className="report-table min-w-[640px] w-full text-left text-sm">
