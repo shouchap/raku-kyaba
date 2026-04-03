@@ -61,7 +61,10 @@ export default function AdminWeeklyPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notifying, setNotifying] = useState(false);
-  const [notifyingCastId, setNotifyingCastId] = useState<string | null>(null);
+  const [notifyingOp, setNotifyingOp] = useState<{
+    castId: string;
+    isUpdate: boolean;
+  } | null>(null);
   const [notifyStatus, setNotifyStatus] = useState<"idle" | "sending" | "done">("idle");
   const [message, setMessage] = useState<"success" | "error" | null>(null);
 
@@ -311,13 +314,17 @@ export default function AdminWeeklyPage() {
     }
   };
 
-  const handleNotifyIndividual = async (castId: string) => {
-    setNotifyingCastId(castId);
+  const handleNotifyIndividual = async (castId: string, isUpdate: boolean) => {
+    setNotifyingOp({ castId, isUpdate });
     try {
       const res = await fetch("/api/admin/notify-individual", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ startDate: baseDate, castId }),
+        body: JSON.stringify({
+          startDate: baseDate,
+          castId,
+          is_update: isUpdate,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "送信に失敗しました");
@@ -325,7 +332,7 @@ export default function AdminWeeklyPage() {
       console.error(err);
       alert(err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
-      setNotifyingCastId(null);
+      setNotifyingOp(null);
     }
   };
 
@@ -388,8 +395,11 @@ export default function AdminWeeklyPage() {
                     </th>
                   );
                 })}
-                <th className="border-b border-gray-200 px-1 sm:px-2 py-2 text-center text-[10px] sm:text-xs font-medium text-gray-700 min-w-[64px] sm:min-w-[80px]">
+                <th className="border-b border-r border-gray-200 px-1 sm:px-2 py-2 text-center text-[10px] sm:text-xs font-medium text-gray-700 min-w-[56px] sm:min-w-[72px]">
                   個別
+                </th>
+                <th className="border-b border-gray-200 px-1 sm:px-2 py-2 text-center text-[10px] sm:text-xs font-medium text-gray-700 min-w-[56px] sm:min-w-[72px]">
+                  変更通知
                 </th>
               </tr>
             </thead>
@@ -448,20 +458,28 @@ export default function AdminWeeklyPage() {
                       </td>
                     );
                   })}
-                  <td className="border-b border-gray-200 p-0.5 sm:p-1 text-center">
+                  <td className="border-b border-r border-gray-200 p-0.5 sm:p-1 text-center align-top">
                     <button
                       type="button"
-                      onClick={() => handleNotifyIndividual(cast.id)}
-                      disabled={
-                        saving ||
-                        notifying ||
-                        notifyingCastId !== null
-                      }
-                      className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-2 sm:py-1.5 min-h-[36px] rounded border border-[#06C755] text-[#06C755] hover:bg-[#06C755] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                      onClick={() => handleNotifyIndividual(cast.id, false)}
+                      disabled={saving || notifying || notifyingOp !== null}
+                      className="w-full text-[10px] sm:text-xs px-1 sm:px-1.5 py-2 sm:py-1.5 min-h-[36px] rounded border border-[#06C755] text-[#06C755] hover:bg-[#06C755] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
                     >
-                      {notifyingCastId === cast.id
+                      {notifyingOp?.castId === cast.id && !notifyingOp.isUpdate
                         ? "送信中..."
                         : "個別"}
+                    </button>
+                  </td>
+                  <td className="border-b border-gray-200 p-0.5 sm:p-1 text-center align-top">
+                    <button
+                      type="button"
+                      onClick={() => handleNotifyIndividual(cast.id, true)}
+                      disabled={saving || notifying || notifyingOp !== null}
+                      className="w-full text-[10px] sm:text-xs px-1 sm:px-1.5 py-2 sm:py-1.5 min-h-[36px] rounded border border-orange-500 text-orange-600 hover:bg-orange-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                    >
+                      {notifyingOp?.castId === cast.id && notifyingOp.isUpdate
+                        ? "送信中..."
+                        : "変更通知"}
                     </button>
                   </td>
                 </tr>
@@ -493,7 +511,7 @@ export default function AdminWeeklyPage() {
           <button
             type="button"
             onClick={handleNotify}
-            disabled={saving || notifying || notifyingCastId !== null}
+            disabled={saving || notifying || notifyingOp !== null}
             className="w-full sm:w-auto sm:min-w-[260px] min-h-[48px] h-12 px-6 py-3 bg-[#06C755] text-white font-medium rounded-lg hover:bg-[#05B34C] focus:ring-2 focus:ring-[#06C755] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap touch-manipulation"
           >
             {notifying

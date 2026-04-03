@@ -5,6 +5,7 @@ import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-au
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 import { formatScheduleTimeLabel } from "@/lib/attendance-remind-flex";
 import { createServiceRoleClient } from "@/lib/supabase-service";
+import { getTodayJst } from "@/lib/date-utils";
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -20,7 +21,8 @@ function formatDateJa(dateStr: string): string {
 /**
  * 指定キャストの1週間シフトをLINEで個別送信するAPI
  * POST /api/admin/notify-individual
- * Body: { startDate: "2026-03-20", castId: "uuid" }
+ * Body: { startDate: "2026-03-20", castId: "uuid", is_update?: boolean }
+ * is_update=true: 変更通知文面 + 本日（JST）未満の日付行をメッセージから除外
  */
 export async function POST(request: Request) {
   let admin: ReturnType<typeof createServiceRoleClient>;
@@ -33,7 +35,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { startDate?: string; castId?: string };
+  let body: { startDate?: string; castId?: string; is_update?: boolean };
   try {
     body = await request.json();
   } catch {
@@ -45,6 +47,7 @@ export async function POST(request: Request) {
 
   const startDate = body.startDate;
   const castId = body.castId;
+  const isUpdate = body.is_update === true;
   if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
     return NextResponse.json(
       { error: "startDate is required (format: YYYY-MM-DD)" },
@@ -90,6 +93,9 @@ export async function POST(request: Request) {
     d.setDate(d.getDate() + i);
     dates.push(d.toISOString().slice(0, 10));
   }
+
+  const todayJst = getTodayJst();
+  const datesForMessage = isUpdate ? dates.filter((d) => d >= todayJst) : dates;
 
   // キャスト情報（line_user_id 必須）
   const { data: cast, error: castError } = await admin
@@ -160,26 +166,39 @@ export async function POST(request: Request) {
     }
   );
 
-  const lines: string[] = [
-    `${cast.name}さん、来週のシフトが確定しました。`,
-    "",
-  ];
-  let hasShift = false;
-  dates.forEach((dateStr) => {
-    const time = byDate[dateStr];
-    const dateJa = formatDateJa(dateStr);
-    if (time) {
-      hasShift = true;
-      lines.push(`${dateJa}: ${time}`);
-    } else {
-      lines.push(`${dateJa}: お休み`);
-    }
-  });
-  lines.push("", "よろしくお願いします！");
+  const headerIntro = isUpdate
+    ? `${cast.name}さん、今週のシフトに変更がありましたのでご確認お願いします。`
+    : `${cast.name}さん、来週のシフトが確定しました。`;
 
-  const text = hasShift
-    ? lines.join("\n")
-    : `${cast.name}さん、来週はお休みです。よろしくお願いします！`;
+  const lines: string[] = [headerIntro, ""];
+  let hasShift = false;
+
+  if (datesForMessage.length === 0) {
+    lines.push("よろしくお願いします！");
+  } else {
+    datesForMessage.forEach((dateStr) => {
+      const time = byDate[dateStr];
+      const dateJa = formatDateJa(dateStr);
+      if (time) {
+        hasShift = true;
+        lines.push(`${dateJa}: ${time}`);
+      } else {
+        lines.push(`${dateJa}: お休み`);
+      }
+    });
+    lines.push("", "よろしくお願いします！");
+  }
+
+  let text: string;
+  if (datesForMessage.length === 0) {
+    text = lines.join("\n");
+  } else if (hasShift) {
+    text = lines.join("\n");
+  } else if (isUpdate) {
+    text = `${cast.name}さん、今週のシフトに変更がありましたのでご確認お願いします。\n\nよろしくお願いします！`;
+  } else {
+    text = `${cast.name}さん、来週はお休みです。よろしくお願いします！`;
+  }
 
   try {
     await sendPushMessage(lineUserId, channelAccessToken, [
