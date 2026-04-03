@@ -426,7 +426,7 @@ async function runRemindForStore(
   const nowIso = new Date().toISOString();
   type ScheduleRow = (typeof schedules)[number];
 
-  type SentItem = { name: string; timeDisplay: string; sortMinutes: number };
+  type SentItem = { name: string; sortMinutes: number };
 
   const buildSentItemFromSchedule = (s: ScheduleRow): SentItem => {
     const c = parseCastJoinFromSchedule(s);
@@ -435,22 +435,17 @@ async function runRemindForStore(
     if (s.is_sabaki === true) {
       return {
         name,
-        timeDisplay: "捌き出勤",
         sortMinutes: minutesFromScheduledTime(s.scheduled_time),
       };
     }
     if (employmentUsesRegularRemindMessage(c?.employment_type)) {
       return {
         name,
-        timeDisplay: "レギュラー（固定文）",
         sortMinutes: minutesFromScheduledTime(s.scheduled_time),
       };
     }
-    const timeStr = formatRemindScheduledTime(s.scheduled_time, false);
-    const timeDisplay = `${timeStr}${s.is_dohan ? " 同伴" : ""}`.trim();
     return {
       name,
-      timeDisplay,
       sortMinutes: minutesFromScheduledTime(s.scheduled_time),
     };
   };
@@ -461,9 +456,7 @@ async function runRemindForStore(
       const adminIds = await getAdminLineUserIds(supabase, storeId);
       if (adminIds.length > 0) {
         const sorted = [...sentItems].sort((a, b) => a.sortMinutes - b.sortMinutes);
-        const nameList = sorted
-          .map(({ name, timeDisplay }) => `・${name} (${timeDisplay})`)
-          .join("\n");
+        const nameList = sorted.map(({ name }) => `・${name}`).join("\n");
         const adminMessage = `【システム通知】本日、以下の${sentItems.length}名に出勤確認のリマインドを送信しました。\n${nameList}`;
         await sendMulticastMessage(adminIds, channelAccessToken, [
           { type: "text", text: adminMessage },
@@ -577,7 +570,6 @@ async function runRemindForStore(
           .map(
             (r): SentItem => ({
               name: r.name,
-              timeDisplay: "レギュラー（シフト未登録）",
               sortMinutes: Number.MAX_SAFE_INTEGER,
             })
           ),
@@ -757,7 +749,6 @@ async function runRemindForStore(
         .map(
           (r): SentItem => ({
             name: r.name,
-            timeDisplay: "レギュラー（シフト未登録）",
             sortMinutes: Number.MAX_SAFE_INTEGER,
           })
         ),
