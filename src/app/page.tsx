@@ -1,10 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
+
+const GOLD = "#D4AF37";
 
 /**
  * Supabase の signInWithPassword 用メールを決定する。
@@ -74,106 +75,120 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#FFFFFF]">
-      <main className="flex flex-1 flex-col px-3 pb-6 pt-5 sm:px-6 sm:pt-7">
-        <div className="relative mx-auto w-full max-w-[1024px]">
-          <Image
-            src="/タイトル.png"
-            alt="もう無能な部下 怒らなくて良いんです"
-            width={1024}
-            height={575}
-            className="h-auto w-full select-none"
-            priority
-            unoptimized
-            sizes="(max-width: 1024px) 100vw, 1024px"
+    <div className="min-h-screen bg-black flex items-center justify-center overflow-hidden relative">
+      {/* ゴールドの光の粒子（背景アニメーション） */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {[...Array(12)].map((_, i) => (
+          <div
+            key={i}
+            className="absolute rounded-full bg-[#D4AF37] opacity-20 animate-gold-float"
+            style={{
+              width: `${4 + (i % 4) * 3}px`,
+              height: `${4 + (i % 4) * 3}px`,
+              left: `${(i * 7) % 100}%`,
+              top: `${(i * 11) % 100}%`,
+              animationDelay: `${i * 0.7}s`,
+              animationDuration: `${8 + (i % 4)}s`,
+            }}
           />
+        ))}
+        <div
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: `radial-gradient(circle at 50% 50%, ${GOLD} 1px, transparent 1px)`,
+            backgroundSize: "40px 40px",
+          }}
+        />
+      </div>
 
-          <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-[min(100%-1rem,28rem)] -translate-x-1/2 -translate-y-1/2 px-2 sm:w-full sm:max-w-lg sm:px-0">
-            <form
-              onSubmit={handleSubmit}
-              className="pointer-events-auto w-full rounded-xl border border-gray-100/90 bg-white/92 p-2.5 shadow-lg backdrop-blur-[3px] sm:p-3"
-            >
-              <h1 className="mb-1.5 text-center text-[10px] font-semibold tracking-[0.08em] text-slate-900 sm:mb-2 sm:text-[11px]">
-                RAKU-RAKU STAFF PORTAL
-              </h1>
+      <div className="relative z-10 w-full max-w-sm mx-3 sm:mx-4 px-1 sm:px-0">
+        <form
+          onSubmit={handleSubmit}
+          className="border-2 border-[#D4AF37] rounded-lg p-5 sm:p-8 bg-black/90 backdrop-blur-sm shadow-[0_0_30px_rgba(212,175,55,0.15)]"
+          style={{ borderColor: GOLD }}
+        >
+          <h1
+            className="text-xl sm:text-2xl font-light tracking-[0.12em] sm:tracking-[0.18em] text-center mb-6 sm:mb-8 text-[#D4AF37] leading-snug"
+            style={{
+              fontFamily: "'Cinzel', 'Georgia', serif",
+            }}
+          >
+            Raku-Raku STAFF PORTAL
+          </h1>
 
-              {error && (
-                <p className="mb-1.5 px-0.5 text-center text-[9px] leading-snug text-red-600 sm:text-[10px]" role="alert">
-                  {error}
-                </p>
-              )}
+          {error && (
+            <p className="text-red-400 text-sm text-center mb-4 px-2" role="alert">
+              {error}
+            </p>
+          )}
 
-              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 sm:gap-x-3 sm:gap-y-1.5">
-                <div className="min-w-0">
-                  <label
-                    htmlFor="username"
-                    className="mb-0.5 block text-[9px] font-medium text-slate-700 sm:text-[10px]"
-                  >
-                    ユーザー名 / メールアドレス
-                  </label>
-                  <input
-                    id="username"
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="gold または example@gmail.com"
-                    className="min-h-[34px] w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-slate-900 placeholder:text-gray-400 transition-colors focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/30 sm:min-h-[36px] sm:text-xs"
-                    autoComplete="username"
-                    disabled={loading}
-                  />
-                </div>
-
-                <div className="min-w-0">
-                  <label
-                    htmlFor="password"
-                    className="mb-0.5 block text-[9px] font-medium text-slate-700 sm:text-[10px]"
-                  >
-                    パスワード
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="min-h-[34px] w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 pr-9 text-[11px] text-slate-900 placeholder:text-gray-400 transition-colors focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/30 sm:min-h-[36px] sm:pr-10 sm:text-xs"
-                      autoComplete="current-password"
-                      disabled={loading}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((p) => !p)}
-                      className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 transition-colors hover:text-slate-800 disabled:opacity-50"
-                      disabled={loading}
-                      aria-label={showPassword ? "パスワードを隠す" : "パスワードを表示"}
-                    >
-                      {showPassword ? (
-                        <EyeOff size={14} strokeWidth={1.5} />
-                      ) : (
-                        <Eye size={14} strokeWidth={1.5} />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="mt-2.5 min-h-[34px] w-full rounded-md bg-slate-900 py-1.5 text-[11px] font-medium tracking-wide text-white transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation sm:mt-3 sm:min-h-[36px] sm:text-xs"
+          <div className="space-y-4 sm:space-y-5">
+            <div>
+              <label
+                htmlFor="username"
+                className="block text-sm text-[#D4AF37]/90 mb-2 font-light tracking-wider"
               >
-                {loading ? "ログイン中..." : "ログイン"}
-              </button>
-            </form>
-          </div>
-        </div>
-      </main>
+                ユーザー名 / メールアドレス
+              </label>
+              <input
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="gold または example@gmail.com"
+                className="w-full px-4 py-3 min-h-[44px] text-base bg-black/80 border border-[#D4AF37]/50 rounded focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]/50 text-white placeholder-gray-500 transition-colors"
+                autoComplete="username"
+                disabled={loading}
+              />
+              <p className="text-xs text-[#D4AF37]/50 mt-1">
+                ※ @ が無い場合のみ @raku-kyaba.internal が付きます
+              </p>
+            </div>
 
-      <footer className="mt-auto px-4 pb-8 text-center text-[11px] leading-relaxed text-slate-400 sm:px-6 sm:text-xs">
-        <p>楽キャバ ＆ HABATAKI</p>
-        <p className="mt-1">© 2026 Raku-Kyaba Inc. All Rights Reserved.</p>
-      </footer>
+            <div>
+              <label
+                htmlFor="password"
+                className="block text-sm text-[#D4AF37]/90 mb-2 font-light tracking-wider"
+              >
+                パスワード
+              </label>
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-4 py-3 pr-12 min-h-[44px] text-base bg-black/80 border border-[#D4AF37]/50 rounded focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]/50 text-white placeholder-gray-500 transition-colors"
+                  autoComplete="current-password"
+                  disabled={loading}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((p) => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[#D4AF37]/70 hover:text-[#D4AF37] transition-colors disabled:opacity-50"
+                  disabled={loading}
+                  aria-label={showPassword ? "パスワードを隠す" : "パスワードを表示"}
+                >
+                  {showPassword ? (
+                    <EyeOff size={18} strokeWidth={1.5} />
+                  ) : (
+                    <Eye size={18} strokeWidth={1.5} />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full mt-5 sm:mt-6 py-3 min-h-[48px] rounded border-2 border-[#D4AF37] text-[#D4AF37] font-light tracking-widest hover:bg-[#D4AF37]/10 focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 touch-manipulation"
+          >
+            {loading ? "ログイン中..." : "ログイン"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
