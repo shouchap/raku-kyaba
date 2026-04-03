@@ -300,14 +300,6 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
       color: timeHighlightColor,
       wrap: true,
     },
-    {
-      type: "text",
-      text: "よろしくお願い致します。",
-      size: "md" as const,
-      color: COLOR_BODY_TEXT,
-      margin: "md" as const,
-      wrap: true,
-    },
   ];
 
   if (input.showSabakiTimePicker === true) {
