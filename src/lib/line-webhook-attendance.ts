@@ -309,7 +309,7 @@ export function buildReservationTimePickerFlexMessage(
   const bodyText = reservationTimePromptBody(opts);
   return {
     type: "flex",
-    altText: `${bodyText}（ボタンから時間を選択）`,
+    altText: `${bodyText}（時間を選択するか「未定」）`,
     contents: {
       type: "bubble",
       size: "mega" as const,
@@ -347,6 +347,18 @@ export function buildReservationTimePickerFlexMessage(
               data: "action=reservation_time_select",
               mode: "time" as const,
               initial: "20:00",
+            },
+          },
+          {
+            type: "button",
+            style: "primary" as const,
+            color: RESERVATION_FLEX_BTN_MUTED,
+            height: "md" as const,
+            action: {
+              type: "postback" as const,
+              label: "未定",
+              data: "action=set_reservation_time_unknown",
+              displayText: "未定",
             },
           },
         ],
@@ -435,6 +447,7 @@ function ensureProgressForTimeStep(
     return {
       ...p,
       pending_time: undefined,
+      pending_time_unknown: undefined,
     };
   }
   return {
@@ -1347,8 +1360,9 @@ export async function handleReservationFollowupPostback(
   const data = String(rawData ?? "").trim();
   const isGroupSelect = data.includes("reservation_group_select");
   const isTime = data === "action=reservation_time_select";
+  const isTimeUnknown = data === "action=set_reservation_time_unknown";
   const isGuests = data.includes("reservation_guests_select");
-  if (!isGroupSelect && !isTime && !isGuests) {
+  if (!isGroupSelect && !isTime && !isTimeUnknown && !isGuests) {
     return false;
   }
 
@@ -1457,6 +1471,7 @@ export async function handleReservationFollowupPostback(
       ...base,
       current_group: nextIdx,
       pending_time: hm,
+      pending_time_unknown: undefined,
     };
     const { error: uErr } = await supabase
       .from("attendance_schedules")
@@ -1481,6 +1496,49 @@ export async function handleReservationFollowupPostback(
     return true;
   }
 
+  if (isTimeUnknown) {
+    if (schedule.pending_line_flow !== PENDING_RESERVATION_TIME) {
+      await safeReply([
+        { type: "text", text: "現在、来店時間の選択はできません。出勤確認の流れをご確認ください。" },
+      ]);
+      return true;
+    }
+    const base = ensureProgressForTimeStep(schedule.reservation_details);
+    const nextIdx = nextGroupIndexToFill(base);
+    if (nextIdx > base.total_groups) {
+      await safeReply([
+        { type: "text", text: "予約の組数情報が不正です。最初からやり直してください。" },
+      ]);
+      return true;
+    }
+    const updatedUnknown: ReservationProgressV2 = {
+      ...base,
+      current_group: nextIdx,
+      pending_time_unknown: true,
+    };
+    const { error: uErrUn } = await supabase
+      .from("attendance_schedules")
+      .update({
+        reservation_details: serializeReservationProgress(updatedUnknown),
+        pending_line_flow: PENDING_RESERVATION_GUESTS,
+        pending_line_updated_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq("id", schedule.id);
+    if (uErrUn) {
+      console.error("[Reservation] time unknown step update:", uErrUn);
+      await safeReply([{ type: "text", text: ERROR_REPLY }]);
+      return true;
+    }
+    await safeReply([
+      buildReservationGuestsFlexMessage({
+        groupIndex: nextIdx,
+        totalGroups: base.total_groups,
+      }),
+    ]);
+    return true;
+  }
+
   const guests = parseReservationGuestsFromData(data);
   if (guests == null) {
     if (data.includes("reservation_guests_select")) {
@@ -1492,14 +1550,19 @@ export async function handleReservationFollowupPostback(
 
   if (schedule.pending_line_flow !== PENDING_RESERVATION_GUESTS) {
     await safeReply([
-      { type: "text", text: "現在、人数の選択はできません。先に来店時間を選んでください。" },
+      { type: "text", text: "現在、人数の選択はできません。先に来店時間を選ぶか「未定」を選んでください。" },
     ]);
     return true;
   }
 
   const progress = parseReservationProgress(schedule.reservation_details);
-  const hm = progress?.pending_time ? normalizeHmFromLineTime(progress.pending_time) : null;
-  if (!progress || !hm) {
+  const pendingUnknown = progress?.pending_time_unknown === true;
+  const hm = pendingUnknown
+    ? null
+    : progress?.pending_time
+      ? normalizeHmFromLineTime(progress.pending_time)
+      : null;
+  if (!progress || (!pendingUnknown && !hm)) {
     await safeReply([
       { type: "text", text: "来店時間の情報が見つかりません。最初からやり直してください。" },
     ]);

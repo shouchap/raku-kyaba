@@ -8,7 +8,8 @@ export const RESERVATION_JSON_VERSION = 2 as const;
 export type ReservationGuestButton = 1 | 2 | 3 | 4;
 
 export type ReservationRecordEntry = {
-  time: string;
+  /** null = 来店時間「未定」 */
+  time: string | null;
   guests: ReservationGuestButton;
 };
 
@@ -20,6 +21,8 @@ export type ReservationProgressV2 = {
   records: ReservationRecordEntry[];
   /** 現在の組で時間まで確定し、人数待ちのとき */
   pending_time?: string;
+  /** Datetimepicker の代わりに「未定」選択済み（人数待ち） */
+  pending_time_unknown?: boolean;
 };
 
 function normalizeHm(time: string | null | undefined): string | null {
@@ -59,11 +62,17 @@ export function parseReservationProgress(
       for (const r of recs) {
         if (!r || typeof r !== "object") continue;
         const row = r as { time?: unknown; guests?: unknown };
-        const hm = normalizeHm(typeof row.time === "string" ? row.time : null);
         const g = typeof row.guests === "number" ? row.guests : Number(row.guests);
-        if (!hm || !isGuestButton(g)) continue;
+        if (!isGuestButton(g)) continue;
+        if (row.time === null) {
+          records.push({ time: null, guests: g });
+          continue;
+        }
+        const hm = normalizeHm(typeof row.time === "string" ? row.time : null);
+        if (!hm) continue;
         records.push({ time: hm, guests: g });
       }
+      const pendingUnknown = o.pending_time_unknown === true;
       const pending =
         typeof o.pending_time === "string" ? normalizeHm(o.pending_time) : undefined;
       return {
@@ -71,7 +80,8 @@ export function parseReservationProgress(
         total_groups: total,
         current_group: cur,
         records,
-        pending_time: pending ?? undefined,
+        pending_time: pendingUnknown ? undefined : (pending ?? undefined),
+        pending_time_unknown: pendingUnknown ? true : undefined,
       };
     }
     if (typeof o.time === "string" && o.v === undefined) {
@@ -95,16 +105,24 @@ export function serializeReservationProgress(p: ReservationProgressV2): string {
   return JSON.stringify(p);
 }
 
+/** 1 組分の文言（時間あり／時間未定） */
+function formatRecordSegment(time: string | null, guests: ReservationGuestButton): string {
+  if (time == null || time === "") {
+    return `時間未定で${guestLabel(guests)}`;
+  }
+  return `${time}から${guestLabel(guests)}`;
+}
+
 /** 管理画面・ログ用の1行テキスト */
 export function formatReservationStoredPlainText(p: ReservationProgressV2): string {
   if (p.records.length === 0) return "";
   if (p.total_groups === 1 && p.records.length === 1) {
     const r = p.records[0];
-    return `${r.time}から${guestLabel(r.guests)}のご予定`;
+    return `${formatRecordSegment(r.time, r.guests)}のご予定`;
   }
   return (
     p.records
-      .map((r, i) => `${i + 1}組目: ${r.time}から${guestLabel(r.guests)}`)
+      .map((r, i) => `${i + 1}組目: ${formatRecordSegment(r.time, r.guests)}`)
       .join("、") + "のご予定"
   );
 }
@@ -119,10 +137,10 @@ export function formatReservationCompletionMessage(p: ReservationProgressV2): st
   if (p.records.length === 0) return "予定を記録しました。ありがとうございます！";
   if (p.total_groups === 1 && p.records.length === 1) {
     const r = p.records[0];
-    return `${r.time}から${guestLabel(r.guests)}の予定を記録しました。ありがとうございます！`;
+    return `${formatRecordSegment(r.time, r.guests)}の予定を記録しました。ありがとうございます！`;
   }
   const parts = p.records.map(
-    (r, i) => `${i + 1}組目: ${r.time}から${guestLabel(r.guests)}`
+    (r, i) => `${i + 1}組目: ${formatRecordSegment(r.time, r.guests)}`
   );
   return `${parts.join("、")}の予定を記録しました。ありがとうございます！`;
 }

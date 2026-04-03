@@ -1,6 +1,7 @@
 /**
  * 営業前サマリー（LINE プレーンテキスト）のレイアウト・整形ヘルパー
  */
+import { formatReservationStoredPlainText, parseReservationProgress } from "@/lib/reservation-progress";
 
 /** 見出し直下の区切り（視認性重視） */
 export const RULE_THICK = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━";
@@ -80,6 +81,15 @@ export function formatReservationSubLines(row: ReservationFields): string[] {
   if (row.has_reservation === true) {
     const d = (row.reservation_details ?? "").trim();
     if (d) {
+      if (d.startsWith("{")) {
+        const p = parseReservationProgress(d);
+        if (p && p.records.length > 0) {
+          const plain = formatReservationStoredPlainText(p);
+          if (plain) {
+            return wrapAndIndentLines(plain, { prefix: "" });
+          }
+        }
+      }
       return wrapAndIndentLines(d, { prefix: "" });
     }
     return ["（詳細あり・未入力）"];
