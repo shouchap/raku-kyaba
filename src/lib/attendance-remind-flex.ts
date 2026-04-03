@@ -97,8 +97,38 @@ const COLOR_HEADER_BG = "#FAFAFA";
 const COLOR_BODY_TEXT = "#263238";
 const COLOR_MUTED_TEXT = "#607D8B";
 const COLOR_SEPARATOR = "#ECEFF1";
+/** ラベル「本日の出勤予定時刻」用 */
+const COLOR_SCHEDULE_LABEL = "#666666";
+/** 時刻を強調しない場合のフォールバック */
+const COLOR_TIME_FALLBACK = "#000000";
 /** 捌き・入店時間選択ボタン用 */
 const COLOR_SABAKI_TIME_BTN = "#F57C00";
+
+/** 「○○さん、」以降の本文（店舗カスタム等）を取り出す */
+function extractBodyAfterSanComma(line: string): string | null {
+  const t = line.trim();
+  const marker = "さん、";
+  const i = t.indexOf(marker);
+  if (i === -1) return null;
+  const rest = t.slice(i + marker.length).trim();
+  return rest.length > 0 ? rest : null;
+}
+
+/**
+ * 構造化レイアウトと重複するテンプレート行は本文補足として出さない
+ * （レギュラー店舗文のみ補足表示する想定）
+ */
+function shouldShowReminderSupplement(
+  tail: string | null,
+  scheduledTimeDisplay: string,
+  showSabaki: boolean
+): boolean {
+  if (!tail || showSabaki) return false;
+  const timeCore = scheduledTimeDisplay.replace(/（同伴）/g, "").trim();
+  if (timeCore.length > 0 && tail.includes(timeCore)) return false;
+  if (/出勤予定|出勤確認をお願い/.test(tail)) return false;
+  return true;
+}
 
 export type AttendanceRemindFlexInput = {
   /** キャスト名 */
@@ -224,6 +254,14 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
   const headerColor = storeTrim.length > 0 ? COLOR_NAVY : COLOR_BRAND_MAGENTA;
 
   const reminderLine = (input.reminderMessageLine ?? "").trim();
+  const castLabel = `${String(input.castName ?? "").trim() || "キャスト"} さん`;
+  const timeDisplay = String(input.scheduledTimeDisplay ?? "").trim() || "—";
+  const timeHighlightColor = headerColor ?? COLOR_TIME_FALLBACK;
+
+  const supplementTail = extractBodyAfterSanComma(reminderLine);
+  const showSupplement =
+    shouldShowReminderSupplement(supplementTail, timeDisplay, input.showSabakiTimePicker === true) &&
+    supplementTail !== null;
 
   const bodyContents: object[] = [
     {
@@ -239,24 +277,56 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
       margin: "lg" as const,
       color: COLOR_SEPARATOR,
     },
+    {
+      type: "text",
+      text: castLabel,
+      size: "md" as const,
+      color: COLOR_BODY_TEXT,
+      wrap: true,
+    },
+    {
+      type: "text",
+      text: "本日の出勤予定時刻",
+      size: "sm" as const,
+      color: COLOR_SCHEDULE_LABEL,
+      margin: "md" as const,
+      wrap: true,
+    },
+    {
+      type: "text",
+      text: timeDisplay,
+      size: "3xl" as const,
+      weight: "bold" as const,
+      color: timeHighlightColor,
+      wrap: true,
+    },
+    {
+      type: "text",
+      text: "よろしくお願い致します。",
+      size: "md" as const,
+      color: COLOR_BODY_TEXT,
+      margin: "md" as const,
+      wrap: true,
+    },
   ];
 
-  if (reminderLine.length > 0) {
+  if (input.showSabakiTimePicker === true) {
     bodyContents.push({
       type: "text",
-      text: reminderLine,
+      text: "何時入りか分かればお知らせください。",
       size: "sm" as const,
       color: COLOR_MUTED_TEXT,
       wrap: true,
+      margin: "sm" as const,
     });
-  } else {
+  } else if (showSupplement && supplementTail) {
     bodyContents.push({
       type: "text",
-      text: `${input.castName}さん · ${input.scheduledTimeDisplay}`,
-      size: "md" as const,
+      text: supplementTail,
+      size: "sm" as const,
       color: COLOR_MUTED_TEXT,
-      weight: "bold" as const,
       wrap: true,
+      margin: "sm" as const,
     });
   }
 
