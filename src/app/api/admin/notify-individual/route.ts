@@ -5,13 +5,13 @@ import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-au
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 import { formatScheduleTimeLabel } from "@/lib/attendance-remind-flex";
 import { createServiceRoleClient } from "@/lib/supabase-service";
-import { getTodayJst } from "@/lib/date-utils";
+import { addCalendarDaysJst, getTodayJst } from "@/lib/date-utils";
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
-/** "2026-03-20" → "3/20(月)" */
+/** "2026-03-20" → "3/20(月)"（JST 暦日として解釈） */
 function formatDateJa(dateStr: string): string {
-  const d = new Date(dateStr + "T12:00:00");
+  const d = new Date(dateStr + "T12:00:00+09:00");
   const m = d.getMonth() + 1;
   const day = d.getDate();
   const w = WEEKDAY_JA[d.getDay()];
@@ -61,6 +61,9 @@ export async function POST(request: Request) {
     );
   }
 
+  /** 日本時間の「今日」YYYY-MM-DD（文字列比較で日付判定する） */
+  const todayStr = getTodayJst();
+
   let expectedStoreId: string;
   try {
     expectedStoreId = resolveActiveStoreIdFromRequest(request);
@@ -85,17 +88,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // 7日間の日付配列
+  // 7日間の日付配列（JST 暦日の YYYY-MM-DD。toISOString では UTC 日付になり DB とずれるため addCalendarDaysJst を使用）
   const dates: string[] = [];
-  const base = new Date(startDate + "T12:00:00");
   for (let i = 0; i < 7; i++) {
-    const d = new Date(base);
-    d.setDate(d.getDate() + i);
-    dates.push(d.toISOString().slice(0, 10));
+    dates.push(addCalendarDaysJst(startDate, i));
   }
 
-  const todayJst = getTodayJst();
-  const datesForMessage = isUpdate ? dates.filter((d) => d >= todayJst) : dates;
+  const datesForMessage = isUpdate ? dates.filter((d) => d >= todayStr) : dates;
 
   // キャスト情報（line_user_id 必須）
   const { data: cast, error: castError } = await admin
