@@ -88,26 +88,26 @@ export default function LoginPage() {
             sizes="(max-width: 1024px) 100vw, 1024px"
           />
 
-          <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-[min(100%-1rem,36rem)] -translate-x-1/2 -translate-y-1/2 px-2 sm:w-full sm:max-w-xl sm:px-0">
+          <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-[min(100%-1rem,28rem)] -translate-x-1/2 -translate-y-1/2 px-2 sm:w-full sm:max-w-lg sm:px-0">
             <form
               onSubmit={handleSubmit}
-              className="pointer-events-auto w-full rounded-2xl border border-gray-100/90 bg-white/92 p-3 shadow-xl backdrop-blur-[3px] sm:p-4"
+              className="pointer-events-auto w-full rounded-xl border border-gray-100/90 bg-white/92 p-2.5 shadow-lg backdrop-blur-[3px] sm:p-3"
             >
-              <h1 className="mb-2 text-center text-[11px] font-semibold tracking-[0.08em] text-slate-900 sm:mb-3 sm:text-xs">
+              <h1 className="mb-1.5 text-center text-[10px] font-semibold tracking-[0.08em] text-slate-900 sm:mb-2 sm:text-[11px]">
                 RAKU-RAKU STAFF PORTAL
               </h1>
 
               {error && (
-                <p className="mb-2 px-0.5 text-center text-[10px] leading-snug text-red-600 sm:text-xs" role="alert">
+                <p className="mb-1.5 px-0.5 text-center text-[9px] leading-snug text-red-600 sm:text-[10px]" role="alert">
                   {error}
                 </p>
               )}
 
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-x-4 sm:gap-y-2">
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 sm:gap-x-3 sm:gap-y-1.5">
                 <div className="min-w-0">
                   <label
                     htmlFor="username"
-                    className="mb-1 block text-[10px] font-medium text-slate-700 sm:text-[11px]"
+                    className="mb-0.5 block text-[9px] font-medium text-slate-700 sm:text-[10px]"
                   >
                     ユーザー名 / メールアドレス
                   </label>
@@ -117,7 +117,7 @@ export default function LoginPage() {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="gold または example@gmail.com"
-                    className="min-h-[38px] w-full rounded-md border border-gray-200 bg-white px-2.5 py-2 text-xs text-slate-900 placeholder:text-gray-400 transition-colors focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/30"
+                    className="min-h-[34px] w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-slate-900 placeholder:text-gray-400 transition-colors focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/30 sm:min-h-[36px] sm:text-xs"
                     autoComplete="username"
                     disabled={loading}
                   />
@@ -126,7 +126,7 @@ export default function LoginPage() {
                 <div className="min-w-0">
                   <label
                     htmlFor="password"
-                    className="mb-1 block text-[10px] font-medium text-slate-700 sm:text-[11px]"
+                    className="mb-0.5 block text-[9px] font-medium text-slate-700 sm:text-[10px]"
                   >
                     パスワード
                   </label>
@@ -137,21 +137,21 @@ export default function LoginPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="min-h-[38px] w-full rounded-md border border-gray-200 bg-white px-2.5 py-2 pr-10 text-xs text-slate-900 placeholder:text-gray-400 transition-colors focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/30"
+                      className="min-h-[34px] w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 pr-9 text-[11px] text-slate-900 placeholder:text-gray-400 transition-colors focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/30 sm:min-h-[36px] sm:pr-10 sm:text-xs"
                       autoComplete="current-password"
                       disabled={loading}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((p) => !p)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 transition-colors hover:text-slate-800 disabled:opacity-50"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 transition-colors hover:text-slate-800 disabled:opacity-50"
                       disabled={loading}
                       aria-label={showPassword ? "パスワードを隠す" : "パスワードを表示"}
                     >
                       {showPassword ? (
-                        <EyeOff size={15} strokeWidth={1.5} />
+                        <EyeOff size={14} strokeWidth={1.5} />
                       ) : (
-                        <Eye size={15} strokeWidth={1.5} />
+                        <Eye size={14} strokeWidth={1.5} />
                       )}
                     </button>
                   </div>
@@ -161,7 +161,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="mt-3 min-h-[38px] w-full rounded-md bg-slate-900 py-2 text-xs font-medium tracking-wide text-white transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation sm:mt-4"
+                className="mt-2.5 min-h-[34px] w-full rounded-md bg-slate-900 py-1.5 text-[11px] font-medium tracking-wide text-white transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation sm:mt-3 sm:min-h-[36px] sm:text-xs"
               >
                 {loading ? "ログイン中..." : "ログイン"}
               </button>
