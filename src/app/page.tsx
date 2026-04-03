@@ -76,7 +76,7 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col bg-[#FFFFFF]">
       <main className="flex flex-1 flex-col px-3 pb-6 pt-5 sm:px-6 sm:pt-7">
-        <div className="relative mx-auto w-full max-w-6xl">
+        <div className="relative mx-auto w-full max-w-[1024px]">
           <Image
             src="/タイトル.png"
             alt="もう無能な部下 怒らなくて良いんです"
@@ -84,15 +84,16 @@ export default function LoginPage() {
             height={575}
             className="h-auto w-full select-none"
             priority
-            sizes="(max-width: 1152px) 100vw, 1152px"
+            unoptimized
+            sizes="(max-width: 1024px) 100vw, 1024px"
           />
 
-          <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-[min(100%,17rem)] -translate-x-1/2 -translate-y-1/2 px-2 sm:w-[17.5rem] sm:max-w-none sm:px-0">
+          <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-[min(100%-1rem,36rem)] -translate-x-1/2 -translate-y-1/2 px-2 sm:w-full sm:max-w-xl sm:px-0">
             <form
               onSubmit={handleSubmit}
-              className="pointer-events-auto w-full rounded-2xl border border-gray-100/90 bg-white/92 p-3 shadow-xl backdrop-blur-[3px] sm:p-3.5"
+              className="pointer-events-auto w-full rounded-2xl border border-gray-100/90 bg-white/92 p-3 shadow-xl backdrop-blur-[3px] sm:p-4"
             >
-              <h1 className="mb-2 text-center text-[11px] font-semibold tracking-[0.08em] text-slate-900 sm:text-xs">
+              <h1 className="mb-2 text-center text-[11px] font-semibold tracking-[0.08em] text-slate-900 sm:mb-3 sm:text-xs">
                 RAKU-RAKU STAFF PORTAL
               </h1>
 
@@ -102,8 +103,8 @@ export default function LoginPage() {
                 </p>
               )}
 
-              <div className="space-y-2">
-                <div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-x-4 sm:gap-y-2">
+                <div className="min-w-0">
                   <label
                     htmlFor="username"
                     className="mb-1 block text-[10px] font-medium text-slate-700 sm:text-[11px]"
@@ -120,12 +121,9 @@ export default function LoginPage() {
                     autoComplete="username"
                     disabled={loading}
                   />
-                  <p className="mt-0.5 text-[9px] leading-tight text-slate-500 sm:text-[10px]">
-                    ※ @ が無い場合のみ @raku-kyaba.internal が付きます
-                  </p>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label
                     htmlFor="password"
                     className="mb-1 block text-[10px] font-medium text-slate-700 sm:text-[11px]"
@@ -163,7 +161,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="mt-3 min-h-[38px] w-full rounded-md bg-slate-900 py-2 text-xs font-medium tracking-wide text-white transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation"
+                className="mt-3 min-h-[38px] w-full rounded-md bg-slate-900 py-2 text-xs font-medium tracking-wide text-white transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation sm:mt-4"
               >
                 {loading ? "ログイン中..." : "ログイン"}
               </button>
