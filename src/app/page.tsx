@@ -75,39 +75,38 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#FFFFFF]">
-      <main className="flex flex-1 flex-col px-4 pt-6 pb-6 sm:px-6 sm:pt-8">
-        {/* イラスト全体を表示し、文字と絵の間の余白にフォームを重ねる */}
-        <div className="relative mx-auto w-full max-w-4xl">
+      <main className="flex flex-1 flex-col px-3 pb-6 pt-5 sm:px-6 sm:pt-7">
+        <div className="relative mx-auto w-full max-w-6xl">
           <Image
             src="/タイトル.png"
             alt="もう無能な部下 怒らなくて良いんです"
-            width={1200}
-            height={900}
+            width={1024}
+            height={575}
             className="h-auto w-full select-none"
             priority
-            sizes="(max-width: 896px) 100vw, 896px"
+            sizes="(max-width: 1152px) 100vw, 1152px"
           />
 
-          <div className="pointer-events-none absolute left-1/2 top-[40%] z-10 w-[min(100%,20rem)] -translate-x-1/2 -translate-y-1/2 px-2 sm:w-full sm:max-w-sm sm:px-0">
+          <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-[min(100%,17rem)] -translate-x-1/2 -translate-y-1/2 px-2 sm:w-[17.5rem] sm:max-w-none sm:px-0">
             <form
               onSubmit={handleSubmit}
-              className="pointer-events-auto w-full rounded-xl border border-gray-100 bg-white/95 p-4 shadow-md backdrop-blur-[2px] sm:p-5"
+              className="pointer-events-auto w-full rounded-2xl border border-gray-100/90 bg-white/92 p-3 shadow-xl backdrop-blur-[3px] sm:p-3.5"
             >
-              <h1 className="mb-3 text-center text-sm font-semibold tracking-[0.06em] text-slate-900 sm:mb-4 sm:text-base">
+              <h1 className="mb-2 text-center text-[11px] font-semibold tracking-[0.08em] text-slate-900 sm:text-xs">
                 RAKU-RAKU STAFF PORTAL
               </h1>
 
               {error && (
-                <p className="mb-3 px-0.5 text-center text-xs text-red-600 sm:text-sm" role="alert">
+                <p className="mb-2 px-0.5 text-center text-[10px] leading-snug text-red-600 sm:text-xs" role="alert">
                   {error}
                 </p>
               )}
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <div>
                   <label
                     htmlFor="username"
-                    className="mb-1.5 block text-xs font-medium text-slate-700 sm:text-sm"
+                    className="mb-1 block text-[10px] font-medium text-slate-700 sm:text-[11px]"
                   >
                     ユーザー名 / メールアドレス
                   </label>
@@ -117,11 +116,11 @@ export default function LoginPage() {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="gold または example@gmail.com"
-                    className="min-h-[42px] w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-gray-400 transition-colors focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/35 sm:min-h-[44px] sm:px-4 sm:py-3 sm:text-base"
+                    className="min-h-[38px] w-full rounded-md border border-gray-200 bg-white px-2.5 py-2 text-xs text-slate-900 placeholder:text-gray-400 transition-colors focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/30"
                     autoComplete="username"
                     disabled={loading}
                   />
-                  <p className="mt-1 text-[10px] leading-snug text-slate-500 sm:text-xs">
+                  <p className="mt-0.5 text-[9px] leading-tight text-slate-500 sm:text-[10px]">
                     ※ @ が無い場合のみ @raku-kyaba.internal が付きます
                   </p>
                 </div>
@@ -129,7 +128,7 @@ export default function LoginPage() {
                 <div>
                   <label
                     htmlFor="password"
-                    className="mb-1.5 block text-xs font-medium text-slate-700 sm:text-sm"
+                    className="mb-1 block text-[10px] font-medium text-slate-700 sm:text-[11px]"
                   >
                     パスワード
                   </label>
@@ -140,21 +139,21 @@ export default function LoginPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="min-h-[42px] w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 pr-11 text-sm text-slate-900 placeholder:text-gray-400 transition-colors focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/35 sm:min-h-[44px] sm:px-4 sm:py-3 sm:pr-12 sm:text-base"
+                      className="min-h-[38px] w-full rounded-md border border-gray-200 bg-white px-2.5 py-2 pr-10 text-xs text-slate-900 placeholder:text-gray-400 transition-colors focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/30"
                       autoComplete="current-password"
                       disabled={loading}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((p) => !p)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 transition-colors hover:text-slate-800 disabled:opacity-50 sm:right-3"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 transition-colors hover:text-slate-800 disabled:opacity-50"
                       disabled={loading}
                       aria-label={showPassword ? "パスワードを隠す" : "パスワードを表示"}
                     >
                       {showPassword ? (
-                        <EyeOff size={17} strokeWidth={1.5} className="sm:h-[18px] sm:w-[18px]" />
+                        <EyeOff size={15} strokeWidth={1.5} />
                       ) : (
-                        <Eye size={17} strokeWidth={1.5} className="sm:h-[18px] sm:w-[18px]" />
+                        <Eye size={15} strokeWidth={1.5} />
                       )}
                     </button>
                   </div>
@@ -164,7 +163,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="mt-4 min-h-[44px] w-full rounded-lg bg-slate-900 py-2.5 text-sm font-medium tracking-wide text-white transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation sm:mt-5 sm:min-h-[48px] sm:py-3"
+                className="mt-3 min-h-[38px] w-full rounded-md bg-slate-900 py-2 text-xs font-medium tracking-wide text-white transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation"
               >
                 {loading ? "ログイン中..." : "ログイン"}
               </button>
