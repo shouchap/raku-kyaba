@@ -74,40 +74,46 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white px-4 py-8 sm:px-6 sm:py-10">
-      <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl flex-col items-center justify-center">
-        <div className="flex w-full flex-col items-center">
-          <div className="relative w-full max-w-5xl select-none">
-            <Image
-              src="/タイトル.png"
-              alt=""
-              width={1200}
-              height={900}
-              className="mx-auto h-auto w-full object-contain"
-              priority
-              sizes="(max-width: 768px) 100vw, 72rem"
-            />
-          </div>
+    <div className="flex min-h-screen flex-col bg-[#FFFFFF]">
+      {/* 上半分：広告（イラスト）— メッセージが隠れないよう重ねず、領域内に収める */}
+      <section
+        aria-label="キャンペーンビジュアル"
+        className="flex h-[65vh] min-h-[60vh] max-h-[70vh] w-full shrink-0 flex-col items-center justify-center px-4 pt-6 sm:px-6 sm:pt-8"
+      >
+        <div className="relative h-full w-full max-w-4xl min-h-0">
+          <Image
+            src="/タイトル.png"
+            alt="もう無能な部下 怒らなくて良いんです"
+            fill
+            className="object-contain object-top"
+            priority
+            sizes="(max-width: 896px) 100vw, 896px"
+          />
+        </div>
+      </section>
 
+      {/* 下半分：ログイン + フッター */}
+      <section className="flex flex-1 flex-col items-center px-4 pb-10 sm:px-6">
+        <div className="mt-10 w-full max-w-md sm:mt-12 lg:mt-16">
           <form
             onSubmit={handleSubmit}
-            className="relative z-10 -mt-2 w-full max-w-sm rounded-xl border border-gray-100 bg-white p-5 shadow-lg sm:-mt-4 sm:p-6"
+            className="w-full rounded-xl border border-gray-100 bg-white p-6 shadow-md sm:p-7"
           >
-            <h1 className="text-base font-semibold tracking-[0.08em] text-center mb-4 text-slate-900 leading-snug sm:text-lg">
+            <h1 className="mb-5 text-center text-base font-semibold tracking-[0.06em] text-slate-900 sm:text-lg">
               RAKU-RAKU STAFF PORTAL
             </h1>
 
             {error && (
-              <p className="text-red-600 text-sm text-center mb-4 px-1" role="alert">
+              <p className="mb-4 px-1 text-center text-sm text-red-600" role="alert">
                 {error}
               </p>
             )}
 
-            <div className="space-y-3.5 sm:space-y-4">
+            <div className="space-y-4">
               <div>
                 <label
                   htmlFor="username"
-                  className="block text-sm text-slate-700 mb-2 font-medium"
+                  className="mb-2 block text-sm font-medium text-slate-700"
                 >
                   ユーザー名 / メールアドレス
                 </label>
@@ -117,11 +123,11 @@ export default function LoginPage() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="gold または example@gmail.com"
-                  className="w-full px-4 py-3 min-h-[44px] text-base bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400/40 focus:border-slate-400 text-slate-900 placeholder:text-gray-400 transition-colors"
+                  className="min-h-[44px] w-full rounded-lg border border-gray-200 bg-white px-4 py-3 text-base text-slate-900 placeholder:text-gray-400 transition-colors focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/35"
                   autoComplete="username"
                   disabled={loading}
                 />
-                <p className="text-xs text-slate-500 mt-1.5">
+                <p className="mt-1.5 text-xs text-slate-500">
                   ※ @ が無い場合のみ @raku-kyaba.internal が付きます
                 </p>
               </div>
@@ -129,7 +135,7 @@ export default function LoginPage() {
               <div>
                 <label
                   htmlFor="password"
-                  className="block text-sm text-slate-700 mb-2 font-medium"
+                  className="mb-2 block text-sm font-medium text-slate-700"
                 >
                   パスワード
                 </label>
@@ -140,14 +146,14 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full px-4 py-3 pr-12 min-h-[44px] text-base bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400/40 focus:border-slate-400 text-slate-900 placeholder:text-gray-400 transition-colors"
+                    className="min-h-[44px] w-full rounded-lg border border-gray-200 bg-white px-4 py-3 pr-12 text-base text-slate-900 placeholder:text-gray-400 transition-colors focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/35"
                     autoComplete="current-password"
                     disabled={loading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((p) => !p)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-800 transition-colors disabled:opacity-50"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-500 transition-colors hover:text-slate-800 disabled:opacity-50"
                     disabled={loading}
                     aria-label={showPassword ? "パスワードを隠す" : "パスワードを表示"}
                   >
@@ -164,13 +170,18 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-5 py-3 min-h-[48px] rounded-lg bg-slate-900 text-white text-sm font-medium tracking-wide hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              className="mt-6 min-h-[48px] w-full rounded-lg bg-slate-900 py-3 text-sm font-medium tracking-wide text-white transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation"
             >
               {loading ? "ログイン中..." : "ログイン"}
             </button>
           </form>
+
+          <footer className="mt-10 text-center text-[11px] leading-relaxed text-slate-400 sm:text-xs">
+            <p>楽キャバ ＆ HABATAKI</p>
+            <p className="mt-1">© 2026 Raku-Kyaba Inc. All Rights Reserved.</p>
+          </footer>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
