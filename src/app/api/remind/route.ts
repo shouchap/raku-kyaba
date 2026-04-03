@@ -5,8 +5,8 @@ import {
   applyReminderMessageTemplate,
   buildAttendanceRemindFlexMessage,
   buildSabakiRemindLines,
-  formatCastNameAttendanceSuffix,
   formatRemindScheduledTime,
+  formatScheduleTimeLabel,
 } from "@/lib/attendance-remind-flex";
 import { getCurrentTimeJst, getTodayJst, getWeekdayJst } from "@/lib/date-utils";
 import {
@@ -426,26 +426,16 @@ async function runRemindForStore(
   const nowIso = new Date().toISOString();
   type ScheduleRow = (typeof schedules)[number];
 
-  type SentItem = { name: string; sortMinutes: number };
+  /** 管理者向け一覧行（キャストLINE本文と同じ時刻・同伴/捌き表記） */
+  type SentItem = { line: string; sortMinutes: number };
 
   const buildSentItemFromSchedule = (s: ScheduleRow): SentItem => {
     const c = parseCastJoinFromSchedule(s);
     const baseName = c?.name ?? "キャスト";
-    const name = `${baseName}${formatCastNameAttendanceSuffix(s.is_dohan, s.is_sabaki)}`;
-    if (s.is_sabaki === true) {
-      return {
-        name,
-        sortMinutes: minutesFromScheduledTime(s.scheduled_time),
-      };
-    }
-    if (employmentUsesRegularRemindMessage(c?.employment_type)) {
-      return {
-        name,
-        sortMinutes: minutesFromScheduledTime(s.scheduled_time),
-      };
-    }
+    const detail = formatScheduleTimeLabel(s.scheduled_time, s.is_dohan, s.is_sabaki);
+    const line = `・${baseName} (${detail})`;
     return {
-      name,
+      line,
       sortMinutes: minutesFromScheduledTime(s.scheduled_time),
     };
   };
@@ -456,7 +446,7 @@ async function runRemindForStore(
       const adminIds = await getAdminLineUserIds(supabase, storeId);
       if (adminIds.length > 0) {
         const sorted = [...sentItems].sort((a, b) => a.sortMinutes - b.sortMinutes);
-        const nameList = sorted.map(({ name }) => `・${name}`).join("\n");
+        const nameList = sorted.map(({ line }) => line).join("\n");
         const adminMessage = `【システム通知】本日、以下の${sentItems.length}名に出勤確認のリマインドを送信しました。\n${nameList}`;
         await sendMulticastMessage(adminIds, channelAccessToken, [
           { type: "text", text: adminMessage },
@@ -569,7 +559,7 @@ async function runRemindForStore(
           .filter((r) => okRegularIds.includes(r.id))
           .map(
             (r): SentItem => ({
-              name: r.name,
+              line: `・${r.name} (レギュラー)`,
               sortMinutes: Number.MAX_SAFE_INTEGER,
             })
           ),
@@ -748,7 +738,7 @@ async function runRemindForStore(
         .filter((r) => sentRegularIds.includes(r.id))
         .map(
           (r): SentItem => ({
-            name: r.name,
+            line: `・${r.name} (レギュラー)`,
             sortMinutes: Number.MAX_SAFE_INTEGER,
           })
         ),
