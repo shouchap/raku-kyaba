@@ -74,26 +74,26 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col items-center justify-center px-4 py-10 sm:py-14">
-      <div className="relative w-full max-w-lg sm:max-w-xl md:max-w-2xl mx-auto">
-        <div className="relative z-0 select-none">
-          <Image
-            src="/タイトル.png"
-            alt=""
-            width={1200}
-            height={900}
-            className="w-full h-auto rounded-2xl"
-            priority
-            sizes="(max-width: 768px) 100vw, 42rem"
-          />
-        </div>
+    <div className="min-h-screen bg-white px-4 py-8 sm:px-6 sm:py-10">
+      <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl flex-col items-center justify-center">
+        <div className="flex w-full flex-col items-center">
+          <div className="relative w-full max-w-5xl select-none">
+            <Image
+              src="/タイトル.png"
+              alt=""
+              width={1200}
+              height={900}
+              className="mx-auto h-auto w-full object-contain"
+              priority
+              sizes="(max-width: 768px) 100vw, 72rem"
+            />
+          </div>
 
-        <div className="absolute inset-0 z-10 flex items-center justify-center p-3 sm:p-6 pointer-events-none">
           <form
             onSubmit={handleSubmit}
-            className="pointer-events-auto w-full max-w-sm rounded-xl border border-gray-100 bg-white p-6 sm:p-8 shadow-lg"
+            className="relative z-10 -mt-2 w-full max-w-sm rounded-xl border border-gray-100 bg-white p-5 shadow-lg sm:-mt-4 sm:p-6"
           >
-            <h1 className="text-lg sm:text-xl font-semibold tracking-[0.08em] text-center mb-6 text-slate-900 leading-snug">
+            <h1 className="text-base font-semibold tracking-[0.08em] text-center mb-4 text-slate-900 leading-snug sm:text-lg">
               RAKU-RAKU STAFF PORTAL
             </h1>
 
@@ -103,7 +103,7 @@ export default function LoginPage() {
               </p>
             )}
 
-            <div className="space-y-4 sm:space-y-5">
+            <div className="space-y-3.5 sm:space-y-4">
               <div>
                 <label
                   htmlFor="username"
@@ -164,7 +164,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-6 py-3 min-h-[48px] rounded-lg bg-slate-900 text-white text-sm font-medium tracking-wide hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              className="w-full mt-5 py-3 min-h-[48px] rounded-lg bg-slate-900 text-white text-sm font-medium tracking-wide hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
             >
               {loading ? "ログイン中..." : "ログイン"}
             </button>
