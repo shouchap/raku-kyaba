@@ -83,11 +83,22 @@ type CastReport = {
   sabakiCount: number;
   sabakiDates: string[];
   lateCount: number;
+  /** 欠勤（absent / is_absent）。半休・公休は含まない */
   absentCount: number;
+  halfHolidayCount: number;
+  publicHolidayCount: number;
   incidents: Incident[];
 };
 
-type SortKey = "name" | "attendance" | "dohan" | "sabaki" | "late" | "absent";
+type SortKey =
+  | "name"
+  | "attendance"
+  | "dohan"
+  | "sabaki"
+  | "late"
+  | "absent"
+  | "halfHoliday"
+  | "publicHoliday";
 
 type ViewMode = "month" | "week" | "day";
 
@@ -195,11 +206,12 @@ function buildCastReports(casts: Cast[], schedules: ScheduleRow[]): CastReport[]
     const sabakiDates: string[] = [];
     let lateCount = 0;
     let absentCount = 0;
+    let halfHolidayCount = 0;
+    let publicHolidayCount = 0;
     const incidents: Incident[] = [];
 
     for (const row of rows) {
       const off = rowIsOffDay(row);
-      const absentOnly = rowIsAbsent(row);
       const late = rowIsLate(row);
 
       if (!off) attendanceDays += 1;
@@ -209,7 +221,14 @@ function buildCastReports(casts: Cast[], schedules: ScheduleRow[]): CastReport[]
         sabakiDates.push(row.scheduled_date);
       }
       if (late) lateCount += 1;
-      if (off) absentCount += 1;
+
+      if (row.response_status === "half_holiday") {
+        halfHolidayCount += 1;
+      } else if (row.response_status === "public_holiday") {
+        publicHolidayCount += 1;
+      } else if (rowIsAbsent(row)) {
+        absentCount += 1;
+      }
 
       if (late) {
         incidents.push({
@@ -218,7 +237,11 @@ function buildCastReports(casts: Cast[], schedules: ScheduleRow[]): CastReport[]
           reason: row.late_reason,
         });
       }
-      if (absentOnly) {
+      if (
+        row.response_status !== "half_holiday" &&
+        row.response_status !== "public_holiday" &&
+        rowIsAbsent(row)
+      ) {
         incidents.push({
           dateStr: row.scheduled_date,
           kind: "absent",
@@ -254,6 +277,8 @@ function buildCastReports(casts: Cast[], schedules: ScheduleRow[]): CastReport[]
       sabakiDates,
       lateCount,
       absentCount,
+      halfHolidayCount,
+      publicHolidayCount,
       incidents,
     };
   });
@@ -561,6 +586,12 @@ function AdminReportContent() {
         case "absent":
           cmp = a.absentCount - b.absentCount;
           break;
+        case "halfHoliday":
+          cmp = a.halfHolidayCount - b.halfHolidayCount;
+          break;
+        case "publicHoliday":
+          cmp = a.publicHolidayCount - b.publicHolidayCount;
+          break;
         default:
           cmp = 0;
       }
@@ -847,7 +878,7 @@ function AdminReportContent() {
         </div>
       ) : (
         <div className="report-table-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
-          <table className="report-table min-w-[640px] w-full text-left text-sm">
+          <table className="report-table min-w-[880px] w-full text-left text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="print:hidden px-1 py-3 w-10" />
@@ -924,11 +955,39 @@ function AdminReportContent() {
                     onClick={() => toggleSort("absent")}
                     className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
                   >
-                    休み
+                    欠勤
                     {sortKey === "absent" && (sortDir === "asc" ? " ↑" : " ↓")}
                   </button>
                   <span className="hidden font-semibold text-gray-900 print:inline">
-                    休み
+                    欠勤
+                  </span>
+                </th>
+                <th className="px-3 py-3 text-right">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("halfHoliday")}
+                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
+                  >
+                    半休
+                    {sortKey === "halfHoliday" &&
+                      (sortDir === "asc" ? " ↑" : " ↓")}
+                  </button>
+                  <span className="hidden font-semibold text-gray-900 print:inline">
+                    半休
+                  </span>
+                </th>
+                <th className="px-3 py-3 text-right">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("publicHoliday")}
+                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
+                  >
+                    公休
+                    {sortKey === "publicHoliday" &&
+                      (sortDir === "asc" ? " ↑" : " ↓")}
+                  </button>
+                  <span className="hidden font-semibold text-gray-900 print:inline">
+                    公休
                   </span>
                 </th>
               </tr>
@@ -937,7 +996,7 @@ function AdminReportContent() {
               {sortedReports.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={9}
                     className="px-3 py-8 text-center text-gray-500"
                   >
                     {emptyMessage}
@@ -997,12 +1056,18 @@ function AdminReportContent() {
                         <td className="px-3 py-3 text-right tabular-nums">
                           {r.absentCount}
                         </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {r.halfHolidayCount}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          {r.publicHolidayCount}
+                        </td>
                       </tr>
                       {showToggle && (
                         <tr
                           className={`report-detail-row bg-gray-50/90 ${open ? "" : "hidden"}`}
                         >
-                          <td colSpan={7} className="px-4 py-3 text-sm text-gray-700">
+                          <td colSpan={9} className="px-4 py-3 text-sm text-gray-700">
                             <ul className="space-y-2 pl-2 border-l-2 border-blue-200">
                               {r.sabakiDates.length > 0 && (
                                 <li className="list-none text-amber-950">
