@@ -7,6 +7,7 @@ import {
   formatReasonSubLines,
   formatReservationSubLines,
 } from "@/lib/pre-open-report-utils";
+import { extractDeclaredGroupCountFromReservationDetails } from "@/lib/reservation-progress";
 
 type CastJoin = { name?: string } | { name?: string }[] | null;
 
@@ -84,6 +85,18 @@ export function countPreOpenWorkingCasts(rows: PreOpenScheduleRow[]): number {
     if (s === "attending" || s === "late") n++;
   }
   return n;
+}
+
+/**
+ * 【出勤予定】に載る行のみ、申告済み reservation_details から予定組数を合算。
+ */
+export function sumDeclaredReservationGroupsForAttending(rows: PreOpenScheduleRow[]): number {
+  let sum = 0;
+  for (const r of rows) {
+    if (sectionForRow(r) !== "attending") continue;
+    sum += extractDeclaredGroupCountFromReservationDetails(r.reservation_details);
+  }
+  return sum;
 }
 
 function blockAttending(row: PreOpenScheduleRow): string {
@@ -164,12 +177,15 @@ export function buildPreOpenReportMessage(storeName: string, todayJst: string, r
 
   const offSorted = sortOffRows(off);
 
+  const totalReservationGroups = sumDeclaredReservationGroupsForAttending(attending);
+
   const out: string[] = [];
 
   out.push("【本日の営業前サマリー】");
-  out.push(storeName.trim() || "店舗");
-  out.push(`${todayJst} (JST)`);
-  out.push("");
+  out.push(`🏢 ${storeName.trim() || "店舗"}`);
+  out.push(`📅 ${todayJst} (JST)`);
+  out.push(RULE_THICK);
+  out.push(`本日の合計予定組数：${totalReservationGroups}組`);
   out.push(RULE_THICK);
   out.push("");
 

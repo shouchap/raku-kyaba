@@ -123,6 +123,73 @@ export function serializeReservationProgress(p: ReservationProgressV2): string {
   return JSON.stringify(p);
 }
 
+const MAX_GROUPS_EXTRACT = 100;
+
+/**
+ * `reservation_details` から申告された予定組数を 1 行分だけ抽出（営業前サマリー合算用）。
+ * 厳密な `parseReservationProgress` が失敗する途中状態でも、`total_groups` 等があれば拾う。
+ */
+export function extractDeclaredGroupCountFromReservationDetails(
+  raw: string | null | undefined
+): number {
+  const s = String(raw ?? "").trim();
+  if (!s) return 0;
+
+  if (s.startsWith("{")) {
+    try {
+      const o = JSON.parse(s) as Record<string, unknown>;
+
+      const tg = o.total_groups;
+      if (typeof tg === "number" && Number.isFinite(tg) && tg >= 1) {
+        return Math.min(Math.floor(tg), MAX_GROUPS_EXTRACT);
+      }
+
+      const gc = o.group_count;
+      if (typeof gc === "number" && gc >= 1) {
+        return Math.min(Math.floor(gc), MAX_GROUPS_EXTRACT);
+      }
+      if (typeof gc === "string" && /^\d+$/.test(gc)) {
+        const n = parseInt(gc, 10);
+        if (n >= 1) return Math.min(n, MAX_GROUPS_EXTRACT);
+      }
+
+      const gn = o.guest_names;
+      if (Array.isArray(gn)) {
+        const n = gn.filter((x) => typeof x === "string" && String(x).trim().length > 0).length;
+        if (n >= 1) return Math.min(n, MAX_GROUPS_EXTRACT);
+      }
+
+      const recs = o.records;
+      if (Array.isArray(recs) && recs.length >= 1) {
+        return Math.min(recs.length, MAX_GROUPS_EXTRACT);
+      }
+    } catch {
+      return 0;
+    }
+    return 0;
+  }
+
+  const compact = s.replace(/\s+/g, " ").trim();
+  const barOnly = compact.match(/(\d{1,3})\s*組の来客予定/);
+  if (barOnly) {
+    const n = parseInt(barOnly[1], 10);
+    if (n >= 1) return Math.min(n, MAX_GROUPS_EXTRACT);
+  }
+
+  const groupHeadings = compact.match(/\d+\s*組目/g);
+  if (groupHeadings && groupHeadings.length > 0) {
+    return Math.min(groupHeadings.length, MAX_GROUPS_EXTRACT);
+  }
+
+  const loose = compact.match(/(\d{1,3})\s*組(?!目)/);
+  if (loose) {
+    const n = parseInt(loose[1], 10);
+    if (n >= 1) return Math.min(n, MAX_GROUPS_EXTRACT);
+  }
+
+  return 0;
+}
+
 /** 1 組分の文言（時間あり／時間未定・名前付き対応） */
 function formatRecordSegment(
   time: string | null,
