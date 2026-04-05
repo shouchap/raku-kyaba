@@ -26,7 +26,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   let stores: { id: string; name: string }[] = [];
   let isSuperAdmin = false;
-  let businessType: "cabaret" | "welfare_b" = "cabaret";
+  let businessType: "cabaret" | "welfare_b" | "bar" = "cabaret";
   try {
     const supabase = await createSupabaseServerClient();
     const {
@@ -54,6 +54,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         .maybeSingle();
       const bt = (btRow as { business_type?: string | null } | null)?.business_type;
       if (bt === "welfare_b") businessType = "welfare_b";
+      else if (bt === "bar") businessType = "bar";
     }
   } catch {
     // SUPABASE_SERVICE_ROLE_KEY 未設定時など

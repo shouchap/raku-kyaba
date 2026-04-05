@@ -9,6 +9,8 @@ import { fetchAttendanceFlexHolidayOptions } from "@/lib/reminder-config";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import type { AttendancePostbackData, ReservationPostbackData } from "@/types/line-webhook";
 import {
+  formatBarGroupsOnlyMessage,
+  formatBarGroupsOnlyStoredPlainText,
   formatReservationCompletionMessage,
   formatReservationStoredPlainText,
   getReservationPromptTargets,
@@ -19,6 +21,7 @@ import {
   serializeReservationProgress,
   type ReservationGuestButton,
   type ReservationProgressV2,
+  type ReservationRecordEntry,
 } from "@/lib/reservation-progress";
 
 const ERROR_REPLY = "申し訳ございません。エラーが発生しました。しばらく経ってから再度お試しください。";
@@ -108,6 +111,39 @@ export const PENDING_RESERVATION_TIME = "reservation_time";
 export const PENDING_RESERVATION_GUESTS = "reservation_guests";
 /** 来客予定の組数を選ぶ段階 */
 export const PENDING_RESERVATION_GROUP_COUNT = "reservation_group_count";
+/** BAR: 組ごとのお客様名をテキストで聞く段階 */
+export const PENDING_RESERVATION_GUEST_NAMES = "reservation_guest_names";
+
+async function loadStoreBarReservationFlags(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  storeId: string
+): Promise<{ business_type: string; ask_guest_name: boolean; ask_guest_time: boolean }> {
+  const { data, error } = await supabase
+    .from("stores")
+    .select("business_type, ask_guest_name, ask_guest_time")
+    .eq("id", storeId)
+    .maybeSingle();
+
+  if (error && !isUndefinedColumnError(error, "ask_guest_name")) {
+    console.warn("[Reservation] stores BAR flags:", error.message);
+  }
+
+  const row = data as {
+    business_type?: string | null;
+    ask_guest_name?: boolean | null;
+    ask_guest_time?: boolean | null;
+  } | null;
+
+  return {
+    business_type: String(row?.business_type ?? "cabaret"),
+    ask_guest_name: row?.ask_guest_name !== false,
+    ask_guest_time: row?.ask_guest_time === true,
+  };
+}
+
+function buildBarGuestNamePrompt(groupIndex: number, totalGroups: number): string {
+  return `${groupIndex}組目のお客様のお名前を教えてください`;
+}
 
 const DEFAULT_REPLY_MESSAGES: Record<AttendancePostbackData, string> = {
   attending: "出勤を記録しました。本日もよろしくお願い致します。",
@@ -500,6 +536,155 @@ function pickReasonKind(
 }
 
 /**
+ * BAR 業態: 組ごとのお客様名をテキストで順に受け取る。
+ */
+export async function tryHandleReservationGuestNameText(
+  lineUserId: string,
+  rawText: string,
+  supabase: ReturnType<typeof createSupabaseClient>,
+  replyToken: string | undefined,
+  channelAccessToken: string | undefined
+): Promise<boolean> {
+  const tenantStoreId = getDefaultStoreIdOrNull();
+  if (!tenantStoreId || !replyToken || !channelAccessToken) return false;
+
+  const { data: cast } = await supabase
+    .from("casts")
+    .select("id, store_id, name")
+    .eq("line_user_id", lineUserId)
+    .eq("store_id", tenantStoreId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (!cast) return false;
+
+  const todayJst = getTodayJst();
+  const ensured = await ensureTodayAttendanceSchedule(supabase, cast, todayJst);
+  if (!ensured) return false;
+
+  const { data: schedule } = await supabase
+    .from("attendance_schedules")
+    .select("id, pending_line_flow, reservation_details, is_sabaki")
+    .eq("id", ensured.id)
+    .maybeSingle();
+
+  if (!schedule?.id || schedule.pending_line_flow !== PENDING_RESERVATION_GUEST_NAMES) {
+    return false;
+  }
+
+  if (isAttendanceCommandText(rawText)) return false;
+
+  const safeReply = async (messages: LineReplyMessage[]) => {
+    await sendReply(replyToken, channelAccessToken, messages);
+  };
+
+  const t = String(rawText ?? "").trim();
+  if (!t) {
+    await safeReply([{ type: "text", text: "お名前を入力してください。" }]);
+    return true;
+  }
+
+  const progress = parseReservationProgress(schedule.reservation_details);
+  if (!progress || progress.total_groups < 1) {
+    await safeReply([{ type: "text", text: ERROR_REPLY }]);
+    return true;
+  }
+
+  const names = [...(progress.guest_names ?? []), t];
+  const nowIso = new Date().toISOString();
+
+  if (names.length < progress.total_groups) {
+    const updated: ReservationProgressV2 = {
+      ...progress,
+      guest_names: names,
+      current_group: names.length + 1,
+    };
+    const { error: uErr } = await supabase
+      .from("attendance_schedules")
+      .update({
+        reservation_details: serializeReservationProgress(updated),
+        pending_line_updated_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq("id", schedule.id);
+    if (uErr) {
+      console.error("[Reservation] guest name step:", uErr);
+      await safeReply([{ type: "text", text: ERROR_REPLY }]);
+      return true;
+    }
+    await safeReply([
+      { type: "text", text: buildBarGuestNamePrompt(names.length + 1, progress.total_groups) },
+    ]);
+    return true;
+  }
+
+  const fullNames = names.slice(0, progress.total_groups);
+  const flags = await loadStoreBarReservationFlags(supabase, cast.store_id);
+
+  if (flags.ask_guest_time) {
+    const updated: ReservationProgressV2 = {
+      ...progress,
+      guest_names: fullNames,
+      records: [],
+      current_group: 1,
+      pending_time: undefined,
+      pending_time_unknown: undefined,
+    };
+    const { error: uErr } = await supabase
+      .from("attendance_schedules")
+      .update({
+        reservation_details: serializeReservationProgress(updated),
+        pending_line_flow: PENDING_RESERVATION_TIME,
+        pending_line_updated_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq("id", schedule.id);
+    if (uErr) {
+      console.error("[Reservation] names→time:", uErr);
+      await safeReply([{ type: "text", text: ERROR_REPLY }]);
+      return true;
+    }
+    await safeReply([
+      buildReservationTimePickerFlexMessage({
+        groupIndex: 1,
+        totalGroups: progress.total_groups,
+      }),
+    ]);
+    return true;
+  }
+
+  const records: ReservationRecordEntry[] = fullNames.map((name) => ({
+    time: null,
+    guests: 1 as ReservationGuestButton,
+    guest_name: name,
+  }));
+  const finalProgress: ReservationProgressV2 = {
+    v: RESERVATION_JSON_VERSION,
+    total_groups: progress.total_groups,
+    current_group: progress.total_groups,
+    records,
+    guest_names: fullNames,
+  };
+  const detailStr = formatReservationStoredPlainText(finalProgress);
+  const completionMsg = formatReservationCompletionMessage(finalProgress);
+
+  await finalizeAttendingAttendance({
+    supabase,
+    cast,
+    scheduleId: schedule.id,
+    today: todayJst,
+    isSabaki: schedule.is_sabaki === true,
+    hasReservation: true,
+    reservationDetails: detailStr,
+    replyToken,
+    channelAccessToken,
+    replyMessageText: completionMsg,
+  });
+
+  return true;
+}
+
+/**
  * 予約ヒアリング中にテキストが送られた場合は、文字入力を使わずボタン操作を促す。
  */
 export async function tryHandleReservationDetailText(
@@ -539,10 +724,15 @@ export async function tryHandleReservationDetailText(
     PENDING_RESERVATION_ASK,
     PENDING_RESERVATION_DETAIL,
     PENDING_RESERVATION_GROUP_COUNT,
+    PENDING_RESERVATION_GUEST_NAMES,
     PENDING_RESERVATION_TIME,
     PENDING_RESERVATION_GUESTS,
   ]);
   if (!reservationFlows.has(flow)) return false;
+
+  if (flow === PENDING_RESERVATION_GUEST_NAMES && isAttendanceCommandText(rawText)) {
+    return false;
+  }
 
   const t = String(rawText ?? "").trim();
   if (!t) return false;
@@ -1139,6 +1329,17 @@ export async function handleAttendanceResponse(
         }
         return;
       }
+      if (pending === PENDING_RESERVATION_GUEST_NAMES) {
+        if (replyToken && channelAccessToken) {
+          const p = parseReservationProgress(schedule.reservation_details);
+          const idx = (p?.guest_names?.length ?? 0) + 1;
+          const total = p?.total_groups ?? 1;
+          await sendReply(replyToken, channelAccessToken, [
+            { type: "text", text: buildBarGuestNamePrompt(Math.min(idx, total), total) },
+          ]);
+        }
+        return;
+      }
       if (pending === PENDING_RESERVATION_TIME) {
         if (replyToken && channelAccessToken) {
           const opts = getReservationPromptTargets(schedule.reservation_details);
@@ -1421,6 +1622,81 @@ export async function handleReservationFollowupPostback(
       await safeReply([{ type: "text", text: ERROR_REPLY }]);
       return true;
     }
+
+    const flags = await loadStoreBarReservationFlags(supabase, cast.store_id);
+
+    if (flags.business_type === "bar") {
+      if (flags.ask_guest_name) {
+        const initial: ReservationProgressV2 = {
+          v: RESERVATION_JSON_VERSION,
+          total_groups: groups,
+          current_group: 1,
+          records: [],
+          guest_names: [],
+        };
+        const { error: uErrBar } = await supabase
+          .from("attendance_schedules")
+          .update({
+            reservation_details: serializeReservationProgress(initial),
+            pending_line_flow: PENDING_RESERVATION_GUEST_NAMES,
+            pending_line_updated_at: nowIso,
+            updated_at: nowIso,
+          })
+          .eq("id", schedule.id);
+        if (uErrBar) {
+          console.error("[Reservation] BAR group→names:", uErrBar);
+          await safeReply([{ type: "text", text: ERROR_REPLY }]);
+          return true;
+        }
+        await safeReply([
+          { type: "text", text: buildBarGuestNamePrompt(1, groups) },
+        ]);
+        return true;
+      }
+      if (flags.ask_guest_time) {
+        const initial: ReservationProgressV2 = {
+          v: RESERVATION_JSON_VERSION,
+          total_groups: groups,
+          current_group: 1,
+          records: [],
+        };
+        const { error: uErrT } = await supabase
+          .from("attendance_schedules")
+          .update({
+            reservation_details: serializeReservationProgress(initial),
+            pending_line_flow: PENDING_RESERVATION_TIME,
+            pending_line_updated_at: nowIso,
+            updated_at: nowIso,
+          })
+          .eq("id", schedule.id);
+        if (uErrT) {
+          console.error("[Reservation] BAR group→time:", uErrT);
+          await safeReply([{ type: "text", text: ERROR_REPLY }]);
+          return true;
+        }
+        await safeReply([
+          buildReservationTimePickerFlexMessage({ groupIndex: 1, totalGroups: groups }),
+        ]);
+        return true;
+      }
+
+      const detailStr = formatBarGroupsOnlyStoredPlainText(groups);
+      const completionMsg = formatBarGroupsOnlyMessage(groups);
+      await finalizeAttendingAttendance({
+        supabase,
+        cast,
+        scheduleId: schedule.id,
+        today,
+        isSabaki: schedule.is_sabaki === true,
+        hasReservation: true,
+        reservationDetails: detailStr,
+        replyToken,
+        channelAccessToken,
+        replyMessageText: completionMsg,
+      });
+      return true;
+    }
+
     const initial: ReservationProgressV2 = {
       v: RESERVATION_JSON_VERSION,
       total_groups: groups,
@@ -1570,7 +1846,15 @@ export async function handleReservationFollowupPostback(
   }
 
   const guestBtn = guests as ReservationGuestButton;
-  const newRecords = [...progress.records, { time: hm, guests: guestBtn }];
+  const nameForGroup = progress.guest_names?.[progress.records.length]?.trim() ?? null;
+  const newRecords = [
+    ...progress.records,
+    {
+      time: hm,
+      guests: guestBtn,
+      ...(nameForGroup ? { guest_name: nameForGroup } : {}),
+    },
+  ];
 
   if (newRecords.length < progress.total_groups) {
     const nextProgress: ReservationProgressV2 = {
@@ -1578,6 +1862,7 @@ export async function handleReservationFollowupPostback(
       total_groups: progress.total_groups,
       current_group: newRecords.length + 1,
       records: newRecords,
+      guest_names: progress.guest_names,
     };
     const { error: loopErr } = await supabase
       .from("attendance_schedules")
@@ -1607,6 +1892,7 @@ export async function handleReservationFollowupPostback(
     total_groups: progress.total_groups,
     current_group: progress.total_groups,
     records: newRecords,
+    guest_names: progress.guest_names,
   };
   const detailStr = formatReservationStoredPlainText(finalProgress);
   const completionMsg = formatReservationCompletionMessage(finalProgress);

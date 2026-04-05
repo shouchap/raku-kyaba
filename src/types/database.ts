@@ -20,8 +20,12 @@ export interface Database {
         Row: {
           id: string;
           name: string;
-          /** 業態: cabaret / welfare_b（022） */
+          /** 業態: cabaret / welfare_b / bar（022・028） */
           business_type: StoreBusinessType;
+          /** BAR: 来客フローで組ごとのお客様名を聞く（028） */
+          ask_guest_name: boolean;
+          /** BAR: 来客フローで来店時間を聞く（028） */
+          ask_guest_time: boolean;
           line_channel_id: string | null;
           line_channel_secret: string;
           line_channel_access_token: string | null;
@@ -73,6 +77,8 @@ export interface Database {
           | "welfare_message_evening"
           | "welfare_message_welcome"
           | "welfare_work_items"
+          | "ask_guest_name"
+          | "ask_guest_time"
         > & {
           id?: string;
           created_at?: string;
@@ -91,6 +97,8 @@ export interface Database {
           welfare_message_evening?: string | null;
           welfare_message_welcome?: string | null;
           welfare_work_items?: string | null;
+          ask_guest_name?: boolean;
+          ask_guest_time?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["stores"]["Insert"]>;
       };

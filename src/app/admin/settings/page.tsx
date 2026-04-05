@@ -54,7 +54,10 @@ const DEFAULT_CONFIG: ReminderConfig = {
 
 export default function AdminSettingsPage() {
   const activeStoreId = useActiveStoreId();
-  const [businessType, setBusinessType] = useState<"cabaret" | "welfare_b">("cabaret");
+  const [businessType, setBusinessType] = useState<"cabaret" | "welfare_b" | "bar">("cabaret");
+  /** BAR（ELINE）向け LINE 来客ヒアリング */
+  const [askGuestName, setAskGuestName] = useState(true);
+  const [askGuestTime, setAskGuestTime] = useState(false);
   const [welfareMorning, setWelfareMorning] = useState("");
   const [welfareMidday, setWelfareMidday] = useState("");
   const [welfareEvening, setWelfareEvening] = useState("");
@@ -107,12 +110,22 @@ export default function AdminSettingsPage() {
         enable_public_holiday?: boolean;
         enable_half_holiday?: boolean;
         enable_reservation_check?: boolean;
+        ask_guest_name?: boolean;
+        ask_guest_time?: boolean;
         regular_holidays?: number[];
         regular_remind_message?: string;
         reminder_config?: Record<string, unknown>;
       };
 
-      setBusinessType(data.business_type === "welfare_b" ? "welfare_b" : "cabaret");
+      setBusinessType(
+        data.business_type === "welfare_b"
+          ? "welfare_b"
+          : data.business_type === "bar"
+            ? "bar"
+            : "cabaret"
+      );
+      setAskGuestName(data.ask_guest_name !== false);
+      setAskGuestTime(data.ask_guest_time === true);
       setWelfareMorning(
         typeof data.welfare_message_morning === "string" ? data.welfare_message_morning : ""
       );
@@ -297,6 +310,9 @@ export default function AdminSettingsPage() {
           regular_holidays: regularHolidays,
           regular_remind_message:
             regularRemindMessage.trim() || DEFAULT_REGULAR_REMIND_BODY,
+          business_type: businessType === "bar" ? "bar" : "cabaret",
+          ask_guest_name: askGuestName,
+          ask_guest_time: askGuestTime,
         }),
       });
 
@@ -382,7 +398,9 @@ export default function AdminSettingsPage() {
           <p className="text-xs sm:text-sm text-gray-600">
             {businessType === "welfare_b"
               ? "B型事業所向けの定期配信メッセージを管理します"
-              : "リマインド・各種設定を管理します"}
+              : businessType === "bar"
+                ? "ELINE（BAR）向けのリマインド・来客ヒアリングを管理します"
+                : "リマインド・各種設定を管理します"}
           </p>
         </div>
 
@@ -564,6 +582,36 @@ export default function AdminSettingsPage() {
                 リマインド設定
               </h2>
 
+              <div className="mb-8 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-4">
+                <h3 className="text-sm font-medium text-gray-900 mb-3">業態</h3>
+                <p className="text-xs text-gray-600 mb-4">
+                  キャバクラ系と ELINE（BAR）では LINE の来客ヒアリング挙動が異なります。BAR
+                  を選ぶと下記の「出勤時の質問設定」が表示されます。
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-gray-800">
+                    <input
+                      type="radio"
+                      name="storeBusinessType"
+                      checked={businessType === "cabaret"}
+                      onChange={() => setBusinessType("cabaret")}
+                      className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    キャバクラ系
+                  </label>
+                  <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-gray-800">
+                    <input
+                      type="radio"
+                      name="storeBusinessType"
+                      checked={businessType === "bar"}
+                      onChange={() => setBusinessType("bar")}
+                      className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    ELINE（BAR）
+                  </label>
+                </div>
+              </div>
+
           {/* 有効/無効 */}
           <div className="mb-6">
             <label className="flex items-center gap-3 cursor-pointer">
@@ -722,6 +770,44 @@ export default function AdminSettingsPage() {
               のときは「出勤を記録しました」の完了メッセージのみです。
             </p>
           </div>
+
+          {businessType === "bar" && (
+            <div className="mb-8 rounded-lg border border-indigo-200 bg-indigo-50/70 px-4 py-4">
+              <h3 className="text-sm font-medium text-gray-900 mb-2">
+                出勤時の質問設定（BAR / ELINE）
+              </h3>
+              <p className="text-xs text-gray-600 mb-4">
+                組数の回答後、来客の名前・来店時間をどこまで聞くかを店舗ごとに設定します（BAR
+                業態の LINE のみ）。
+              </p>
+              <label className="flex items-start gap-3 cursor-pointer mb-4">
+                <input
+                  type="checkbox"
+                  checked={askGuestName}
+                  onChange={(e) => setAskGuestName(e.target.checked)}
+                  className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700 leading-snug">
+                  来客の名前を質問する（組数ぶん「◯組目のお客様のお名前…」と順に聞きます）
+                </span>
+              </label>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={askGuestTime}
+                  onChange={(e) => setAskGuestTime(e.target.checked)}
+                  className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700 leading-snug">
+                  来客の時間を質問する（来店予定の Flex・組ごとの時間ループ）
+                </span>
+              </label>
+              <p className="text-xs text-gray-500 mt-3 pl-8">
+                名前をオフにし時間をオンにした場合は、キャバクラ系と同様に組数の直後から来店時間の
+                Flex に進みます。両方オフの場合は組数のみ記録して完了します。
+              </p>
+            </div>
+          )}
 
           <div className="mb-8 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-4">
             <h3 className="text-sm font-medium text-gray-800 mb-3">営業前サマリー（日報）</h3>

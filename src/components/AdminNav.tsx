@@ -24,7 +24,7 @@ type Props = {
   activeStoreId: string;
   isSuperAdmin: boolean;
   /** アクティブ店舗の業態（就労B型ではシフト系メニューを隠す） */
-  businessType: "cabaret" | "welfare_b";
+  businessType: "cabaret" | "welfare_b" | "bar";
 };
 
 function navLinkClass(isActive: boolean, vertical: boolean): string {

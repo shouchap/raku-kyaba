@@ -349,7 +349,7 @@ export async function GET(request: Request) {
       }
     }
 
-    let businessType: "cabaret" | "welfare_b" = "cabaret";
+    let businessType: "cabaret" | "welfare_b" | "bar" = "cabaret";
     let welfare_message_morning: string | null = null;
     let welfare_message_midday: string | null = null;
     let welfare_message_evening: string | null = null;
@@ -382,6 +382,7 @@ export async function GET(request: Request) {
             if (!btRes.error && btRes.data) {
               const bt = (btRes.data as { business_type?: string | null }).business_type;
               if (bt === "welfare_b") businessType = "welfare_b";
+              else if (bt === "bar") businessType = "bar";
             }
           } else {
             logPostgrestError("GET stores business_type / welfare messages (no welcome)", w2.error);
@@ -403,6 +404,7 @@ export async function GET(request: Request) {
             welfare_work_items?: string | null;
           } | null;
           if (w?.business_type === "welfare_b") businessType = "welfare_b";
+          else if (w?.business_type === "bar") businessType = "bar";
           welfare_message_morning =
             typeof w?.welfare_message_morning === "string" ? w.welfare_message_morning : null;
           welfare_message_midday =
@@ -424,6 +426,7 @@ export async function GET(request: Request) {
         if (!btRes.error && btRes.data) {
           const bt = (btRes.data as { business_type?: string | null }).business_type;
           if (bt === "welfare_b") businessType = "welfare_b";
+          else if (bt === "bar") businessType = "bar";
         }
       } else {
         logPostgrestError("GET stores business_type / welfare messages", welfareRes.error);
@@ -446,6 +449,7 @@ export async function GET(request: Request) {
         welfare_work_items?: string | null;
       } | null;
       if (w?.business_type === "welfare_b") businessType = "welfare_b";
+      else if (w?.business_type === "bar") businessType = "bar";
       welfare_message_morning =
         typeof w?.welfare_message_morning === "string" ? w.welfare_message_morning : null;
       welfare_message_midday =
@@ -456,6 +460,24 @@ export async function GET(request: Request) {
         typeof w?.welfare_message_welcome === "string" ? w.welfare_message_welcome : null;
       welfare_work_items =
         typeof w?.welfare_work_items === "string" ? w.welfare_work_items : null;
+    }
+
+    let askGuestName = true;
+    let askGuestTime = false;
+    const barFlagsRes = await admin
+      .from("stores")
+      .select("ask_guest_name, ask_guest_time")
+      .eq("id", storeId)
+      .maybeSingle();
+    if (!barFlagsRes.error && barFlagsRes.data) {
+      const bf = barFlagsRes.data as {
+        ask_guest_name?: boolean | null;
+        ask_guest_time?: boolean | null;
+      };
+      askGuestName = bf.ask_guest_name !== false;
+      askGuestTime = bf.ask_guest_time === true;
+    } else if (barFlagsRes.error && !isUndefinedColumnError(barFlagsRes.error, "ask_guest_name")) {
+      logPostgrestError("GET stores ask_guest_name / ask_guest_time", barFlagsRes.error);
     }
 
     return NextResponse.json({
@@ -469,6 +491,8 @@ export async function GET(request: Request) {
       allow_shift_submission: allowShiftSubmission,
       pre_open_report_hour_jst: preOpenReportHourJst,
       enable_reservation_check: enableReservationCheck,
+      ask_guest_name: askGuestName,
+      ask_guest_time: askGuestTime,
       enable_public_holiday: settingsRow?.enable_public_holiday === true,
       enable_half_holiday: settingsRow?.enable_half_holiday === true,
       regular_holidays: regularHolidays,
@@ -515,6 +539,10 @@ type PatchBody = {
   welfare_message_welcome?: string | null;
   /** カンマ区切り作業項目。未指定なら更新しない */
   welfare_work_items?: string | null;
+  /** キャバクラ系 / BAR（welfare_b では無効） */
+  business_type?: "cabaret" | "bar";
+  ask_guest_name?: boolean;
+  ask_guest_time?: boolean;
 };
 
 /**
@@ -719,6 +747,10 @@ export async function PATCH(request: Request) {
   );
   const regularHolidaysProvided = Array.isArray(body.regular_holidays);
   const regularRemindMessageProvided = typeof body.regular_remind_message === "string";
+  const businessTypeProvided =
+    body.business_type === "cabaret" || body.business_type === "bar";
+  const askGuestNameProvided = typeof body.ask_guest_name === "boolean";
+  const askGuestTimeProvided = typeof body.ask_guest_time === "boolean";
 
   if (preOpenReportHourProvided) {
     const v = body.pre_open_report_hour_jst;
@@ -928,6 +960,15 @@ export async function PATCH(request: Request) {
     if (regularRemindMessageProvided) {
       const t = String(body.regular_remind_message).trim();
       storePayload.regular_remind_message = t || DEFAULT_REGULAR_REMIND_BODY;
+    }
+    if (businessTypeProvided) {
+      storePayload.business_type = body.business_type as "cabaret" | "bar";
+    }
+    if (askGuestNameProvided) {
+      storePayload.ask_guest_name = body.ask_guest_name as boolean;
+    }
+    if (askGuestTimeProvided) {
+      storePayload.ask_guest_time = body.ask_guest_time as boolean;
     }
 
     const storeRes = await admin.from("stores").update(storePayload).eq("id", storeId);

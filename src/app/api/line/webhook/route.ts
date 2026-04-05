@@ -23,6 +23,7 @@ import {
   handleSabakiTimePostback,
   tryHandleLateAbsentReasonText,
   tryHandleReservationDetailText,
+  tryHandleReservationGuestNameText,
   tryHandleCompletedFollowupText,
 } from "@/lib/line-webhook-attendance";
 import { handleWelfareWebhook, type WelfareStoreContext } from "@/lib/welfare-line-webhook";
@@ -375,6 +376,15 @@ async function processWebhookEvent(
         const text = messageEvent.message.text ?? "";
 
         console.log("[Webhook] テキスト受信 | text:", JSON.stringify(text));
+
+        const consumedGuestNames = await tryHandleReservationGuestNameText(
+          userId,
+          text,
+          supabase,
+          messageEvent.replyToken,
+          channelAccessToken
+        );
+        if (consumedGuestNames) break;
 
         const consumedReservationDetail = await tryHandleReservationDetailText(
           userId,
