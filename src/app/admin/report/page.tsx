@@ -457,6 +457,8 @@ function AdminReportContent() {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /** 空文字 = 全員表示 */
+  const [filterCastId, setFilterCastId] = useState("");
 
   /** 日別は B型のみ。キャバクラで view=day の URL なら月表示へ戻す（業態確定後） */
   useEffect(() => {
@@ -600,6 +602,40 @@ function AdminReportContent() {
     return list;
   }, [reports, sortKey, sortDir]);
 
+  type FilterOption = { id: string; name: string };
+
+  const filterOptions = useMemo((): FilterOption[] => {
+    if (businessType === "welfare_b") {
+      const m = new Map<string, string>();
+      for (const w of welfareRows) {
+        const id = String(w.cast_id ?? "").trim();
+        if (!id || m.has(id)) continue;
+        m.set(id, (w.cast_name ?? "").trim() || "—");
+      }
+      return [...m.entries()]
+        .map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name, "ja"));
+    }
+    return casts.map((c) => ({ id: c.id, name: c.name }));
+  }, [businessType, welfareRows, casts]);
+
+  useEffect(() => {
+    if (!filterCastId) return;
+    if (!filterOptions.some((o) => o.id === filterCastId)) {
+      setFilterCastId("");
+    }
+  }, [filterCastId, filterOptions]);
+
+  const filteredSortedReports = useMemo(() => {
+    if (!filterCastId) return sortedReports;
+    return sortedReports.filter((r) => r.castId === filterCastId);
+  }, [sortedReports, filterCastId]);
+
+  const filteredWelfareRows = useMemo(() => {
+    if (!filterCastId) return welfareRows;
+    return welfareRows.filter((w) => w.cast_id === filterCastId);
+  }, [welfareRows, filterCastId]);
+
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -641,6 +677,8 @@ function AdminReportContent() {
       : viewMode === "week"
         ? "この週のシフトデータはありません。"
         : "この月のシフトデータはありません。";
+
+  const filterEmptyMessage = "この条件では表示するデータがありません。";
 
   const hasDetails = (r: CastReport) =>
     r.incidents.length > 0 || r.sabakiDates.length > 0;
@@ -698,6 +736,30 @@ function AdminReportContent() {
           </button>
         )}
       </div>
+
+      {!loading && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 sm:gap-3 print:hidden">
+          <label
+            htmlFor="report-cast-filter"
+            className="text-sm font-medium text-gray-700 whitespace-nowrap"
+          >
+            利用者で絞り込む
+          </label>
+          <select
+            id="report-cast-filter"
+            value={filterCastId}
+            onChange={(e) => setFilterCastId(e.target.value)}
+            className="min-h-[44px] min-w-[12rem] max-w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 outline-none"
+          >
+            <option value="">すべて</option>
+            {filterOptions.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 print:hidden">
@@ -835,8 +897,17 @@ function AdminReportContent() {
                     {emptyMessage}
                   </td>
                 </tr>
+              ) : filteredWelfareRows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={viewMode === "day" ? 8 : 9}
+                    className="px-3 py-8 text-center text-gray-500"
+                  >
+                    {filterEmptyMessage}
+                  </td>
+                </tr>
               ) : (
-                welfareRows.map((row) => (
+                filteredWelfareRows.map((row) => (
                   <tr
                     key={row.id}
                     className="border-b border-gray-100 hover:bg-gray-50/80 align-top"
@@ -1002,8 +1073,17 @@ function AdminReportContent() {
                     {emptyMessage}
                   </td>
                 </tr>
+              ) : filteredSortedReports.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={9}
+                    className="px-3 py-8 text-center text-gray-500"
+                  >
+                    {filterEmptyMessage}
+                  </td>
+                </tr>
               ) : (
-                sortedReports.map((r) => {
+                filteredSortedReports.map((r) => {
                   const open = expanded.has(r.castId);
                   const showToggle = hasDetails(r);
                   return (
