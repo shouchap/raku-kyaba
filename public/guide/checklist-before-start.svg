@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 280" fill="none" aria-hidden="true">
+  <rect width="640" height="280" fill="#f8fafc"/>
+  <text x="320" y="36" text-anchor="middle" fill="#0f172a" font-family="system-ui, sans-serif" font-size="14" font-weight="600">Before you start (checklist)</text>
+  <g>
+    <rect x="48" y="64" width="544" height="52" rx="8" fill="#fff" stroke="#e2e8f0"/>
+    <circle cx="76" cy="90" r="12" fill="#22c55e" fill-opacity="0.15"/>
+    <path d="M 70 90 L 74 94 L 84 84" stroke="#16a34a" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <text x="104" y="86" fill="#334155" font-family="system-ui, sans-serif" font-size="12" font-weight="600">Official LINE added</text>
+    <text x="104" y="102" fill="#64748b" font-family="system-ui, sans-serif" font-size="10">Use the store account (QR / link from the store)</text>
+  </g>
+  <g>
+    <rect x="48" y="128" width="544" height="52" rx="8" fill="#fff" stroke="#e2e8f0"/>
+    <circle cx="76" cy="154" r="12" fill="#22c55e" fill-opacity="0.15"/>
+    <path d="M 70 154 L 74 158 L 84 148" stroke="#16a34a" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <text x="104" y="150" fill="#334155" font-family="system-ui, sans-serif" font-size="12" font-weight="600">Notifications ON</text>
+    <text x="104" y="166" fill="#64748b" font-family="system-ui, sans-serif" font-size="10">So reminders are not missed</text>
+  </g>
+  <g>
+    <rect x="48" y="192" width="544" height="52" rx="8" fill="#fff" stroke="#e2e8f0"/>
+    <circle cx="76" cy="218" r="12" fill="#22c55e" fill-opacity="0.15"/>
+    <path d="M 70 218 L 74 222 L 84 212" stroke="#16a34a" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <text x="104" y="214" fill="#334155" font-family="system-ui, sans-serif" font-size="12" font-weight="600">Know who to ask</text>
+    <text x="104" y="230" fill="#64748b" font-family="system-ui, sans-serif" font-size="10">Store admin for login / contract questions</text>
+  </g>
+</svg>
