@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LogIn, Sparkles } from "lucide-react";
+import { BookOpen, LogIn } from "lucide-react";
 
 export default function HomePage() {
   return (
@@ -44,8 +44,8 @@ export default function HomePage() {
             href="/guide"
             className="group flex items-center gap-4 w-full rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-6 py-5 sm:py-6 transition-all duration-200 shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-300"
           >
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-slate-700 group-hover:border-slate-300">
-              <Sparkles className="h-6 w-6" aria-hidden />
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 group-hover:border-slate-300">
+              <BookOpen className="h-6 w-6" aria-hidden />
             </span>
             <span className="text-left flex-1 min-w-0">
               <span className="block text-slate-800 font-semibold text-base sm:text-lg tracking-wide">

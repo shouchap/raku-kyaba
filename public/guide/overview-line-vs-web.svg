@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 300" fill="none" aria-hidden="true">
+  <rect width="880" height="300" fill="#f8fafc"/>
+  <text x="440" y="36" text-anchor="middle" fill="#0f172a" font-family="system-ui, sans-serif" font-size="15" font-weight="600">Two entry points</text>
+  <rect x="48" y="64" width="360" height="200" rx="12" stroke="#64748b" stroke-width="1.5" fill="#fff"/>
+  <rect x="168" y="84" width="120" height="200" rx="18" stroke="#334155" stroke-width="2" fill="#f1f5f9"/>
+  <rect x="178" y="98" width="100" height="18" rx="4" fill="#cbd5e1"/>
+  <rect x="178" y="128" width="72" height="10" rx="2" fill="#94a3b8"/>
+  <rect x="178" y="148" width="88" height="10" rx="2" fill="#94a3b8"/>
+  <rect x="178" y="178" width="100" height="32" rx="6" fill="#2563eb" fill-opacity="0.15" stroke="#2563eb" stroke-width="1"/>
+  <text x="228" y="198" text-anchor="middle" fill="#1e40af" font-family="system-ui, sans-serif" font-size="10" font-weight="600">Tap</text>
+  <text x="228" y="252" text-anchor="middle" fill="#334155" font-family="system-ui, sans-serif" font-size="13" font-weight="600">LINE</text>
+  <text x="228" y="272" text-anchor="middle" fill="#64748b" font-family="system-ui, sans-serif" font-size="11">Staff / guests</text>
+  <path d="M 430 164 L 450 164" stroke="#94a3b8" stroke-width="2"/>
+  <path d="M 446 158 L 454 164 L 446 170" fill="#94a3b8"/>
+  <rect x="472" y="64" width="360" height="200" rx="12" stroke="#64748b" stroke-width="1.5" fill="#fff"/>
+  <rect x="492" y="84" width="320" height="28" rx="6" fill="#e2e8f0"/>
+  <circle cx="508" cy="98" r="4" fill="#94a3b8"/>
+  <circle cx="524" cy="98" r="4" fill="#94a3b8"/>
+  <circle cx="540" cy="98" r="4" fill="#94a3b8"/>
+  <rect x="560" y="92" width="220" height="12" rx="3" fill="#cbd5e1"/>
+  <rect x="492" y="124" width="140" height="12" rx="2" fill="#cbd5e1"/>
+  <rect x="492" y="146" width="200" height="10" rx="2" fill="#e2e8f0"/>
+  <rect x="492" y="166" width="180" height="10" rx="2" fill="#e2e8f0"/>
+  <rect x="492" y="196" width="100" height="28" rx="4" fill="#0f172a" fill-opacity="0.06" stroke="#334155" stroke-width="1"/>
+  <text x="542" y="214" text-anchor="middle" fill="#334155" font-family="system-ui, sans-serif" font-size="10" font-weight="600">Login</text>
+  <text x="652" y="252" text-anchor="middle" fill="#334155" font-family="system-ui, sans-serif" font-size="13" font-weight="600">Browser</text>
+  <text x="652" y="272" text-anchor="middle" fill="#64748b" font-family="system-ui, sans-serif" font-size="11">Managers</text>
+</svg>
