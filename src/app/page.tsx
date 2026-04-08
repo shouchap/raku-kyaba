@@ -14,10 +14,8 @@ export default function HomePage() {
     <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto max-w-4xl px-4 py-3 sm:py-4">
-          <p
-            className={`${homeHero.className} text-center text-[0.8125rem] leading-snug tracking-tight text-slate-900 sm:text-left sm:text-base`}
-          >
-            もう仕事ができない部下を怒らなくていい
+          <p className="text-center text-sm font-semibold leading-snug tracking-wide text-slate-800 sm:text-left sm:text-base">
+            あったようでなかった出勤システム
           </p>
         </div>
       </header>
@@ -63,7 +61,7 @@ export default function HomePage() {
             </div>
 
             <nav
-              className="flex w-full max-w-md flex-col gap-3 md:w-[min(100%,288px)] md:flex-shrink-0 md:gap-3"
+              className="flex w-full max-w-md flex-col gap-3 md:w-[min(100%,320px)] md:flex-shrink-0 md:gap-3"
               aria-label="主要リンク"
             >
               <Link
@@ -77,8 +75,9 @@ export default function HomePage() {
                   <span className="block text-base font-semibold tracking-wide text-blue-700 sm:text-lg">
                     ログイン
                   </span>
-                  <span className="mt-0.5 block text-pretty text-xs leading-snug text-slate-500 sm:text-sm">
-                    アカウントをお持ちの方（管理者・キャスト）
+                  <span className="mt-0.5 block text-xs leading-relaxed text-slate-500 sm:text-sm">
+                    <span className="block">アカウントをお持ちの方</span>
+                    <span className="block">（管理者・キャスト）</span>
                   </span>
                 </span>
               </Link>
@@ -94,8 +93,9 @@ export default function HomePage() {
                   <span className="block text-base font-semibold tracking-wide text-slate-800 sm:text-lg">
                     はじめての方
                   </span>
-                  <span className="mt-0.5 block text-pretty text-xs leading-snug text-slate-500 sm:text-sm">
-                    LINE 出勤の流れとシステムの使い方
+                  <span className="mt-0.5 block text-xs leading-relaxed text-slate-500 sm:text-sm">
+                    <span className="block">LINE 出勤の流れと</span>
+                    <span className="block">システムの使い方</span>
                   </span>
                 </span>
               </Link>
