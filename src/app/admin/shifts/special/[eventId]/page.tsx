@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { getWeekdayJst } from "@/lib/date-utils";
+import { DAY_STYLE_TEXT_CLASS, getDayStyleForYmd } from "@/lib/jp-calendar-style";
 import { enumerateInclusiveYmd } from "@/lib/special-shift-dates";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
@@ -100,14 +101,17 @@ export default async function AdminSpecialShiftMatrixPage({
               <th className="sticky top-0 left-36 z-40 w-14 min-w-[3.5rem] border-r border-slate-200 bg-slate-50 px-2 py-2 text-center text-xs font-semibold text-slate-800 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
                 日数
               </th>
-              {dates.map((d) => (
-                <th
-                  key={d}
-                  className="sticky top-0 z-30 min-w-[3.25rem] whitespace-nowrap border-b border-slate-200 bg-slate-50 px-1 py-2 text-center text-xs font-medium text-slate-700"
-                >
-                  {formatHeader(d)}
-                </th>
-              ))}
+              {dates.map((d) => {
+                const dayClass = DAY_STYLE_TEXT_CLASS[getDayStyleForYmd(d)];
+                return (
+                  <th
+                    key={d}
+                    className={`sticky top-0 z-30 min-w-[3.25rem] whitespace-nowrap border-b border-slate-200 bg-slate-50 px-1 py-2 text-center text-xs font-medium ${dayClass}`}
+                  >
+                    {formatHeader(d)}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -122,17 +126,17 @@ export default async function AdminSpecialShiftMatrixPage({
               </tr>
             ) : (
               <>
-                <tr className="border-b-2 border-slate-300 bg-amber-50/95 font-medium shadow-[0_1px_0_0_rgb(203,213,225)]">
-                  <td className="sticky top-12 left-0 z-30 w-36 min-w-[9rem] border-r border-slate-200 bg-amber-50 px-3 py-2.5 text-slate-900 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                <tr className="border-b-2 border-slate-300 bg-slate-100 font-medium shadow-[0_1px_0_0_rgb(203,213,225)]">
+                  <td className="sticky top-12 left-0 z-30 w-36 min-w-[9rem] border-r border-slate-200 bg-slate-100 px-3 py-2.5 text-slate-900 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
                     合計人数
                   </td>
-                  <td className="sticky top-12 left-36 z-30 w-14 min-w-[3.5rem] border-r border-slate-200 bg-amber-50 px-2 py-2.5 text-center text-slate-400 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                  <td className="sticky top-12 left-36 z-30 w-14 min-w-[3.5rem] border-r border-slate-200 bg-slate-100 px-2 py-2.5 text-center text-slate-500 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
                     —
                   </td>
                   {perDateTotals.map((n, i) => (
                     <td
                       key={dates[i]}
-                      className="sticky top-12 z-20 bg-amber-50 px-1 py-2.5 text-center tabular-nums text-slate-900"
+                      className="sticky top-12 z-20 bg-slate-100 px-1 py-2.5 text-center tabular-nums text-slate-900"
                     >
                       {n}
                     </td>
@@ -166,7 +170,7 @@ export default async function AdminSpecialShiftMatrixPage({
         </table>
       </div>
       <p className="mt-4 text-xs text-slate-500">
-        ◯ は出勤可能として提出された日です。未提出のキャストは空欄のまま表示されます。「日数」は提出された出勤可能日の件数、表の上段「合計人数」はその日に◯が付いているキャスト数です（日付ヘッダーの直下。縦スクロール時も先頭付近に固定表示されます）。
+        ◯ は出勤可能として提出された日です。未提出のキャストは空欄のまま表示されます。「日数」は提出された出勤可能日の件数、日付ヘッダー直下の「合計人数」行はその日に◯が付いているキャスト数です（縦スクロール時もヘッダー付近に固定）。日付列の色は土曜=青、日曜・祝日（振替含む）=赤です。
       </p>
     </div>
   );
