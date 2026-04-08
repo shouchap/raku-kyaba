@@ -34,13 +34,13 @@ export default function HomePage() {
             出勤まわりの連絡や調整に、こんな負担を感じていませんか。
           </h2>
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6">
-            <figure className="flex flex-col items-center rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="relative aspect-square w-full max-w-[220px]">
+            <figure className="flex flex-col items-center rounded-xl border border-slate-200/90 bg-slate-50 p-4">
+              <div className="relative aspect-square w-full max-w-[220px] overflow-hidden rounded-lg bg-slate-50">
                 <Image
                   src="/images/home/pain-frustration.png"
                   alt="連絡や調整の負担を表すイラスト"
                   fill
-                  className="object-contain"
+                  className="object-contain mix-blend-multiply"
                   sizes="(min-width: 640px) 220px, 55vw"
                   priority
                 />
@@ -49,13 +49,13 @@ export default function HomePage() {
                 声かけ・電話・紙でのやりとりが続き、抜けやストレスがたまりやすい。
               </figcaption>
             </figure>
-            <figure className="flex flex-col items-center rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="relative aspect-square w-full max-w-[220px]">
+            <figure className="flex flex-col items-center rounded-xl border border-slate-200/90 bg-slate-50 p-4">
+              <div className="relative aspect-square w-full max-w-[220px] overflow-hidden rounded-lg bg-slate-50">
                 <Image
                   src="/images/home/pain-resource.png"
                   alt="人員や予約の見通しへの不安を表すイラスト"
                   fill
-                  className="object-contain"
+                  className="object-contain mix-blend-multiply"
                   sizes="(min-width: 640px) 220px, 55vw"
                 />
               </div>
