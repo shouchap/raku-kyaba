@@ -190,6 +190,43 @@ export interface Database {
         };
         Update: Partial<Database["public"]["Tables"]["welfare_daily_logs"]["Insert"]>;
       };
+      special_shift_events: {
+        Row: {
+          id: string;
+          store_id: string;
+          title: string;
+          start_date: string;
+          end_date: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["special_shift_events"]["Row"],
+          "id" | "created_at" | "updated_at"
+        > & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["special_shift_events"]["Insert"]>;
+      };
+      special_shift_entries: {
+        Row: {
+          id: string;
+          event_id: string;
+          cast_id: string;
+          available_dates: Json;
+          updated_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["special_shift_entries"]["Row"],
+          "id" | "updated_at"
+        > & {
+          id?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["special_shift_entries"]["Insert"]>;
+      };
     };
   };
 }

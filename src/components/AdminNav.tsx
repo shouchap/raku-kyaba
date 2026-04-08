@@ -10,6 +10,12 @@ const NAV_ITEMS = [
   { href: "/admin/weekly", label: "シフト入力", hideForWelfare: true },
   { href: "/admin/view", label: "シフト一覧", hideForWelfare: true },
   { href: "/admin/schedule", label: "単日登録", hideForWelfare: true },
+  {
+    href: "/admin/shifts/special",
+    label: "特別シフト募集",
+    hideForWelfare: true,
+    hideForBar: true,
+  },
   { href: "/admin/casts", label: "キャスト管理" },
   { href: "/admin/report", label: "月間レポート" },
   { href: "/admin/settings", label: "システム設定" },
@@ -48,9 +54,12 @@ export default function AdminNav({
   businessType,
 }: Props) {
   const isWelfare = businessType === "welfare_b";
-  const navEntries = NAV_ITEMS.filter((item) =>
-    isWelfare && "hideForWelfare" in item && item.hideForWelfare ? false : true
-  ).map((item) =>
+  const isBar = businessType === "bar";
+  const navEntries = NAV_ITEMS.filter((item) => {
+    if (isWelfare && "hideForWelfare" in item && item.hideForWelfare) return false;
+    if (isBar && "hideForBar" in item && item.hideForBar) return false;
+    return true;
+  }).map((item) =>
     item.href === "/admin/casts" && isWelfare
       ? { href: item.href, label: WELFARE_CASTS_LABEL }
       : { href: item.href, label: item.label }
@@ -112,7 +121,10 @@ export default function AdminNav({
   const NavLinks = ({ vertical }: { vertical: boolean }) => (
     <>
       {navEntries.map((item) => {
-        const isActive = pathname === item.href;
+        const isActive =
+          item.href === "/admin/shifts/special"
+            ? pathname.startsWith("/admin/shifts/special")
+            : pathname === item.href;
         return (
           <Link
             key={item.href}
