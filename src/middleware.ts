@@ -11,8 +11,8 @@ import { isSuperAdminUser } from "@/lib/super-admin";
 /**
  * Supabase Auth を使った認証ガード
  * - メンテナンスモード: 画面は /maintenance へ、/api/admin/* は 503
- * - /admin 以下: 未ログイン時は / へリダイレクト
- * - /: ログイン済み時は /admin/weekly へリダイレクト
+ * - /admin 以下: 未ログイン時は /login へリダイレクト
+ * - / /login: ログイン済み時は /admin/weekly へリダイレクト（/guide は公開）
  */
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
@@ -73,7 +73,7 @@ export async function middleware(request: NextRequest) {
 
   if (pathname.startsWith("/admin")) {
     if (!user && !pathname.startsWith("/admin/view/submit")) {
-      return NextResponse.redirect(new URL("/", request.url));
+      return NextResponse.redirect(new URL("/login", request.url));
     }
 
     if (user) {
@@ -96,7 +96,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  if (pathname === "/") {
+  if (pathname === "/" || pathname === "/login") {
     if (user) {
       return NextResponse.redirect(new URL("/admin/weekly", request.url));
     }
