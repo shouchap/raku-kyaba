@@ -23,7 +23,7 @@ export default function HomePage() {
       </header>
 
       <main className="flex flex-1 flex-col items-center px-4 py-10 sm:py-14">
-        <div className="mb-7 w-full max-w-3xl space-y-4 text-center sm:mb-9">
+        <div className="mb-2 w-full max-w-3xl space-y-4 text-center sm:mb-3">
           <h1
             className={`${homeHero.className} mx-auto max-w-[min(100%,22rem)] text-balance text-[1.65rem] leading-[1.2] tracking-tight text-slate-900 [text-shadow:0_2px_20px_rgba(15,23,42,0.12)] sm:max-w-4xl sm:text-4xl sm:leading-[1.18] md:text-5xl`}
           >
