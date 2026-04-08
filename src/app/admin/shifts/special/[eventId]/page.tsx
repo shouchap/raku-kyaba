@@ -71,6 +71,10 @@ export default async function AdminSpecialShiftMatrixPage({
 
   const castRows = casts ?? [];
 
+  const perDateTotals = dates.map((d) =>
+    castRows.reduce((n, c) => n + (byCast.get(c.id)?.has(d) ? 1 : 0), 0)
+  );
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 pb-4">
@@ -90,8 +94,11 @@ export default async function AdminSpecialShiftMatrixPage({
         <table className="min-w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
-              <th className="sticky left-0 z-10 border-r border-slate-200 bg-slate-50 px-3 py-2 text-left font-semibold text-slate-800">
+              <th className="sticky left-0 z-20 w-36 min-w-[9rem] border-r border-slate-200 bg-slate-50 px-3 py-2 text-left font-semibold text-slate-800 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
                 キャスト
+              </th>
+              <th className="sticky left-36 z-20 w-14 min-w-[3.5rem] border-r border-slate-200 bg-slate-50 px-2 py-2 text-center text-xs font-semibold text-slate-800 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
+                日数
               </th>
               {dates.map((d) => (
                 <th
@@ -107,37 +114,59 @@ export default async function AdminSpecialShiftMatrixPage({
             {castRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={dates.length + 1}
+                  colSpan={dates.length + 2}
                   className="px-3 py-6 text-center text-slate-500"
                 >
                   アクティブなキャストがいません。
                 </td>
               </tr>
             ) : (
-              castRows.map((c) => {
-                const set = byCast.get(c.id);
-                return (
-                  <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50/80">
-                    <td className="sticky left-0 z-10 border-r border-slate-200 bg-white px-3 py-2 font-medium text-slate-900">
-                      {c.name}
+              <>
+                {castRows.map((c) => {
+                  const set = byCast.get(c.id);
+                  const dayCount = set?.size ?? 0;
+                  return (
+                    <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50/80">
+                      <td className="sticky left-0 z-10 w-36 min-w-[9rem] border-r border-slate-200 bg-white px-3 py-2 font-medium text-slate-900 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                        {c.name}
+                      </td>
+                      <td className="sticky left-36 z-10 w-14 min-w-[3.5rem] border-r border-slate-200 bg-white px-2 py-2 text-center tabular-nums text-slate-800 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                        {dayCount}
+                      </td>
+                      {dates.map((d) => {
+                        const on = set?.has(d) ?? false;
+                        return (
+                          <td key={d} className="px-1 py-2 text-center text-base">
+                            {on ? "◯" : ""}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+                <tr className="border-t-2 border-slate-300 bg-amber-50/90 font-medium">
+                  <td className="sticky left-0 z-10 w-36 min-w-[9rem] border-r border-slate-200 bg-amber-50 px-3 py-2.5 text-slate-900 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                    合計人数
+                  </td>
+                  <td className="sticky left-36 z-10 w-14 min-w-[3.5rem] border-r border-slate-200 bg-amber-50 px-2 py-2.5 text-center text-slate-400 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                    —
+                  </td>
+                  {perDateTotals.map((n, i) => (
+                    <td
+                      key={dates[i]}
+                      className="px-1 py-2.5 text-center tabular-nums text-slate-900"
+                    >
+                      {n}
                     </td>
-                    {dates.map((d) => {
-                      const on = set?.has(d) ?? false;
-                      return (
-                        <td key={d} className="px-1 py-2 text-center text-base">
-                          {on ? "◯" : ""}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })
+                  ))}
+                </tr>
+              </>
             )}
           </tbody>
         </table>
       </div>
       <p className="mt-4 text-xs text-slate-500">
-        ◯ は出勤可能として提出された日です。未提出のキャストは空欄のまま表示されます。
+        ◯ は出勤可能として提出された日です。未提出のキャストは空欄のまま表示されます。「日数」は提出された出勤可能日の件数、最下行「合計人数」はその日に◯が付いているキャスト数です。
       </p>
     </div>
   );
