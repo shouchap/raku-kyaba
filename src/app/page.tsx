@@ -28,24 +28,17 @@ export default function HomePage() {
             <span className="block">もう仕事ができない部下を</span>
             <span className="mt-1 block sm:mt-2">怒らなくていい</span>
           </h1>
-          <p className="mx-auto max-w-lg text-pretty text-sm leading-relaxed text-slate-600 sm:text-base">
-            出勤・シフト・来客予定までをまとめて管理する、店舗向けスタッフポータルです。
+          <p className="mx-auto max-w-2xl text-pretty text-sm font-medium leading-relaxed text-slate-700 sm:text-base">
+            <span className="block">出勤・シフト・来客予定・勤怠管理を一括管理</span>
+            <span className="mt-2 block">事業毎にわかりやすく</span>
+            <span className="mt-2 block">担当者の連絡忘れをなくすAI管理</span>
           </p>
         </div>
 
         <section
-          aria-labelledby="home-pain-heading"
-          className="w-full max-w-4xl"
+          aria-label="サービス紹介と主要リンク"
+          className="w-full max-w-4xl pt-4 sm:pt-5"
         >
-          <h2
-            id="home-pain-heading"
-            className="mx-auto mb-5 max-w-md text-balance px-1 text-center text-sm font-medium leading-snug text-slate-700 sm:mb-6 sm:max-w-2xl sm:text-base sm:leading-relaxed"
-          >
-            出勤まわりの連絡や調整に、
-            <br className="sm:hidden" />
-            こんな負担を感じていませんか。
-          </h2>
-
           <div className="flex flex-col items-center gap-4 md:flex-row md:items-center md:justify-center md:gap-2 lg:gap-3">
             <div className="flex w-full flex-col items-center md:max-w-[260px] md:flex-1">
               <div className="relative aspect-square w-full max-w-[260px] bg-slate-50">
