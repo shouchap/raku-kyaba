@@ -61,21 +61,21 @@ export default function HomePage() {
             </div>
 
             <nav
-              className="flex w-full max-w-md flex-col gap-3 md:w-[min(100%,320px)] md:flex-shrink-0 md:gap-3"
+              className="flex w-full max-w-[min(100%,268px)] flex-col gap-2 md:w-[min(100%,268px)] md:flex-shrink-0 md:gap-2"
               aria-label="主要リンク"
             >
               <Link
                 href="/login"
-                className="group flex w-full items-center gap-4 rounded-xl border border-blue-200/90 bg-white/90 px-5 py-4 shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-blue-50 hover:shadow md:py-4 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                className="group flex w-full items-center gap-2.5 rounded-lg border border-blue-200/90 bg-white/90 px-3 py-2.5 shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-blue-50 hover:shadow focus:outline-none focus:ring-2 focus:ring-blue-300"
               >
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-700 group-hover:border-blue-300">
-                  <LogIn className="h-5 w-5" aria-hidden />
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-700 group-hover:border-blue-300">
+                  <LogIn className="h-4 w-4" aria-hidden />
                 </span>
                 <span className="min-w-0 flex-1 text-left">
-                  <span className="block text-base font-semibold tracking-wide text-blue-700 sm:text-lg">
+                  <span className="block text-sm font-semibold tracking-wide text-blue-700">
                     ログイン
                   </span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-slate-500 sm:text-sm">
+                  <span className="mt-0.5 block text-[0.6875rem] leading-snug text-slate-500">
                     <span className="block">アカウントをお持ちの方</span>
                     <span className="block">（管理者・キャスト）</span>
                   </span>
@@ -84,16 +84,16 @@ export default function HomePage() {
 
               <Link
                 href="/guide"
-                className="group flex w-full items-center gap-4 rounded-xl border border-slate-200/90 bg-white/90 px-5 py-4 shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-slate-50 hover:shadow md:py-4 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                className="group flex w-full items-center gap-2.5 rounded-lg border border-slate-200/90 bg-white/90 px-3 py-2.5 shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-slate-50 hover:shadow focus:outline-none focus:ring-2 focus:ring-slate-300"
               >
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 group-hover:border-slate-300">
-                  <BookOpen className="h-5 w-5" aria-hidden />
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-700 group-hover:border-slate-300">
+                  <BookOpen className="h-4 w-4" aria-hidden />
                 </span>
                 <span className="min-w-0 flex-1 text-left">
-                  <span className="block text-base font-semibold tracking-wide text-slate-800 sm:text-lg">
+                  <span className="block text-sm font-semibold tracking-wide text-slate-800">
                     はじめての方
                   </span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-slate-500 sm:text-sm">
+                  <span className="mt-0.5 block text-[0.6875rem] leading-snug text-slate-500">
                     <span className="block">LINE 出勤の流れと</span>
                     <span className="block">システムの使い方</span>
                   </span>
