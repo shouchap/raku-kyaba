@@ -1,22 +1,34 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Zen_Kaku_Gothic_New } from "next/font/google";
 import { BookOpen, LogIn } from "lucide-react";
+
+const homeHero = Zen_Kaku_Gothic_New({
+  weight: "900",
+  subsets: ["latin"],
+  display: "swap",
+});
 
 export default function HomePage() {
   return (
     <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-4xl px-4 py-4">
-          <p className="text-sm font-semibold tracking-wide text-slate-800 sm:text-base">
-            今まであったようでなかった出勤システム
+        <div className="mx-auto max-w-4xl px-4 py-3 sm:py-4">
+          <p
+            className={`${homeHero.className} text-center text-[0.8125rem] leading-snug tracking-tight text-slate-900 sm:text-left sm:text-base`}
+          >
+            もう仕事ができない部下を怒らなくていい
           </p>
         </div>
       </header>
 
       <main className="flex flex-1 flex-col items-center px-4 py-10 sm:py-14">
-        <div className="mb-7 w-full max-w-xl space-y-3 text-center sm:mb-9">
-          <h1 className="mx-auto max-w-[min(100%,22rem)] text-balance text-2xl font-bold leading-snug text-slate-900 sm:max-w-3xl sm:text-4xl sm:leading-tight">
-            今まであったようでなかった出勤システム
+        <div className="mb-7 w-full max-w-3xl space-y-4 text-center sm:mb-9">
+          <h1
+            className={`${homeHero.className} mx-auto max-w-[min(100%,22rem)] text-balance text-[1.65rem] leading-[1.2] tracking-tight text-slate-900 [text-shadow:0_2px_20px_rgba(15,23,42,0.12)] sm:max-w-4xl sm:text-4xl sm:leading-[1.18] md:text-5xl`}
+          >
+            <span className="block">もう仕事ができない部下を</span>
+            <span className="mt-1 block sm:mt-2">怒らなくていい</span>
           </h1>
           <p className="mx-auto max-w-lg text-pretty text-sm leading-relaxed text-slate-600 sm:text-base">
             出勤・シフト・来客予定までをまとめて管理する、店舗向けスタッフポータルです。
