@@ -20,7 +20,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      <main className="flex flex-1 flex-col items-center pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-6 sm:px-6 sm:py-14">
+      <main className="flex min-h-0 flex-1 flex-col items-center justify-center py-6 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 sm:py-10">
         <div className="mb-4 w-full max-w-4xl text-center sm:mb-8">
           <h1
             className={`${homeHero.className} mx-auto max-w-4xl text-balance text-[clamp(1.25rem,3.2vw+0.85rem,3rem)] leading-[1.15] tracking-tight text-slate-900 [text-shadow:0_2px_20px_rgba(15,23,42,0.12)] sm:text-4xl sm:leading-[1.18] md:text-5xl`}
