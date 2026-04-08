@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft, CheckCircle2, MessageCircle, Smartphone } from "lucide-react";
 
-const GOLD = "#D4AF37";
-
 const sections = [
   {
     title: "このシステムでできること",
@@ -40,61 +38,38 @@ const sections = [
 
 export default function GuidePage() {
   return (
-    <div className="min-h-screen bg-black text-gray-200">
-      <div
-        className="fixed inset-0 pointer-events-none opacity-[0.04]"
-        style={{
-          backgroundImage: `radial-gradient(circle at 50% 0%, ${GOLD} 0%, transparent 50%)`,
-        }}
-      />
-
-      <header className="sticky top-0 z-20 border-b border-[#D4AF37]/20 bg-black/85 backdrop-blur-md">
+    <div className="min-h-screen bg-slate-50 text-slate-800">
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur-md">
         <div className="mx-auto max-w-3xl px-4 py-4 flex flex-wrap items-center justify-between gap-3">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 text-sm text-[#D4AF37]/85 hover:text-[#D4AF37] transition-colors"
-          >
+          <Link href="/" className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 transition-colors">
             <ArrowLeft className="h-4 w-4 shrink-0" aria-hidden />
             トップへ戻る
           </Link>
-          <Link
-            href="/login"
-            className="text-sm text-[#D4AF37] border border-[#D4AF37]/50 rounded-lg px-4 py-2 hover:bg-[#D4AF37]/10 transition-colors"
-          >
+          <Link href="/login" className="text-sm text-blue-700 border border-blue-200 rounded-lg px-4 py-2 hover:bg-blue-50 transition-colors">
             ログイン
           </Link>
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto max-w-3xl px-4 py-10 sm:py-14 pb-24">
+      <main className="mx-auto max-w-3xl px-4 py-10 sm:py-14 pb-24">
         <div className="text-center mb-10 sm:mb-12">
-          <p
-            className="text-[#D4AF37]/80 text-xs sm:text-sm tracking-[0.25em] uppercase mb-2"
-            style={{ fontFamily: "'Cinzel', 'Georgia', serif" }}
-          >
-            Guide
-          </p>
-          <h1
-            className="text-2xl sm:text-3xl font-light text-[#D4AF37] tracking-wide"
-            style={{ fontFamily: "'Cinzel', 'Georgia', serif" }}
-          >
-            raku-kyaba の使い方
-          </h1>
-          <p className="mt-4 text-sm sm:text-base text-gray-500 leading-relaxed max-w-xl mx-auto">
+          <p className="text-xs sm:text-sm tracking-[0.25em] uppercase mb-2 text-blue-600">Guide</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">今まであったようでなかった出勤システム</h1>
+          <p className="mt-4 text-sm sm:text-base text-slate-600 leading-relaxed max-w-xl mx-auto">
             出勤連携と店舗管理のためのポータルです。まずは全体の流れをご確認ください。
           </p>
         </div>
 
-        <div className="rounded-2xl border border-[#D4AF37]/20 bg-[#0a0a0a] p-6 sm:p-8 mb-10 flex gap-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 mb-10 flex gap-4 shadow-sm">
           <div className="shrink-0 mt-0.5">
-            <Smartphone className="h-8 w-8 text-[#D4AF37]/70" aria-hidden />
+            <Smartphone className="h-8 w-8 text-blue-600" aria-hidden />
           </div>
           <div>
-            <h2 className="text-[#D4AF37] font-medium text-sm sm:text-base mb-2">2つの入り口</h2>
-            <p className="text-sm text-gray-400 leading-relaxed">
-              <strong className="text-gray-300">LINE</strong>
+            <h2 className="text-slate-900 font-semibold text-sm sm:text-base mb-2">2つの入り口</h2>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              <strong className="text-slate-800">LINE</strong>
               はキャスト・利用者向けの出勤連絡、
-              <strong className="text-gray-300"> このサイトへのログイン</strong>
+              <strong className="text-slate-800"> このサイトへのログイン</strong>
               は主に管理者・店長向けの操作です。役割に合わせてご利用ください。
             </p>
           </div>
@@ -103,14 +78,14 @@ export default function GuidePage() {
         <div className="space-y-10 sm:space-y-12">
           {sections.map((sec) => (
             <section key={sec.title}>
-              <h2 className="flex items-center gap-2 text-lg sm:text-xl font-medium text-[#D4AF37] mb-4 pb-2 border-b border-[#D4AF37]/20">
-                <MessageCircle className="h-5 w-5 opacity-80 shrink-0" aria-hidden />
+              <h2 className="flex items-center gap-2 text-lg sm:text-xl font-semibold text-slate-900 mb-4 pb-2 border-b border-slate-200">
+                <MessageCircle className="h-5 w-5 text-blue-600 shrink-0" aria-hidden />
                 {sec.title}
               </h2>
               <ul className="space-y-3">
                 {sec.items.map((line, i) => (
-                  <li key={i} className="flex gap-3 text-sm sm:text-base text-gray-400 leading-relaxed">
-                    <CheckCircle2 className="h-5 w-5 text-[#D4AF37]/45 shrink-0 mt-0.5" aria-hidden />
+                  <li key={i} className="flex gap-3 text-sm sm:text-base text-slate-700 leading-relaxed">
+                    <CheckCircle2 className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" aria-hidden />
                     <span>{line}</span>
                   </li>
                 ))}
@@ -119,22 +94,20 @@ export default function GuidePage() {
           ))}
         </div>
 
-        <div className="mt-14 sm:mt-16 rounded-xl border border-[#D4AF37]/25 bg-gradient-to-b from-[#D4AF37]/[0.06] to-transparent p-6 sm:p-8 text-center">
-          <p className="text-gray-400 text-sm mb-4">アカウントをお持ちの方はこちら</p>
+        <div className="mt-14 sm:mt-16 rounded-xl border border-blue-200 bg-blue-50 p-6 sm:p-8 text-center">
+          <p className="text-slate-700 text-sm mb-4">アカウントをお持ちの方はこちら</p>
           <Link
             href="/login"
-            className="inline-flex items-center justify-center min-h-[48px] px-8 rounded-lg border-2 border-[#D4AF37] text-[#D4AF37] font-medium tracking-wide hover:bg-[#D4AF37]/10 transition-colors w-full sm:w-auto"
+            className="inline-flex items-center justify-center min-h-[48px] px-8 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors w-full sm:w-auto"
           >
             ログイン画面へ
           </Link>
         </div>
       </main>
 
-      <footer className="border-t border-[#D4AF37]/10 py-8 text-center text-xs text-gray-600">
-        <Link href="/" className="text-[#D4AF37]/60 hover:text-[#D4AF37]">
-          トップへ
-        </Link>
-        <span className="mx-2 text-gray-700">·</span>
+      <footer className="border-t border-slate-200 bg-white py-8 text-center text-xs text-slate-500">
+        <Link href="/" className="text-slate-600 hover:text-slate-900">トップへ</Link>
+        <span className="mx-2 text-slate-300">·</span>
         © raku-kyaba
       </footer>
     </div>
