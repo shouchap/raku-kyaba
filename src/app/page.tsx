@@ -21,23 +21,18 @@ export default function HomePage() {
       </header>
 
       <main className="flex flex-1 flex-col items-center px-4 py-10 sm:py-14">
-        <div className="mb-2 w-full max-w-3xl space-y-4 text-center sm:mb-3">
+        <div className="mb-6 w-full max-w-3xl text-center sm:mb-8">
           <h1
             className={`${homeHero.className} mx-auto max-w-[min(100%,22rem)] text-balance text-[1.65rem] leading-[1.2] tracking-tight text-slate-900 [text-shadow:0_2px_20px_rgba(15,23,42,0.12)] sm:max-w-4xl sm:text-4xl sm:leading-[1.18] md:text-5xl`}
           >
             <span className="block">もう仕事ができない部下を</span>
             <span className="mt-1 block sm:mt-2">怒らなくていい</span>
           </h1>
-          <p className="mx-auto max-w-2xl text-pretty text-sm font-medium leading-relaxed text-slate-700 sm:text-base">
-            <span className="block">出勤・シフト・来客予定・勤怠管理を一括管理</span>
-            <span className="mt-2 block">事業毎にわかりやすく</span>
-            <span className="mt-2 block">担当者の連絡忘れをなくすAI管理</span>
-          </p>
         </div>
 
         <section
           aria-label="サービス紹介と主要リンク"
-          className="w-full max-w-4xl pt-4 sm:pt-5"
+          className="w-full max-w-4xl"
         >
           <div className="flex flex-col items-center gap-4 md:flex-row md:items-center md:justify-center md:gap-2 lg:gap-3">
             <div className="flex w-full flex-col items-center md:max-w-[260px] md:flex-1">
@@ -107,7 +102,13 @@ export default function HomePage() {
             </div>
           </div>
 
-          <p className="mx-auto mt-8 max-w-md text-balance px-2 text-center text-xs leading-relaxed text-slate-500 sm:mt-9 sm:max-w-lg sm:text-sm">
+          <p className="mx-auto mt-8 max-w-2xl text-pretty text-center text-sm font-medium leading-relaxed text-slate-700 sm:mt-10 sm:text-base">
+            <span className="block">出勤・シフト・来客予定・勤怠管理を一括管理</span>
+            <span className="mt-2 block">事業毎にわかりやすく</span>
+            <span className="mt-2 block">担当者の連絡忘れをなくすAI管理</span>
+          </p>
+
+          <p className="mx-auto mt-6 max-w-md text-balance px-2 text-center text-xs leading-relaxed text-slate-500 sm:mt-8 sm:max-w-lg sm:text-sm">
             LINE とブラウザをつなぎ、
             <br className="sm:hidden" />
             店舗の運用に合わせて整理します。
