@@ -14,6 +14,7 @@ import { assertStoreIdMatchesRequest } from "@/lib/current-store";
 import { getTodayJst } from "@/lib/date-utils";
 import { canUserEditStore } from "@/lib/admin-store-auth";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
+import { mergeScheduleRowForWeeklyUpsert } from "@/lib/attendance-schedule-preserve";
 import { createServiceRoleClient } from "@/lib/supabase-service";
 
 export const dynamic = "force-dynamic";
@@ -125,28 +126,43 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: insertRow, error: insertError } = await admin
+  const { data: existingRow } = await admin
     .from("attendance_schedules")
-    .insert({
-      store_id: storeId,
-      cast_id: castId,
-      scheduled_date: scheduledDate,
-      scheduled_time: scheduledTime,
-      is_dohan: Boolean(isDohan),
-      is_sabaki: Boolean(isSabaki),
-    })
+    .select("*")
+    .eq("store_id", storeId)
+    .eq("cast_id", castId)
+    .eq("scheduled_date", scheduledDate)
+    .maybeSingle();
+
+  const base = {
+    store_id: storeId,
+    cast_id: castId,
+    scheduled_date: scheduledDate,
+    scheduled_time: scheduledTime,
+    is_dohan: Boolean(isDohan),
+    is_sabaki: Boolean(isSabaki),
+  };
+
+  const merged = mergeScheduleRowForWeeklyUpsert(
+    base,
+    existingRow ? (existingRow as Record<string, unknown>) : undefined
+  );
+
+  const { data: upsertRow, error: upsertError } = await admin
+    .from("attendance_schedules")
+    .upsert(merged, { onConflict: "store_id,cast_id,scheduled_date" })
     .select("id")
     .single();
 
-  if (insertError) {
-    console.error("[schedule-register] insert error:", insertError);
+  if (upsertError) {
+    console.error("[schedule-register] upsert error:", upsertError);
     return NextResponse.json(
-      { error: insertError.message, code: insertError.code },
+      { error: upsertError.message, code: upsertError.code },
       { status: 400 }
     );
   }
 
-  const scheduleId = insertRow.id as string;
+  const scheduleId = upsertRow.id as string;
 
   if (!sendImmediateLine) {
     return NextResponse.json({

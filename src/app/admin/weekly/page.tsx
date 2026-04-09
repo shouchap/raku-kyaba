@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { getTodayJst } from "@/lib/date-utils";
+import {
+  mergeScheduleRowForWeeklyUpsert,
+  scheduleRowHasLineAttendanceData,
+} from "@/lib/attendance-schedule-preserve";
 import { TIME_OPTIONS } from "@/lib/time-options";
 
 type Cast = {
@@ -240,47 +244,90 @@ export default function AdminWeeklyPage() {
     setMessage(null);
 
     try {
-      // a. 7日間の既存データを DELETE
-      const { error: deleteError } = await supabase
+      /**
+       * 以前は週の日付範囲を一括 DELETE していたため、LINE で確定した公休・半休等の
+       * response_status が消え月間レポートが 0 になる問題があった。
+       * シフト枠（時刻・同伴・捌き）のみ更新し、勤怠回答はマージして保持する。
+       */
+      const { data: existingRows, error: fetchErr } = await supabase
         .from("attendance_schedules")
-        .delete()
+        .select("*")
         .eq("store_id", store.id)
         .in("scheduled_date", dates);
 
-      if (deleteError) throw deleteError;
+      if (fetchErr) throw fetchErr;
 
-      // b. 時間が入力されているセルを抽出して配列作成（is_dohan を含む）
-      const toInsert: Array<{
-        store_id: string;
-        cast_id: string;
-        scheduled_date: string;
-        scheduled_time: string;
-        is_dohan: boolean;
-        is_sabaki: boolean;
-      }> = [];
+      const prevByKey = new Map<string, Record<string, unknown>>();
+      for (const r of existingRows ?? []) {
+        const row = r as Record<string, unknown>;
+        const cid = String(row.cast_id ?? "");
+        const d = String(row.scheduled_date ?? "");
+        if (cid && d) prevByKey.set(`${cid}_${d}`, row);
+      }
+
+      const toUpsert: Record<string, unknown>[] = [];
       casts.forEach((cast) => {
         dates.forEach((dateStr) => {
           const time = matrix[cast.id]?.[dateStr]?.trim();
-          if (time) {
-            toInsert.push({
+          if (!time) return;
+          const key = `${cast.id}_${dateStr}`;
+          const prev = prevByKey.get(key);
+          const merged = mergeScheduleRowForWeeklyUpsert(
+            {
               store_id: store.id,
               cast_id: cast.id,
               scheduled_date: dateStr,
               scheduled_time: time.length === 5 ? `${time}:00` : time,
               is_dohan: dohan[cast.id]?.[dateStr] ?? false,
               is_sabaki: sabaki[cast.id]?.[dateStr] ?? false,
-            });
-          }
+            },
+            prev
+          );
+          toUpsert.push(merged);
         });
       });
 
-      // c. 一括 INSERT
-      if (toInsert.length > 0) {
-        const { error: insertError } = await supabase
-          .from("attendance_schedules")
-          .insert(toInsert);
+      if (toUpsert.length > 0) {
+        const { error: upErr } = await supabase.from("attendance_schedules").upsert(toUpsert, {
+          onConflict: "store_id,cast_id,scheduled_date",
+        });
+        if (upErr) throw upErr;
+      }
 
-        if (insertError) throw insertError;
+      const nowIso = new Date().toISOString();
+      const matrixHasTime = new Set<string>();
+      casts.forEach((cast) => {
+        dates.forEach((dateStr) => {
+          const time = matrix[cast.id]?.[dateStr]?.trim();
+          if (time) matrixHasTime.add(`${cast.id}_${dateStr}`);
+        });
+      });
+
+      for (const r of existingRows ?? []) {
+        const row = r as Record<string, unknown>;
+        const cid = String(row.cast_id ?? "");
+        const d = String(row.scheduled_date ?? "");
+        const key = `${cid}_${d}`;
+        if (matrixHasTime.has(key)) continue;
+
+        const id = String(row.id ?? "");
+        if (!id) continue;
+
+        if (scheduleRowHasLineAttendanceData(row)) {
+          const { error: clearErr } = await supabase
+            .from("attendance_schedules")
+            .update({
+              scheduled_time: null,
+              is_dohan: false,
+              is_sabaki: false,
+              updated_at: nowIso,
+            })
+            .eq("id", id);
+          if (clearErr) throw clearErr;
+        } else {
+          const { error: delErr } = await supabase.from("attendance_schedules").delete().eq("id", id);
+          if (delErr) throw delErr;
+        }
       }
 
       setMessage("success");

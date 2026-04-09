@@ -951,10 +951,27 @@ export async function tryHandleLateAbsentReasonText(
       is_action_completed: true,
     };
 
-    if (reasonKind === "absent") updates.absent_reason = text;
-    else if (reasonKind === "late") updates.late_reason = text;
-    else if (reasonKind === "public_holiday") updates.public_holiday_reason = text;
-    else updates.half_holiday_reason = text;
+    if (reasonKind === "absent") {
+      updates.absent_reason = text;
+      updates.response_status = "absent";
+      updates.is_absent = true;
+      updates.is_late = false;
+    } else if (reasonKind === "late") {
+      updates.late_reason = text;
+      updates.response_status = "late";
+      updates.is_late = true;
+      updates.is_absent = false;
+    } else if (reasonKind === "public_holiday") {
+      updates.public_holiday_reason = text;
+      updates.response_status = "public_holiday";
+      updates.is_absent = false;
+      updates.is_late = false;
+    } else {
+      updates.half_holiday_reason = text;
+      updates.response_status = "half_holiday";
+      updates.is_absent = false;
+      updates.is_late = false;
+    }
 
     const { data: updatedRows, error: updateErr } = await supabase
       .from("attendance_schedules")

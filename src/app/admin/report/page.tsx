@@ -448,7 +448,7 @@ function AdminReportContent() {
   }, [dayDate, setDayParams]);
 
   const [store, setStore] = useState<Store | null>(null);
-  const [businessType, setBusinessType] = useState<"cabaret" | "welfare_b">("cabaret");
+  const [businessType, setBusinessType] = useState<"cabaret" | "welfare_b" | "bar">("cabaret");
   const [welfareRows, setWelfareRows] = useState<WelfareReportRow[]>([]);
   const [casts, setCasts] = useState<Cast[]>([]);
   const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
@@ -460,9 +460,10 @@ function AdminReportContent() {
   /** 空文字 = 全員表示 */
   const [filterCastId, setFilterCastId] = useState("");
 
-  /** 日別は B型のみ。キャバクラで view=day の URL なら月表示へ戻す（業態確定後） */
+  /** 日別は B型のみ。キャバクラ・BAR で view=day の URL なら月表示へ戻す（業態確定後） */
   useEffect(() => {
-    if (loading || businessType !== "cabaret" || viewMode !== "day") return;
+    if (loading || viewMode !== "day") return;
+    if (businessType !== "cabaret" && businessType !== "bar") return;
     const [sy, sm] = dayDate.split("-").map(Number);
     const params = new URLSearchParams();
     params.set("view", "month");
@@ -498,7 +499,11 @@ function AdminReportContent() {
       const st = storesRes.data as Store;
       setStore(st);
       const bt =
-        st.business_type === "welfare_b" ? "welfare_b" : "cabaret";
+        st.business_type === "welfare_b"
+          ? "welfare_b"
+          : st.business_type === "bar"
+            ? "bar"
+            : "cabaret";
       setBusinessType(bt);
 
       if (bt === "welfare_b") {
