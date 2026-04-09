@@ -26,20 +26,17 @@ type FixRow = {
 
 /** ここを編集してからデプロイ／実行 */
 const FIX_ROWS: FixRow[] = [
-  { date: "2026-04-05", castName: "ユウ", status: "public_holiday", reason: "用意が間に合いませんでした。" },
-  { date: "2026-04-05", castName: "カイト", status: "late", reason: "寝坊" },
-  { date: "2026-04-05", castName: "ゆきな", status: "absence", reason: "" },
   {
-    date: "2026-04-07",
+    date: "2026-04-09",
     castName: "ゴウ",
     status: "public_holiday",
     reason: "出勤のつもりだったのですが胃が気持ち悪くてお休み頂きたいです。",
   },
-  { date: "2026-04-07", castName: "ナナ。", status: "half_holiday", reason: "寝坊" },
+  { date: "2026-04-09", castName: "ナヲ。", status: "half_holiday", reason: "寝坊" },
   {
-    date: "2026-04-08",
+    date: "2026-04-09",
     castName: "リク",
-    status: "absence",
+    status: "absent",
     reason: "寝違えで腕が上がらないほど肩に激痛が走るのでお休みを頂きたいです",
   },
 ];
