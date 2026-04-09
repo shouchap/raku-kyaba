@@ -26,5 +26,25 @@ function generateTimeOptions(): Array<{ value: string; label: string }> {
 
 export const TIME_OPTIONS = generateTimeOptions();
 
+/** 週間シフトで選べる時刻値のみ（空文字除く） */
+const SHIFT_TIME_VALUE_SET = new Set(
+  TIME_OPTIONS.map((o) => o.value).filter((v) => v.length > 0)
+);
+
+export function isAllowedShiftTime(value: string): boolean {
+  return SHIFT_TIME_VALUE_SET.has(value);
+}
+
+/** DB の time や "HH:mm:ss" を週間シフト用の "HH:mm" に正規化（候補に無い場合は空） */
+export function normalizeDbTimeToShiftOption(raw: string | null | undefined): string {
+  if (raw == null || String(raw).trim() === "") return "";
+  const m = String(raw).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return "";
+  const hh = m[1].padStart(2, "0");
+  const mm = m[2];
+  const key = `${hh}:${mm}`;
+  return SHIFT_TIME_VALUE_SET.has(key) ? key : "";
+}
+
 /** 単日登録用（必須選択、空オプションなし） */
 export const TIME_OPTIONS_REQUIRED = TIME_OPTIONS.filter((opt) => opt.value !== "");

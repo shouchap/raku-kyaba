@@ -6,6 +6,7 @@ import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-au
 import { isSuperAdminUser } from "@/lib/super-admin";
 import { isUndefinedColumnError, logPostgrestError } from "@/lib/postgrest-error";
 import { DEFAULT_REGULAR_REMIND_BODY } from "@/lib/remind-employment";
+import { isAllowedShiftTime, normalizeDbTimeToShiftOption } from "@/lib/time-options";
 
 export const dynamic = "force-dynamic";
 
@@ -349,6 +350,33 @@ export async function GET(request: Request) {
       }
     }
 
+    let regularStartTime: string | null = null;
+    const rstRes = await admin
+      .from("stores")
+      .select("regular_start_time")
+      .eq("id", storeId)
+      .maybeSingle();
+    if (rstRes.error) {
+      if (!isUndefinedColumnError(rstRes.error, "regular_start_time")) {
+        logPostgrestError("GET stores regular_start_time", rstRes.error);
+        return NextResponse.json(
+          {
+            error: "Failed to load store",
+            details: rstRes.error.message,
+            code: rstRes.error.code,
+          },
+          { status: 500 }
+        );
+      }
+      console.warn(
+        "[api/admin/settings] GET: stores.regular_start_time 未適用。マイグレーション 030 を適用してください。"
+      );
+    } else {
+      const raw = (rstRes.data as { regular_start_time?: string | null } | null)?.regular_start_time;
+      const n = normalizeDbTimeToShiftOption(raw ?? null);
+      regularStartTime = n || null;
+    }
+
     let businessType: "cabaret" | "welfare_b" | "bar" = "cabaret";
     let welfare_message_morning: string | null = null;
     let welfare_message_midday: string | null = null;
@@ -497,6 +525,7 @@ export async function GET(request: Request) {
       enable_half_holiday: settingsRow?.enable_half_holiday === true,
       regular_holidays: regularHolidays,
       regular_remind_message: regularRemindMessage,
+      regular_start_time: regularStartTime,
       reminder_config:
         settingsRow?.value && typeof settingsRow.value === "object"
           ? settingsRow.value
@@ -531,6 +560,8 @@ type PatchBody = {
   regular_holidays?: number[];
   /** レギュラー向けリマインド本文。未指定なら stores.regular_remind_message を更新しない */
   regular_remind_message?: string;
+  /** レギュラー勤務のデフォルト出勤時刻（HH:mm）。未指定なら更新しない。null でクリア */
+  regular_start_time?: string | null;
   /** B型専用: このフラグが true のときは welfare メッセージ3件のみ更新（reminder_config 不要） */
   welfare_settings_patch?: boolean;
   welfare_message_morning?: string | null;
@@ -637,6 +668,31 @@ export async function PATCH(request: Request) {
     }
     const regular_holidays_sorted = [...new Set(rhWelfare)].sort((a, b) => a - b);
 
+    const regularStartTimeWelfareProvided = Object.prototype.hasOwnProperty.call(
+      body,
+      "regular_start_time"
+    );
+    if (regularStartTimeWelfareProvided) {
+      const v = (body as PatchBody).regular_start_time;
+      if (v !== null && v !== undefined) {
+        if (typeof v !== "string") {
+          return NextResponse.json(
+            {
+              error: "regular_start_time must be null or an HH:mm string from shift time options",
+            },
+            { status: 400 }
+          );
+        }
+        const t = v.trim();
+        if (t !== "" && !isAllowedShiftTime(t)) {
+          return NextResponse.json(
+            { error: "regular_start_time must be empty or a valid shift time (15-minute steps)" },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     if (
       !(process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim() ||
       !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
@@ -679,7 +735,7 @@ export async function PATCH(request: Request) {
     }
 
     const nowIso = new Date().toISOString();
-    const payload = {
+    const payload: Record<string, unknown> = {
       welfare_message_morning: wm.trim() === "" ? null : wm.trim(),
       welfare_message_midday: wmd.trim() === "" ? null : wmd.trim(),
       welfare_message_evening: we.trim() === "" ? null : we.trim(),
@@ -688,6 +744,15 @@ export async function PATCH(request: Request) {
       regular_holidays: regular_holidays_sorted,
       updated_at: nowIso,
     };
+    if (regularStartTimeWelfareProvided) {
+      const v = (body as PatchBody).regular_start_time;
+      if (v === null || v === undefined) {
+        payload.regular_start_time = null;
+      } else {
+        const t = String(v).trim();
+        payload.regular_start_time = t === "" ? null : `${t}:00`;
+      }
+    }
 
     const updRes = await adminWelfare.from("stores").update(payload).eq("id", storeId);
     if (updRes.error) {
@@ -747,6 +812,7 @@ export async function PATCH(request: Request) {
   );
   const regularHolidaysProvided = Array.isArray(body.regular_holidays);
   const regularRemindMessageProvided = typeof body.regular_remind_message === "string";
+  const regularStartTimeProvided = Object.prototype.hasOwnProperty.call(body, "regular_start_time");
   const businessTypeProvided =
     body.business_type === "cabaret" || body.business_type === "bar";
   const askGuestNameProvided = typeof body.ask_guest_name === "boolean";
@@ -783,6 +849,24 @@ export async function PATCH(request: Request) {
       { error: "regular_remind_message must be at most 4000 characters" },
       { status: 400 }
     );
+  }
+  if (regularStartTimeProvided) {
+    const v = body.regular_start_time;
+    if (v !== null && v !== undefined) {
+      if (typeof v !== "string") {
+        return NextResponse.json(
+          { error: "regular_start_time must be null or an HH:mm string from shift time options" },
+          { status: 400 }
+        );
+      }
+      const t = v.trim();
+      if (t !== "" && !isAllowedShiftTime(t)) {
+        return NextResponse.json(
+          { error: "regular_start_time must be empty or a valid shift time (15-minute steps)" },
+          { status: 400 }
+        );
+      }
+    }
   }
 
   if (
@@ -960,6 +1044,15 @@ export async function PATCH(request: Request) {
     if (regularRemindMessageProvided) {
       const t = String(body.regular_remind_message).trim();
       storePayload.regular_remind_message = t || DEFAULT_REGULAR_REMIND_BODY;
+    }
+    if (regularStartTimeProvided) {
+      const v = body.regular_start_time;
+      if (v === null || v === undefined) {
+        storePayload.regular_start_time = null;
+      } else {
+        const t = String(v).trim();
+        storePayload.regular_start_time = t === "" ? null : `${t}:00`;
+      }
     }
     if (businessTypeProvided) {
       storePayload.business_type = body.business_type as "cabaret" | "bar";

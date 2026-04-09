@@ -9,6 +9,7 @@ import {
   DEFAULT_WELFARE_MESSAGE_MORNING,
   DEFAULT_WELFARE_WORK_ITEMS_CSV,
 } from "@/lib/welfare-line-flex";
+import { TIME_OPTIONS } from "@/lib/time-options";
 
 /** 00:00〜23:00（1時間刻み） */
 const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => {
@@ -85,6 +86,8 @@ export default function AdminSettingsPage() {
   const [regularHolidays, setRegularHolidays] = useState<number[]>([]);
   /** レギュラー向けリマインド本文（「○○さん、」の後） */
   const [regularRemindMessage, setRegularRemindMessage] = useState(DEFAULT_REGULAR_REMIND_BODY);
+  /** 週間シフト「レギュラー一括設定」用のデフォルト出勤時刻（空＝未設定） */
+  const [regularStartTime, setRegularStartTime] = useState("");
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -114,6 +117,7 @@ export default function AdminSettingsPage() {
         ask_guest_time?: boolean;
         regular_holidays?: number[];
         regular_remind_message?: string;
+        regular_start_time?: string | null;
         reminder_config?: Record<string, unknown>;
       };
 
@@ -175,6 +179,14 @@ export default function AdminSettingsPage() {
         setRegularRemindMessage(data.regular_remind_message.trim());
       } else {
         setRegularRemindMessage(DEFAULT_REGULAR_REMIND_BODY);
+      }
+
+      if (typeof data.regular_start_time === "string" && data.regular_start_time.trim()) {
+        const rst = data.regular_start_time.trim();
+        const allowed = TIME_OPTIONS.some((o) => o.value === rst);
+        setRegularStartTime(allowed ? rst : "");
+      } else {
+        setRegularStartTime("");
       }
 
       const p = data.pre_open_report_hour_jst;
@@ -252,6 +264,7 @@ export default function AdminSettingsPage() {
             welfare_message_welcome: welfareWelcome,
             welfare_work_items: welfareWorkItemRows.map((s) => s.trim()).filter(Boolean).join(","),
             regular_holidays: regularHolidays,
+            regular_start_time: regularStartTime.trim() === "" ? null : regularStartTime.trim(),
           }),
         });
 
@@ -310,6 +323,7 @@ export default function AdminSettingsPage() {
           regular_holidays: regularHolidays,
           regular_remind_message:
             regularRemindMessage.trim() || DEFAULT_REGULAR_REMIND_BODY,
+          regular_start_time: regularStartTime.trim() === "" ? null : regularStartTime.trim(),
           business_type: businessType === "bar" ? "bar" : "cabaret",
           ask_guest_name: askGuestName,
           ask_guest_time: askGuestTime,
@@ -537,6 +551,29 @@ export default function AdminSettingsPage() {
                   ）が使われます。夕方の「作業を終了する」後のボタンに反映されます。
                 </p>
               </div>
+              <div className="mb-6">
+                <label
+                  htmlFor="regularStartTimeWelfare"
+                  className="block text-sm font-medium text-gray-700 mb-2"
+                >
+                  レギュラー出勤時間（週間シフト一括入力用）
+                </label>
+                <select
+                  id="regularStartTimeWelfare"
+                  value={regularStartTime}
+                  onChange={(e) => setRegularStartTime(e.target.value)}
+                  className="w-full max-w-xs min-h-[48px] px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                >
+                  {TIME_OPTIONS.map((opt) => (
+                    <option key={opt.value || "unset-w"} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-2">
+                  週間シフトの「レギュラー一括設定」に使用します。未選択（—）のままでは一括設定は使えません。
+                </p>
+              </div>
               <div className="mb-8 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-4">
                 <h3 className="text-sm font-medium text-gray-800 mb-3">定休日設定</h3>
                 <p className="text-xs text-gray-600 mb-3">
@@ -672,6 +709,30 @@ export default function AdminSettingsPage() {
             <p className="text-xs text-gray-500 mt-2">
               勤務形態が「レギュラー」のキャストに送る Flex 本文です。先頭に「（名前）さん、」が付きます。空にして保存した場合は「
               {DEFAULT_REGULAR_REMIND_BODY}」が使われます。
+            </p>
+          </div>
+
+          <div className="mb-6">
+            <label
+              htmlFor="regularStartTime"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              レギュラー出勤時間（週間シフト一括入力用）
+            </label>
+            <select
+              id="regularStartTime"
+              value={regularStartTime}
+              onChange={(e) => setRegularStartTime(e.target.value)}
+              className="w-full max-w-xs min-h-[48px] px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            >
+              {TIME_OPTIONS.map((opt) => (
+                <option key={opt.value || "unset"} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-2">
+              週間シフト登録画面の「レギュラー一括設定」で、勤務形態がレギュラーのキャストにこの時刻をまとめて入れます。「—」のままでは一括設定は使えません（保存後も未設定扱い）。
             </p>
           </div>
 

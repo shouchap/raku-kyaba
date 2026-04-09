@@ -8,17 +8,20 @@ import {
   mergeScheduleRowForWeeklyUpsert,
   scheduleRowHasLineAttendanceData,
 } from "@/lib/attendance-schedule-preserve";
-import { TIME_OPTIONS } from "@/lib/time-options";
+import { normalizeDbTimeToShiftOption, TIME_OPTIONS } from "@/lib/time-options";
 
 type Cast = {
   id: string;
   name: string;
   store_id: string;
+  employment_type?: "admin" | "regular" | "part_time" | null;
 };
 
 type Store = {
   id: string;
   name: string;
+  regular_holidays?: number[];
+  regular_start_time?: string | null;
 };
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
@@ -101,15 +104,31 @@ export default function AdminWeeklyPage() {
       const [castsRes, storesRes] = await Promise.all([
         supabase
           .from("casts")
-          .select("id, name, store_id")
+          .select("id, name, store_id, employment_type")
           .eq("store_id", storeId)
           .eq("is_active", true)
           .order("name"),
-        supabase.from("stores").select("id, name").eq("id", storeId).single(),
+        supabase.from("stores").select("id, name, regular_holidays, regular_start_time").eq("id", storeId).single(),
       ]);
 
       if (castsRes.data) setCasts(castsRes.data as Cast[]);
-      if (storesRes.data) setStore(storesRes.data as Store);
+      if (storesRes.data) {
+        const raw = storesRes.data as Record<string, unknown>;
+        const rh = raw.regular_holidays;
+        setStore({
+          id: String(raw.id ?? ""),
+          name: String(raw.name ?? ""),
+          regular_holidays: Array.isArray(rh)
+            ? [...new Set(rh.filter((n) => Number.isInteger(n) && n >= 0 && n <= 6) as number[])].sort(
+                (a, b) => a - b
+              )
+            : [],
+          regular_start_time:
+            raw.regular_start_time === null || raw.regular_start_time === undefined
+              ? null
+              : String(raw.regular_start_time),
+        });
+      }
     } catch (err) {
       console.error(err);
       setMessage("error");
@@ -236,6 +255,32 @@ export default function AdminWeeklyPage() {
       },
     }));
   };
+
+  /** レギュラーキャスト×定休日以外に、店舗設定のデフォルト出勤時刻を反映（保存は別） */
+  const handleApplyRegularBulk = useCallback(() => {
+    if (!store) return;
+    const timeStr = normalizeDbTimeToShiftOption(store.regular_start_time);
+    if (!timeStr) {
+      window.alert(
+        "システム設定で「レギュラー出勤時間」を保存してから実行してください。（— のままでは使えません）"
+      );
+      return;
+    }
+    const closed = store.regular_holidays ?? [];
+    setMatrix((prev) => {
+      const next: Record<string, Record<string, string>> = { ...prev };
+      for (const cast of casts) {
+        if (cast.employment_type !== "regular") continue;
+        const row = { ...(next[cast.id] ?? {}) };
+        for (const d of dates) {
+          if (closed.includes(getWeekday(d))) continue;
+          row[d] = timeStr;
+        }
+        next[cast.id] = row;
+      }
+      return next;
+    });
+  }, [store, casts, dates]);
 
   const handleSave = async () => {
     if (!store) return;
@@ -400,6 +445,21 @@ export default function AdminWeeklyPage() {
           </h1>
           <p className="text-sm text-gray-600">
             {store?.name ?? "店舗"}
+          </p>
+        </div>
+
+        <div className="mb-4 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={handleApplyRegularBulk}
+            disabled={loading || !store || casts.length === 0}
+            className="inline-flex items-center justify-center w-full sm:w-auto min-h-[44px] px-4 py-2.5 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-800 shadow-sm hover:bg-gray-50 focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+          >
+            レギュラー一括設定
+          </button>
+          <p className="text-xs text-gray-500 sm:max-w-xl">
+            システム設定の「レギュラー出勤時間」を、勤務形態がレギュラーのキャストの定休日以外のマスに一括入力します（画面のみ。保存は「一括保存する」）。LINE
+            で付いた公休・欠勤などの回答は、保存時に既存どおりマージされます。
           </p>
         </div>
 

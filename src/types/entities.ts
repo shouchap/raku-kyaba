@@ -26,4 +26,6 @@ export type Store = {
   regular_holidays?: number[];
   /** レギュラー向けリマインド本文（DB `stores.regular_remind_message`） */
   regular_remind_message?: string;
+  /** レギュラー勤務のデフォルト出勤時刻（週間シフト一括用） */
+  regular_start_time?: string | null;
 };

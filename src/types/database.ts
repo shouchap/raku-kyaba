@@ -47,6 +47,8 @@ export interface Database {
           regular_holidays: number[];
           /** レギュラー向けリマインド本文（「○○さん、」の後） */
           regular_remind_message: string;
+          /** レギュラー勤務のデフォルト出勤時刻（週間シフト一括入力用）。NULL 可 */
+          regular_start_time: string | null;
           /** B型: 朝の点呼 Flex 本文（NULL でデフォルト） */
           welfare_message_morning: string | null;
           welfare_message_midday: string | null;
@@ -72,6 +74,7 @@ export interface Database {
           | "enable_reservation_check"
           | "regular_holidays"
           | "regular_remind_message"
+          | "regular_start_time"
           | "welfare_message_morning"
           | "welfare_message_midday"
           | "welfare_message_evening"
@@ -92,6 +95,7 @@ export interface Database {
           enable_reservation_check?: boolean;
           regular_holidays?: number[];
           regular_remind_message?: string;
+          regular_start_time?: string | null;
           welfare_message_morning?: string | null;
           welfare_message_midday?: string | null;
           welfare_message_evening?: string | null;
