@@ -5,6 +5,11 @@ import { isValidStoreId, parseActiveStoreIdFromCookieHeader } from "@/lib/curren
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { isSuperAdminUser } from "@/lib/super-admin";
 import { logPostgrestError } from "@/lib/postgrest-error";
+import { getTodayJst } from "@/lib/date-utils";
+import {
+  buildAdminReportCastRows,
+  type AdminReportScheduleRow,
+} from "@/lib/admin-report-aggregate";
 
 export const dynamic = "force-dynamic";
 
@@ -118,12 +123,73 @@ export async function GET(request: Request) {
     (storeRow as { business_type?: string | null }).business_type ?? "cabaret"
   );
 
+  const storePayload = {
+    id: storeRow.id,
+    name: String((storeRow as { name?: string }).name ?? ""),
+  };
+
   if (businessType !== "welfare_b") {
+    const todayYmd = getTodayJst();
+
+    const { data: castRows, error: castListErr } = await admin
+      .from("casts")
+      .select("id, name")
+      .eq("store_id", storeId)
+      .eq("is_active", true)
+      .order("name");
+
+    if (castListErr) {
+      logPostgrestError("GET /api/admin/report casts (cabaret/bar)", castListErr);
+      return NextResponse.json(
+        { error: "Failed to load casts", details: castListErr.message },
+        { status: 500 }
+      );
+    }
+
+    const casts = (castRows ?? []) as { id: string; name: string }[];
+    const castIds = casts.map((c) => c.id);
+
+    let schedules: AdminReportScheduleRow[] = [];
+    if (castIds.length > 0) {
+      const { data: schedRows, error: schedErr } = await admin
+        .from("attendance_schedules")
+        .select(
+          "id, cast_id, scheduled_date, is_dohan, is_sabaki, is_absent, is_late, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, response_status, is_action_completed"
+        )
+        .eq("store_id", storeId)
+        .in("cast_id", castIds)
+        .gte("scheduled_date", start)
+        .lte("scheduled_date", end)
+        .order("scheduled_date");
+
+      if (schedErr) {
+        logPostgrestError("GET /api/admin/report attendance_schedules", schedErr);
+        return NextResponse.json(
+          { error: "Failed to load schedules", details: schedErr.message },
+          { status: 500 }
+        );
+      }
+
+      schedules = (schedRows ?? []) as AdminReportScheduleRow[];
+    }
+
+    const cast_reports = buildAdminReportCastRows(casts, schedules, {
+      todayYmd,
+      periodStartYmd: start,
+      periodEndYmd: end,
+    });
+
+    const bt =
+      businessType === "bar" ? "bar" : ("cabaret" as const);
+
     return NextResponse.json({
       ok: true,
-      business_type: "cabaret",
-      store: { id: storeRow.id, name: String((storeRow as { name?: string }).name ?? "") },
+      business_type: bt,
+      store: storePayload,
       welfare_rows: null,
+      today: todayYmd,
+      period: { start, end },
+      cast_reports,
     });
   }
 
@@ -189,7 +255,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     ok: true,
     business_type: "welfare_b",
-    store: { id: storeRow.id, name: String((storeRow as { name?: string }).name ?? "") },
+    store: storePayload,
     welfare_rows,
   });
 }

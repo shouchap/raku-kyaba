@@ -20,12 +20,6 @@ import {
 import { ChevronDown, ChevronRight, Printer } from "lucide-react";
 import "./report-print.css";
 
-type Cast = {
-  id: string;
-  name: string;
-  store_id: string;
-};
-
 type Store = {
   id: string;
   name: string;
@@ -48,27 +42,6 @@ type WelfareReportRow = {
   health_notes: string | null;
 };
 
-type ScheduleRow = {
-  id: string;
-  cast_id: string;
-  scheduled_date: string;
-  is_dohan: boolean | null;
-  is_sabaki: boolean | null;
-  is_absent: boolean | null;
-  is_late: boolean | null;
-  late_reason: string | null;
-  absent_reason: string | null;
-  public_holiday_reason: string | null;
-  half_holiday_reason: string | null;
-  response_status:
-    | "attending"
-    | "absent"
-    | "late"
-    | "public_holiday"
-    | "half_holiday"
-    | null;
-};
-
 type Incident = {
   dateStr: string;
   kind: "late" | "absent" | "public_holiday" | "half_holiday";
@@ -87,6 +60,8 @@ type CastReport = {
   absentCount: number;
   halfHolidayCount: number;
   publicHolidayCount: number;
+  /** 月初〜今日までの範囲で、回答のない日数（サーバー集計） */
+  unfilledDays: number;
   incidents: Incident[];
 };
 
@@ -98,7 +73,8 @@ type SortKey =
   | "late"
   | "absent"
   | "halfHoliday"
-  | "publicHoliday";
+  | "publicHoliday"
+  | "unfilled";
 
 type ViewMode = "month" | "week" | "day";
 
@@ -172,116 +148,6 @@ function formatHealthCondition(status: string | null): string {
 function formatHealthNotesCell(notes: string | null, reason: string | null): string {
   const parts = [notes?.trim(), reason?.trim()].filter(Boolean);
   return parts.length > 0 ? parts.join(" / ") : "—";
-}
-
-function rowIsAbsent(row: ScheduleRow): boolean {
-  return row.is_absent === true || row.response_status === "absent";
-}
-
-function rowIsOffDay(row: ScheduleRow): boolean {
-  return (
-    rowIsAbsent(row) ||
-    row.response_status === "half_holiday" ||
-    row.response_status === "public_holiday"
-  );
-}
-
-function rowIsLate(row: ScheduleRow): boolean {
-  return row.is_late === true || row.response_status === "late";
-}
-
-function buildCastReports(casts: Cast[], schedules: ScheduleRow[]): CastReport[] {
-  const byCast = new Map<string, ScheduleRow[]>();
-  for (const s of schedules) {
-    const list = byCast.get(s.cast_id) ?? [];
-    list.push(s);
-    byCast.set(s.cast_id, list);
-  }
-
-  return casts.map((cast) => {
-    const rows = byCast.get(cast.id) ?? [];
-    let attendanceDays = 0;
-    let dohanCount = 0;
-    let sabakiCount = 0;
-    const sabakiDates: string[] = [];
-    let lateCount = 0;
-    let absentCount = 0;
-    let halfHolidayCount = 0;
-    let publicHolidayCount = 0;
-    const incidents: Incident[] = [];
-
-    for (const row of rows) {
-      const off = rowIsOffDay(row);
-      const late = rowIsLate(row);
-
-      if (!off) attendanceDays += 1;
-      if (row.is_dohan === true) dohanCount += 1;
-      if (row.is_sabaki === true) {
-        sabakiCount += 1;
-        sabakiDates.push(row.scheduled_date);
-      }
-      if (late) lateCount += 1;
-
-      if (row.response_status === "half_holiday") {
-        halfHolidayCount += 1;
-      } else if (row.response_status === "public_holiday") {
-        publicHolidayCount += 1;
-      } else if (rowIsAbsent(row)) {
-        absentCount += 1;
-      }
-
-      if (late) {
-        incidents.push({
-          dateStr: row.scheduled_date,
-          kind: "late",
-          reason: row.late_reason,
-        });
-      }
-      if (
-        row.response_status !== "half_holiday" &&
-        row.response_status !== "public_holiday" &&
-        rowIsAbsent(row)
-      ) {
-        incidents.push({
-          dateStr: row.scheduled_date,
-          kind: "absent",
-          reason: row.absent_reason,
-        });
-      }
-      if (row.response_status === "half_holiday") {
-        incidents.push({
-          dateStr: row.scheduled_date,
-          kind: "half_holiday",
-          reason: row.half_holiday_reason,
-        });
-      }
-      if (row.response_status === "public_holiday") {
-        incidents.push({
-          dateStr: row.scheduled_date,
-          kind: "public_holiday",
-          reason: row.public_holiday_reason,
-        });
-      }
-    }
-
-    incidents.sort((a, b) => a.dateStr.localeCompare(b.dateStr));
-
-    sabakiDates.sort();
-
-    return {
-      castId: cast.id,
-      name: cast.name,
-      attendanceDays,
-      dohanCount,
-      sabakiCount,
-      sabakiDates,
-      lateCount,
-      absentCount,
-      halfHolidayCount,
-      publicHolidayCount,
-      incidents,
-    };
-  });
 }
 
 function AdminReportContent() {
@@ -450,8 +316,8 @@ function AdminReportContent() {
   const [store, setStore] = useState<Store | null>(null);
   const [businessType, setBusinessType] = useState<"cabaret" | "welfare_b" | "bar">("cabaret");
   const [welfareRows, setWelfareRows] = useState<WelfareReportRow[]>([]);
-  const [casts, setCasts] = useState<Cast[]>([]);
-  const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
+  /** キャバクラ・BAR: GET /api/admin/report の cast_reports */
+  const [cabaretReports, setCabaretReports] = useState<CastReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -476,22 +342,17 @@ function AdminReportContent() {
     setError(null);
     const tenantId = activeStoreId;
     try {
-      const [castsRes, storesRes] = await Promise.all([
-        supabase
-          .from("casts")
-          .select("id, name, store_id")
-          .eq("store_id", tenantId)
-          .eq("is_active", true)
-          .order("name"),
-        supabase.from("stores").select("id, name, business_type").eq("id", tenantId).single(),
-      ]);
+      const storesRes = await supabase
+        .from("stores")
+        .select("id, name, business_type")
+        .eq("id", tenantId)
+        .single();
 
-      if (castsRes.error) throw castsRes.error;
+      if (storesRes.error) throw storesRes.error;
       if (!storesRes.data) {
-        setCasts([]);
         setStore(null);
-        setSchedules([]);
         setWelfareRows([]);
+        setCabaretReports([]);
         setBusinessType("cabaret");
         return;
       }
@@ -507,8 +368,7 @@ function AdminReportContent() {
       setBusinessType(bt);
 
       if (bt === "welfare_b") {
-        setSchedules([]);
-        setCasts([]);
+        setCabaretReports([]);
         const reportUrl =
           viewMode === "day"
             ? `/api/admin/report?storeId=${encodeURIComponent(tenantId)}&view=day&date=${encodeURIComponent(dayDate)}`
@@ -531,32 +391,41 @@ function AdminReportContent() {
       }
 
       setWelfareRows([]);
-      const castList = (castsRes.data ?? []) as Cast[];
-      setCasts(castList);
-
-      if (castList.length === 0) {
-        setSchedules([]);
-        return;
+      const reportUrl = `/api/admin/report?storeId=${encodeURIComponent(tenantId)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+      const reportRes = await fetch(reportUrl, { credentials: "include" });
+      const payload = (await reportRes.json().catch(() => ({}))) as {
+        ok?: boolean;
+        cast_reports?: CastReport[];
+        error?: string;
+        details?: string;
+      };
+      if (!reportRes.ok) {
+        throw new Error(
+          [payload.error, payload.details].filter(Boolean).join(" — ") ||
+            "レポートの取得に失敗しました"
+        );
       }
-
-      const castIds = castList.map((c) => c.id);
-      const { data: schedData, error: schedError } = await supabase
-        .from("attendance_schedules")
-        .select(
-          "id, cast_id, scheduled_date, is_dohan, is_sabaki, is_absent, is_late, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, response_status"
-        )
-        .eq("store_id", st.id)
-        .in("cast_id", castIds)
-        .gte("scheduled_date", start)
-        .lte("scheduled_date", end)
-        .order("scheduled_date");
-
-      if (schedError) throw schedError;
-      setSchedules((schedData ?? []) as ScheduleRow[]);
+      const rows = Array.isArray(payload.cast_reports) ? payload.cast_reports : [];
+      setCabaretReports(
+        rows.map((r) => ({
+          castId: r.castId,
+          name: r.name,
+          attendanceDays: r.attendanceDays,
+          dohanCount: r.dohanCount,
+          sabakiCount: r.sabakiCount,
+          sabakiDates: Array.isArray(r.sabakiDates) ? r.sabakiDates : [],
+          lateCount: r.lateCount,
+          absentCount: r.absentCount,
+          halfHolidayCount: r.halfHolidayCount,
+          publicHolidayCount: r.publicHolidayCount,
+          unfilledDays: typeof r.unfilledDays === "number" ? r.unfilledDays : 0,
+          incidents: Array.isArray(r.incidents) ? r.incidents : [],
+        }))
+      );
     } catch (e: unknown) {
       console.error(e);
       setError(e instanceof Error ? e.message : "データの取得に失敗しました");
-      setSchedules([]);
+      setCabaretReports([]);
       setWelfareRows([]);
     } finally {
       setLoading(false);
@@ -567,10 +436,8 @@ function AdminReportContent() {
     fetchData();
   }, [fetchData]);
 
-  const reports = useMemo(() => buildCastReports(casts, schedules), [casts, schedules]);
-
   const sortedReports = useMemo(() => {
-    const list = [...reports];
+    const list = [...cabaretReports];
     const dir = sortDir === "asc" ? 1 : -1;
     list.sort((a, b) => {
       let cmp = 0;
@@ -599,13 +466,16 @@ function AdminReportContent() {
         case "publicHoliday":
           cmp = a.publicHolidayCount - b.publicHolidayCount;
           break;
+        case "unfilled":
+          cmp = a.unfilledDays - b.unfilledDays;
+          break;
         default:
           cmp = 0;
       }
       return cmp * dir;
     });
     return list;
-  }, [reports, sortKey, sortDir]);
+  }, [cabaretReports, sortKey, sortDir]);
 
   type FilterOption = { id: string; name: string };
 
@@ -621,8 +491,8 @@ function AdminReportContent() {
         .map(([id, name]) => ({ id, name }))
         .sort((a, b) => a.name.localeCompare(b.name, "ja"));
     }
-    return casts.map((c) => ({ id: c.id, name: c.name }));
-  }, [businessType, welfareRows, casts]);
+    return cabaretReports.map((c) => ({ id: c.castId, name: c.name }));
+  }, [businessType, welfareRows, cabaretReports]);
 
   useEffect(() => {
     if (!filterCastId) return;
@@ -1066,13 +936,27 @@ function AdminReportContent() {
                     公休
                   </span>
                 </th>
+                <th className="px-3 py-3 text-right">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("unfilled")}
+                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
+                    title="月初から今日までの日数のうち、シフト未登録または未回答の日"
+                  >
+                    未入力
+                    {sortKey === "unfilled" && (sortDir === "asc" ? " ↑" : " ↓")}
+                  </button>
+                  <span className="hidden font-semibold text-gray-900 print:inline">
+                    未入力
+                  </span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {sortedReports.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     className="px-3 py-8 text-center text-gray-500"
                   >
                     {emptyMessage}
@@ -1081,7 +965,7 @@ function AdminReportContent() {
               ) : filteredSortedReports.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     className="px-3 py-8 text-center text-gray-500"
                   >
                     {filterEmptyMessage}
@@ -1147,12 +1031,19 @@ function AdminReportContent() {
                         <td className="px-3 py-3 text-right tabular-nums">
                           {r.publicHolidayCount}
                         </td>
+                        <td
+                          className={`px-3 py-3 text-right tabular-nums ${
+                            r.unfilledDays >= 1 ? "text-red-500 font-semibold" : "text-gray-900"
+                          }`}
+                        >
+                          {r.unfilledDays}
+                        </td>
                       </tr>
                       {showToggle && (
                         <tr
                           className={`report-detail-row bg-gray-50/90 ${open ? "" : "hidden"}`}
                         >
-                          <td colSpan={9} className="px-4 py-3 text-sm text-gray-700">
+                          <td colSpan={10} className="px-4 py-3 text-sm text-gray-700">
                             <ul className="space-y-2 pl-2 border-l-2 border-blue-200">
                               {r.sabakiDates.length > 0 && (
                                 <li className="list-none text-amber-950">
