@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
-import { getTodayJst } from "@/lib/date-utils";
+import { addCalendarDaysJst, getTodayJst, getWeekdayJst } from "@/lib/date-utils";
 import {
   mergeScheduleRowForWeeklyUpsert,
   scheduleRowHasLineAttendanceData,
@@ -26,31 +26,28 @@ type Store = {
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
-/** 日付を YYYY-MM-DD にフォーマット */
-function formatDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-/** "2026-03-20" → "03/20(日)" */
+/** "2026-03-20" → "03/20(日)"（JST 暦日として解釈） */
 function formatDateWithWeekday(dateStr: string): string {
-  const d = new Date(dateStr + "T12:00:00");
+  const d = new Date(dateStr + "T12:00:00+09:00");
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
-  const w = WEEKDAY_JA[d.getDay()];
+  const w = WEEKDAY_JA[getWeekdayJst(dateStr)];
   return `${m}/${day}(${w})`;
 }
 
 /** モバイル用短縮 "20(日)" */
 function formatDateShort(dateStr: string): string {
-  const d = new Date(dateStr + "T12:00:00");
+  const d = new Date(dateStr + "T12:00:00+09:00");
   const day = d.getDate();
-  const w = WEEKDAY_JA[d.getDay()];
+  const w = WEEKDAY_JA[getWeekdayJst(dateStr)];
   return `${day}(${w})`;
 }
 
-/** 日付の曜日（0=日, 6=土） */
-function getWeekday(dateStr: string): number {
-  return new Date(dateStr + "T12:00:00").getDay();
+/** stores.regular_holidays（0=日〜6=土）と JST 暦日の曜日が一致するか */
+function isRegularHolidayJst(regularHolidays: number[] | undefined, dateYmd: string): boolean {
+  const closed = Array.isArray(regularHolidays) ? regularHolidays : [];
+  if (closed.length === 0) return false;
+  return closed.includes(getWeekdayJst(dateYmd));
 }
 
 /** "20:00:00" → "20:00" に変換 */
@@ -84,14 +81,11 @@ export default function AdminWeeklyPage() {
   const [dohan, setDohan] = useState<Record<string, Record<string, boolean>>>({});
   const [sabaki, setSabaki] = useState<Record<string, Record<string, boolean>>>({});
 
-  // 基準日から7日間の日付配列
+  // 基準日から7日間の日付配列（JST 暦日。UTC toISOString による日付ずれを防ぐ）
   const dates = useMemo(() => {
     const result: string[] = [];
-    const base = new Date(baseDate);
     for (let i = 0; i < 7; i++) {
-      const d = new Date(base);
-      d.setDate(d.getDate() + i);
-      result.push(formatDate(d));
+      result.push(addCalendarDaysJst(baseDate, i));
     }
     return result;
   }, [baseDate]);
@@ -273,8 +267,35 @@ export default function AdminWeeklyPage() {
         if (cast.employment_type !== "regular") continue;
         const row = { ...(next[cast.id] ?? {}) };
         for (const d of dates) {
-          if (closed.includes(getWeekday(d))) continue;
+          if (isRegularHolidayJst(closed, d)) {
+            row[d] = "";
+            continue;
+          }
           row[d] = timeStr;
+        }
+        next[cast.id] = row;
+      }
+      return next;
+    });
+    setDohan((prev) => {
+      const next: Record<string, Record<string, boolean>> = { ...prev };
+      for (const cast of casts) {
+        if (cast.employment_type !== "regular") continue;
+        const row = { ...(next[cast.id] ?? {}) };
+        for (const d of dates) {
+          if (isRegularHolidayJst(closed, d)) row[d] = false;
+        }
+        next[cast.id] = row;
+      }
+      return next;
+    });
+    setSabaki((prev) => {
+      const next: Record<string, Record<string, boolean>> = { ...prev };
+      for (const cast of casts) {
+        if (cast.employment_type !== "regular") continue;
+        const row = { ...(next[cast.id] ?? {}) };
+        for (const d of dates) {
+          if (isRegularHolidayJst(closed, d)) row[d] = false;
         }
         next[cast.id] = row;
       }
@@ -489,7 +510,7 @@ export default function AdminWeeklyPage() {
                   キャスト
                 </th>
                 {dates.map((d) => {
-                  const w = getWeekday(d);
+                  const w = getWeekdayJst(d);
                   const colorClass =
                     w === 0 ? "text-red-600" : w === 6 ? "text-blue-600" : "text-gray-600";
                   return (
