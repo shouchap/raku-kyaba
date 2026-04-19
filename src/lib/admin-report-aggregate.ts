@@ -1,4 +1,4 @@
-import { addCalendarDaysJst } from "@/lib/date-utils";
+import { addCalendarDaysJst, getWeekdayJst } from "@/lib/date-utils";
 
 /** レポート集計用（attendance_schedules の行） */
 export type AdminReportScheduleRow = {
@@ -40,7 +40,7 @@ export type AdminReportCastRow = {
   absentCount: number;
   halfHolidayCount: number;
   publicHolidayCount: number;
-  /** 月初〜min(期末, 今日) の範囲で、回答済み日を除いた日数 */
+  /** 定休を除く月初〜min(期末, 今日) の範囲で、回答済み日を除いた日数 */
   unfilledDays: number;
   incidents: AdminReportIncident[];
 };
@@ -78,17 +78,6 @@ export function scheduleRowHasRecordedAction(row: AdminReportScheduleRow): boole
   return false;
 }
 
-function countInclusiveCalendarDaysJst(startYmd: string, endYmd: string): number {
-  if (startYmd > endYmd) return 0;
-  let n = 0;
-  let d = startYmd;
-  while (d <= endYmd) {
-    n++;
-    d = addCalendarDaysJst(d, 1);
-  }
-  return n;
-}
-
 /**
  * 未入力集計の対象期間の終端（JST 暦日）。
  * 「今日までの未入力」: 集計終了日と今日のうち早い方まで。
@@ -97,26 +86,65 @@ export function unfilledWindowEndYmd(periodEndYmd: string, todayYmd: string): st
   return periodEndYmd < todayYmd ? periodEndYmd : todayYmd;
 }
 
+/** stores.regular_holidays（0=日〜6=土）を正規化 */
+export function normalizeRegularHolidays(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.filter((n) => Number.isInteger(n) && n >= 0 && n <= 6) as number[])].sort(
+    (a, b) => a - b
+  );
+}
+
+/** JST 暦日が店舗の定休日か（regular_holidays が空なら常に false） */
+export function isYmdRegularHoliday(regularHolidays: number[], ymd: string): boolean {
+  if (regularHolidays.length === 0) return false;
+  return regularHolidays.includes(getWeekdayJst(ymd));
+}
+
+/**
+ * [start, end] の JST 暦日のうち、定休日を除いた日数（未入力の分母）
+ */
+export function countNonRegularHolidayDaysJst(
+  startYmd: string,
+  endYmd: string,
+  regularHolidays: number[]
+): number {
+  if (startYmd > endYmd) return 0;
+  let n = 0;
+  let d = startYmd;
+  while (d <= endYmd) {
+    if (!isYmdRegularHoliday(regularHolidays, d)) n++;
+    d = addCalendarDaysJst(d, 1);
+  }
+  return n;
+}
+
 /**
  * 集計対象キャストごとの月間／週間レポート行を生成する。
  * - 各数値は scheduled_date <= todayYmd の行のみ反映（未来の予定は含めない）
  * - 同一日は DB 上 UNIQUE のため二重集計しない
- * - 未入力: [期間開始, min(期間終了, 今日)] の暦日数 − 回答済み日数（distinct）
+ * - 未入力: 定休日を除いた [期間開始, min(期間終了, 今日)] の暦日数 − 回答済み日数（distinct・定休日は減算対象外）
  */
 export function buildAdminReportCastRows(
   casts: AdminReportCastInput[],
   schedules: AdminReportScheduleRow[],
-  opts: { todayYmd: string; periodStartYmd: string; periodEndYmd: string }
+  opts: {
+    todayYmd: string;
+    periodStartYmd: string;
+    periodEndYmd: string;
+    /** stores.regular_holidays（0=日〜6=土）。未指定は [] */
+    regularHolidays?: number[];
+  }
 ): AdminReportCastRow[] {
   const { todayYmd, periodStartYmd, periodEndYmd } = opts;
+  const regularHolidays = opts.regularHolidays ?? [];
 
   const windowEnd = unfilledWindowEndYmd(periodEndYmd, todayYmd);
   const unfilledRangeStart = periodStartYmd;
   const unfilledRangeEnd = windowEnd;
-  const unfilledWindowDayCount =
+  const unfilledDenominatorDays =
     unfilledRangeStart > unfilledRangeEnd
       ? 0
-      : countInclusiveCalendarDaysJst(unfilledRangeStart, unfilledRangeEnd);
+      : countNonRegularHolidayDaysJst(unfilledRangeStart, unfilledRangeEnd, regularHolidays);
 
   const byCast = new Map<string, AdminReportScheduleRow[]>();
   for (const s of schedules) {
@@ -213,7 +241,11 @@ export function buildAdminReportCastRows(
     incidents.sort((a, b) => a.dateStr.localeCompare(b.dateStr));
     sabakiDates.sort();
 
-    const unfilledDays = Math.max(0, unfilledWindowDayCount - answeredDatesInWindow.size);
+    let answeredOnRequiredDays = 0;
+    for (const d of answeredDatesInWindow) {
+      if (!isYmdRegularHoliday(regularHolidays, d)) answeredOnRequiredDays += 1;
+    }
+    const unfilledDays = Math.max(0, unfilledDenominatorDays - answeredOnRequiredDays);
 
     return {
       castId: cast.id,

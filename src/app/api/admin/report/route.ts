@@ -8,6 +8,7 @@ import { logPostgrestError } from "@/lib/postgrest-error";
 import { getTodayJst } from "@/lib/date-utils";
 import {
   buildAdminReportCastRows,
+  normalizeRegularHolidays,
   type AdminReportScheduleRow,
 } from "@/lib/admin-report-aggregate";
 
@@ -104,7 +105,7 @@ export async function GET(request: Request) {
 
   const { data: storeRow, error: storeErr } = await admin
     .from("stores")
-    .select("id, name, business_type")
+    .select("id, name, business_type, regular_holidays")
     .eq("id", storeId)
     .maybeSingle();
 
@@ -130,6 +131,9 @@ export async function GET(request: Request) {
 
   if (businessType !== "welfare_b") {
     const todayYmd = getTodayJst();
+    const regularHolidays = normalizeRegularHolidays(
+      (storeRow as { regular_holidays?: unknown }).regular_holidays
+    );
 
     const { data: castRows, error: castListErr } = await admin
       .from("casts")
@@ -177,6 +181,7 @@ export async function GET(request: Request) {
       todayYmd,
       periodStartYmd: start,
       periodEndYmd: end,
+      regularHolidays,
     });
 
     const bt =

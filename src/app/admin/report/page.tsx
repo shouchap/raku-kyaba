@@ -60,7 +60,7 @@ type CastReport = {
   absentCount: number;
   halfHolidayCount: number;
   publicHolidayCount: number;
-  /** 月初〜今日までの範囲で、回答のない日数（サーバー集計） */
+  /** 定休を除く月初〜今日までの範囲で、回答のない日数（サーバー集計） */
   unfilledDays: number;
   incidents: Incident[];
 };
@@ -941,7 +941,7 @@ function AdminReportContent() {
                     type="button"
                     onClick={() => toggleSort("unfilled")}
                     className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
-                    title="月初から今日までの日数のうち、シフト未登録または未回答の日"
+                    title="定休日を除く、月初から今日までの暦日のうちシフト未登録または未回答の日数"
                   >
                     未入力
                     {sortKey === "unfilled" && (sortDir === "asc" ? " ↑" : " ↓")}
