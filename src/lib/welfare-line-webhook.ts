@@ -6,6 +6,7 @@ import { sendReply, type LineReplyMessage } from "@/lib/line-reply";
 import { createSupabaseClient } from "@/lib/supabase";
 import { getTodayJst } from "@/lib/date-utils";
 import {
+  buildWelfareEndWorkChoiceFlexMessage,
   buildWelfareEveningEndFlexMessage,
   buildWelfareMiddayHealthFlexMessage,
   buildWelfareMorningStartFlexMessage,
@@ -34,6 +35,10 @@ function healthRecordedReplyText(status: "good" | "soso" | "bad"): string {
 /** welfare_daily_logs.pending_line_flow と整合 */
 export const WELFARE_PENDING_HEALTH_REASON = "welfare_health_reason" as const;
 export const WELFARE_PENDING_WORK_ITEM = "welfare_work_item" as const;
+export const WELFARE_PENDING_END_CHOICE = "welfare_end_choice" as const;
+export const WELFARE_PENDING_HOSPITAL_NAME = "welfare_hospital_name" as const;
+export const WELFARE_PENDING_HOSPITAL_SYMPTOMS = "welfare_hospital_symptoms" as const;
+export const WELFARE_PENDING_HOSPITAL_DURATION = "welfare_hospital_duration" as const;
 
 export type WelfareStoreContext = { id: string; business_type: string };
 
@@ -44,6 +49,8 @@ type WelfareAction =
   | { kind: "health_bad" }
   | { kind: "health_contact" }
   | { kind: "end_work" }
+  | { kind: "end_work_normal" }
+  | { kind: "end_work_hospital" }
   | { kind: "work_item"; item: string };
 
 export function parseWelfarePostbackData(raw: string): WelfareAction | null {
@@ -58,6 +65,8 @@ export function parseWelfarePostbackData(raw: string): WelfareAction | null {
   if (action === "health_bad") return { kind: "health_bad" };
   if (action === "health_contact") return { kind: "health_contact" };
   if (action === "end_work") return { kind: "end_work" };
+  if (action === "end_work_normal") return { kind: "end_work_normal" };
+  if (action === "end_work_hospital") return { kind: "end_work_hospital" };
   if (action === "work_item") {
     const item = sp.get("item")?.trim();
     if (!item) return null;
@@ -188,12 +197,13 @@ export async function tryHandleWelfareWorkJournalText(
   const todayJst = getTodayJst();
   const { data: row } = await supabase
     .from("welfare_daily_logs")
-    .select("id, ended_at, work_item, work_details, pending_line_flow")
+    .select("id, ended_at, work_item, work_details, pending_line_flow, is_hospital_visit")
     .eq("cast_id", cast.id)
     .eq("work_date", todayJst)
     .maybeSingle();
 
   if (!row?.id) return false;
+  if (row.is_hospital_visit === true) return false;
   if (row.pending_line_flow === WELFARE_PENDING_HEALTH_REASON) return false;
   if (!row.ended_at) return false;
   const wi = typeof row.work_item === "string" ? row.work_item.trim() : "";
@@ -219,6 +229,109 @@ export async function tryHandleWelfareWorkJournalText(
   }
 
   /** 成功時は返信せず既読のみ（フロー完了） */
+  return true;
+}
+
+const HOSPITAL_EMPTY_REPLY = "内容を入力してください。";
+const HOSPITAL_Q2 = "症状や診察内容を教えてください";
+const HOSPITAL_Q3 = "通院にかかった時間（目安）を教えてください";
+const HOSPITAL_DONE =
+  "通院報告を記録して作業を終了しました。お疲れ様でした。";
+
+/**
+ * 通院報告 3 問（pending: hospital_name → symptoms → duration）
+ */
+export async function tryHandleWelfareHospitalFlowText(
+  lineUserId: string,
+  rawText: string,
+  supabase: ReturnType<typeof createSupabaseClient>,
+  storeId: string,
+  replyToken: string | undefined,
+  channelAccessToken: string | undefined
+): Promise<boolean> {
+  const cast = await getCastForWelfare(supabase, storeId, lineUserId);
+  if (!cast) return false;
+
+  const todayJst = getTodayJst();
+  const { data: row } = await supabase
+    .from("welfare_daily_logs")
+    .select("id, pending_line_flow")
+    .eq("cast_id", cast.id)
+    .eq("work_date", todayJst)
+    .maybeSingle();
+
+  const flow = row?.pending_line_flow ?? null;
+  if (
+    flow !== WELFARE_PENDING_HOSPITAL_NAME &&
+    flow !== WELFARE_PENDING_HOSPITAL_SYMPTOMS &&
+    flow !== WELFARE_PENDING_HOSPITAL_DURATION
+  ) {
+    return false;
+  }
+
+  const t = String(rawText ?? "").trim();
+  if (!t) {
+    await safeReply(replyToken, channelAccessToken, [{ type: "text", text: HOSPITAL_EMPTY_REPLY }]);
+    return true;
+  }
+
+  const excerpt = t.length > 2000 ? `${t.slice(0, 2000)}…` : t;
+  const nowIso = new Date().toISOString();
+
+  if (flow === WELFARE_PENDING_HOSPITAL_NAME) {
+    const { error } = await supabase
+      .from("welfare_daily_logs")
+      .update({
+        hospital_name: excerpt,
+        pending_line_flow: WELFARE_PENDING_HOSPITAL_SYMPTOMS,
+        updated_at: nowIso,
+      })
+      .eq("id", row!.id);
+    if (error) {
+      console.error("[Welfare] hospital_name update:", error);
+      await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
+      return true;
+    }
+    await safeReply(replyToken, channelAccessToken, [{ type: "text", text: HOSPITAL_Q2 }]);
+    return true;
+  }
+
+  if (flow === WELFARE_PENDING_HOSPITAL_SYMPTOMS) {
+    const { error } = await supabase
+      .from("welfare_daily_logs")
+      .update({
+        symptoms: excerpt,
+        pending_line_flow: WELFARE_PENDING_HOSPITAL_DURATION,
+        updated_at: nowIso,
+      })
+      .eq("id", row!.id);
+    if (error) {
+      console.error("[Welfare] symptoms update:", error);
+      await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
+      return true;
+    }
+    await safeReply(replyToken, channelAccessToken, [{ type: "text", text: HOSPITAL_Q3 }]);
+    return true;
+  }
+
+  const { error } = await supabase
+    .from("welfare_daily_logs")
+    .update({
+      visit_duration: excerpt,
+      is_hospital_visit: true,
+      ended_at: nowIso,
+      pending_line_flow: null,
+      updated_at: nowIso,
+    })
+    .eq("id", row!.id);
+
+  if (error) {
+    console.error("[Welfare] hospital visit_duration / complete:", error);
+    await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
+    return true;
+  }
+
+  await safeReply(replyToken, channelAccessToken, [{ type: "text", text: HOSPITAL_DONE }]);
   return true;
 }
 
@@ -342,15 +455,84 @@ async function handleWelfarePostback(
   }
 
   if (action.kind === "end_work") {
+    const { data: curFlow } = await supabase
+      .from("welfare_daily_logs")
+      .select("pending_line_flow")
+      .eq("id", log.id)
+      .maybeSingle();
+    const p = curFlow?.pending_line_flow ?? null;
+
+    if (p === WELFARE_PENDING_WORK_ITEM) {
+      await safeReply(replyToken, channelAccessToken, [
+        { type: "text", text: "作業項目をボタンから選んでください。" },
+      ]);
+      return;
+    }
+    if (p === WELFARE_PENDING_HEALTH_REASON) {
+      await safeReply(replyToken, channelAccessToken, [
+        { type: "text", text: "体調についてのご記入を先に完了してください。" },
+      ]);
+      return;
+    }
+    if (p === WELFARE_PENDING_END_CHOICE) {
+      await safeReply(replyToken, channelAccessToken, [buildWelfareEndWorkChoiceFlexMessage()]);
+      return;
+    }
+    if (
+      p === WELFARE_PENDING_HOSPITAL_NAME ||
+      p === WELFARE_PENDING_HOSPITAL_SYMPTOMS ||
+      p === WELFARE_PENDING_HOSPITAL_DURATION
+    ) {
+      await safeReply(replyToken, channelAccessToken, [
+        { type: "text", text: "通院報告の入力を続けてください。" },
+      ]);
+      return;
+    }
+
     const { error } = await supabase
       .from("welfare_daily_logs")
       .update({
-        pending_line_flow: WELFARE_PENDING_WORK_ITEM,
+        pending_line_flow: WELFARE_PENDING_END_CHOICE,
         updated_at: nowIso,
       })
       .eq("id", log.id);
     if (error) {
       console.error("[Welfare] end_work:", error);
+      await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
+      return;
+    }
+    await safeReply(replyToken, channelAccessToken, [buildWelfareEndWorkChoiceFlexMessage()]);
+    return;
+  }
+
+  if (action.kind === "end_work_normal") {
+    const { data: cur } = await supabase
+      .from("welfare_daily_logs")
+      .select("pending_line_flow")
+      .eq("id", log.id)
+      .maybeSingle();
+    if (cur?.pending_line_flow !== WELFARE_PENDING_END_CHOICE) {
+      await safeReply(replyToken, channelAccessToken, [
+        {
+          type: "text",
+          text: "先に「作業を終了する」から終了方法を選んでください。",
+        },
+      ]);
+      return;
+    }
+    const { error } = await supabase
+      .from("welfare_daily_logs")
+      .update({
+        pending_line_flow: WELFARE_PENDING_WORK_ITEM,
+        is_hospital_visit: false,
+        hospital_name: null,
+        symptoms: null,
+        visit_duration: null,
+        updated_at: nowIso,
+      })
+      .eq("id", log.id);
+    if (error) {
+      console.error("[Welfare] end_work_normal:", error);
       await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
       return;
     }
@@ -364,6 +546,43 @@ async function handleWelfarePostback(
         ? (storeRow as { welfare_work_items: string }).welfare_work_items
         : null;
     await safeReply(replyToken, channelAccessToken, [buildWelfareWorkItemSelectFlexMessage(csv)]);
+    return;
+  }
+
+  if (action.kind === "end_work_hospital") {
+    const { data: cur } = await supabase
+      .from("welfare_daily_logs")
+      .select("pending_line_flow")
+      .eq("id", log.id)
+      .maybeSingle();
+    if (cur?.pending_line_flow !== WELFARE_PENDING_END_CHOICE) {
+      await safeReply(replyToken, channelAccessToken, [
+        {
+          type: "text",
+          text: "先に「作業を終了する」から終了方法を選んでください。",
+        },
+      ]);
+      return;
+    }
+    const { error } = await supabase
+      .from("welfare_daily_logs")
+      .update({
+        pending_line_flow: WELFARE_PENDING_HOSPITAL_NAME,
+        is_hospital_visit: false,
+        hospital_name: null,
+        symptoms: null,
+        visit_duration: null,
+        updated_at: nowIso,
+      })
+      .eq("id", log.id);
+    if (error) {
+      console.error("[Welfare] end_work_hospital:", error);
+      await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
+      return;
+    }
+    await safeReply(replyToken, channelAccessToken, [
+      { type: "text", text: "病院名を教えてください" },
+    ]);
     return;
   }
 
@@ -443,6 +662,15 @@ export async function handleWelfareWebhook(
           channelAccessToken
         );
         if (handledHealth) break;
+        const handledHospital = await tryHandleWelfareHospitalFlowText(
+          userId,
+          text,
+          supabase,
+          store.id,
+          replyToken,
+          channelAccessToken
+        );
+        if (handledHospital) break;
         await tryHandleWelfareWorkJournalText(
           userId,
           text,

@@ -168,6 +168,46 @@ export function buildWelfareEveningEndFlexMessage(
   };
 }
 
+/** 「作業を終了する」直後：通常終了か通院報告終了かを選ばせる */
+export function buildWelfareEndWorkChoiceFlexMessage(): LineReplyMessage {
+  const text = "本日の終了方法を選んでください。";
+  return {
+    type: "flex",
+    altText: `${text}（ボタンから選択）`,
+    contents: {
+      type: "bubble",
+      size: "mega" as const,
+      body: {
+        type: "box",
+        layout: "vertical" as const,
+        paddingAll: "20px",
+        spacing: "md" as const,
+        contents: [
+          {
+            type: "text",
+            text,
+            wrap: true,
+            weight: "bold" as const,
+            size: "md" as const,
+            color: BODY_COLOR,
+          },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical" as const,
+        paddingAll: "20px",
+        paddingTop: "12px",
+        spacing: "sm" as const,
+        contents: [
+          postbackButton("通常の作業終了", "welfare_action=end_work_normal"),
+          postbackButton("通院報告をして終了", "welfare_action=end_work_hospital"),
+        ],
+      },
+    },
+  };
+}
+
 /**
  * end_work 後：作業項目選択（stores.welfare_work_items のカンマ区切りから動的生成）
  */

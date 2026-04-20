@@ -40,6 +40,10 @@ type WelfareReportRow = {
   health_status: string | null;
   health_reason: string | null;
   health_notes: string | null;
+  is_hospital_visit: boolean;
+  hospital_name: string | null;
+  symptoms: string | null;
+  visit_duration: string | null;
 };
 
 type Incident = {
@@ -148,6 +152,30 @@ function formatHealthCondition(status: string | null): string {
 function formatHealthNotesCell(notes: string | null, reason: string | null): string {
   const parts = [notes?.trim(), reason?.trim()].filter(Boolean);
   return parts.length > 0 ? parts.join(" / ") : "—";
+}
+
+/** 福祉日報: 長文セル（ホバーで全文、折りたたみでモバイルも可） */
+function WelfareTextCell({ value }: { value: string | null }) {
+  const full = typeof value === "string" ? value.trim() : "";
+  if (!full) {
+    return <span className="text-gray-400">—</span>;
+  }
+  return (
+    <details className="max-w-[12rem] sm:max-w-[14rem] group">
+      <summary className="cursor-pointer list-none text-gray-800 marker:content-none">
+        <span
+          className="line-clamp-2 break-words text-xs sm:text-sm underline-offset-2 hover:underline"
+          title={full}
+        >
+          {full.length > 56 ? `${full.slice(0, 56)}…` : full}
+        </span>
+        <span className="ml-1 text-[10px] font-medium text-teal-700 print:hidden">詳細</span>
+      </summary>
+      <p className="mt-2 whitespace-pre-wrap break-words text-xs text-gray-700 border border-gray-100 rounded-md p-2 bg-gray-50/80 print:block print:border-0 print:bg-transparent print:p-0 print:mt-1">
+        {full}
+      </p>
+    </details>
+  );
 }
 
 function AdminReportContent() {
@@ -728,7 +756,7 @@ function AdminReportContent() {
         <p className="text-gray-600">読み込み中…</p>
       ) : businessType === "welfare_b" ? (
         <div className="report-table-wrap report-table-welfare-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
-          <table className="report-table report-table-welfare min-w-[920px] w-full text-left text-sm">
+          <table className="report-table report-table-welfare min-w-[1180px] w-full text-left text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 whitespace-nowrap">
@@ -744,6 +772,18 @@ function AdminReportContent() {
                 </th>
                 <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 whitespace-nowrap">
                   作業終了
+                </th>
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 whitespace-nowrap">
+                  通院
+                </th>
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 min-w-[5rem]">
+                  病院名
+                </th>
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 min-w-[6rem]">
+                  症状・診察
+                </th>
+                <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 min-w-[4rem]">
+                  通院時間
                 </th>
                 <th className="px-2 py-2 sm:px-3 sm:py-3 text-xs sm:text-sm font-semibold text-gray-900 min-w-[4rem]">
                   作業項目
@@ -766,7 +806,7 @@ function AdminReportContent() {
               {welfareRows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={viewMode === "day" ? 8 : 9}
+                    colSpan={viewMode === "day" ? 12 : 13}
                     className="px-3 py-8 text-center text-gray-500"
                   >
                     {emptyMessage}
@@ -775,7 +815,7 @@ function AdminReportContent() {
               ) : filteredWelfareRows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={viewMode === "day" ? 8 : 9}
+                    colSpan={viewMode === "day" ? 12 : 13}
                     className="px-3 py-8 text-center text-gray-500"
                   >
                     {filterEmptyMessage}
@@ -785,7 +825,9 @@ function AdminReportContent() {
                 filteredWelfareRows.map((row) => (
                   <tr
                     key={row.id}
-                    className="border-b border-gray-100 hover:bg-gray-50/80 align-top"
+                    className={`border-b border-gray-100 hover:bg-gray-50/80 align-top ${
+                      row.is_hospital_visit ? "bg-teal-50/40" : ""
+                    }`}
                   >
                     <td className="px-2 py-2 sm:px-3 sm:py-3 font-medium text-gray-900">
                       {row.cast_name || "—"}
@@ -800,6 +842,24 @@ function AdminReportContent() {
                     </td>
                     <td className="px-2 py-2 sm:px-3 sm:py-3 tabular-nums text-gray-800 whitespace-nowrap">
                       {formatTimeJstFromIso(row.ended_at)}
+                    </td>
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 whitespace-nowrap">
+                      {row.is_hospital_visit ? (
+                        <span className="inline-flex rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-900">
+                          通院
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 align-top">
+                      <WelfareTextCell value={row.hospital_name} />
+                    </td>
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 align-top">
+                      <WelfareTextCell value={row.symptoms} />
+                    </td>
+                    <td className="px-2 py-2 sm:px-3 sm:py-3 align-top">
+                      <WelfareTextCell value={row.visit_duration} />
                     </td>
                     <td className="px-2 py-2 sm:px-3 sm:py-3 text-gray-800 break-words">
                       {row.work_item?.trim() || "—"}

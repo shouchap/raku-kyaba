@@ -55,7 +55,7 @@
     box-shadow: none !important;
   }
 
-  /* B型・日報一覧（9列）：A4 縦でも読めるようやや小さめ・折り返し */
+  /* B型・日報一覧（通院列含む 13 列前後）：A4 縦でも読めるようやや小さめ・折り返し */
   .admin-report-print-root .report-table-welfare-wrap {
     overflow: visible !important;
   }

@@ -201,7 +201,7 @@ export async function GET(request: Request) {
   const { data: logRows, error: logErr } = await admin
     .from("welfare_daily_logs")
     .select(
-      "id, cast_id, work_date, started_at, ended_at, work_item, work_details, quantity, health_status, health_reason, health_notes"
+      "id, cast_id, work_date, started_at, ended_at, work_item, work_details, quantity, health_status, health_reason, health_notes, is_hospital_visit, hospital_name, symptoms, visit_duration"
     )
     .eq("store_id", storeId)
     .gte("work_date", start)
@@ -254,6 +254,10 @@ export async function GET(request: Request) {
       health_status: (raw.health_status as string | null) ?? null,
       health_reason: (raw.health_reason as string | null) ?? null,
       health_notes: (raw.health_notes as string | null) ?? null,
+      is_hospital_visit: raw.is_hospital_visit === true,
+      hospital_name: (raw.hospital_name as string | null) ?? null,
+      symptoms: (raw.symptoms as string | null) ?? null,
+      visit_duration: (raw.visit_duration as string | null) ?? null,
     };
   });
 

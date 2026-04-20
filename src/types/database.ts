@@ -171,7 +171,18 @@ export interface Database {
           work_details: string | null;
           quantity: number | null;
           health_notes: string | null;
-          pending_line_flow: "welfare_health_reason" | "welfare_work_item" | null;
+          is_hospital_visit: boolean;
+          hospital_name: string | null;
+          symptoms: string | null;
+          visit_duration: string | null;
+          pending_line_flow:
+            | "welfare_health_reason"
+            | "welfare_work_item"
+            | "welfare_end_choice"
+            | "welfare_hospital_name"
+            | "welfare_hospital_symptoms"
+            | "welfare_hospital_duration"
+            | null;
           created_at: string;
           updated_at: string;
         };
@@ -188,7 +199,18 @@ export interface Database {
           work_details?: string | null;
           quantity?: number | null;
           health_notes?: string | null;
-          pending_line_flow?: "welfare_health_reason" | "welfare_work_item" | null;
+          is_hospital_visit?: boolean;
+          hospital_name?: string | null;
+          symptoms?: string | null;
+          visit_duration?: string | null;
+          pending_line_flow?:
+            | "welfare_health_reason"
+            | "welfare_work_item"
+            | "welfare_end_choice"
+            | "welfare_hospital_name"
+            | "welfare_hospital_symptoms"
+            | "welfare_hospital_duration"
+            | null;
           created_at?: string;
           updated_at?: string;
         };
