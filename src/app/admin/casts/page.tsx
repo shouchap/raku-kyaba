@@ -12,6 +12,8 @@ type Cast = {
   line_user_id?: string;
   is_admin?: boolean;
   employment_type?: CastEmploymentType | null;
+  /** 福祉: かかりつけ病院（LINE 通院報告） */
+  default_hospital_name?: string | null;
   created_at?: string;
 };
 
@@ -37,6 +39,7 @@ export default function AdminCastsPage() {
   const [editName, setEditName] = useState("");
   const [editIsAdmin, setEditIsAdmin] = useState(false);
   const [editEmployment, setEditEmployment] = useState<CastEmploymentType>("part_time");
+  const [editDefaultHospital, setEditDefaultHospital] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState<"success" | "error" | null>(null);
@@ -48,7 +51,7 @@ export default function AdminCastsPage() {
       const [castsRes, storesRes] = await Promise.all([
         supabase
           .from("casts")
-          .select("id, name, store_id, line_user_id, is_admin, employment_type")
+          .select("id, name, store_id, line_user_id, is_admin, employment_type, default_hospital_name")
           .eq("store_id", storeId)
           .eq("is_active", true)
           .order("name"),
@@ -76,6 +79,9 @@ export default function AdminCastsPage() {
     setEditEmployment(
       em === "admin" || em === "regular" || em === "part_time" ? em : "part_time"
     );
+    setEditDefaultHospital(
+      typeof cast.default_hospital_name === "string" ? cast.default_hospital_name : ""
+    );
   };
 
   const handleCancelEdit = () => {
@@ -83,6 +89,7 @@ export default function AdminCastsPage() {
     setEditName("");
     setEditIsAdmin(false);
     setEditEmployment("part_time");
+    setEditDefaultHospital("");
   };
 
   const handleSaveEdit = async () => {
@@ -95,16 +102,32 @@ export default function AdminCastsPage() {
     setSaving(true);
     setMessage(null);
     try {
+      const payload: Record<string, unknown> = {
+        name: newName,
+        is_admin: editIsAdmin,
+        employment_type: editEmployment,
+      };
+      if (store?.business_type === "welfare_b") {
+        payload.default_hospital_name = editDefaultHospital.trim() || null;
+      }
       const { error } = await supabase
         .from("casts")
-        .update({ name: newName, is_admin: editIsAdmin, employment_type: editEmployment })
+        .update(payload)
         .eq("id", editingId)
         .eq("store_id", activeStoreId);
       if (error) throw error;
       setCasts((prev) =>
         prev.map((c) =>
           c.id === editingId
-            ? { ...c, name: newName, is_admin: editIsAdmin, employment_type: editEmployment }
+            ? {
+                ...c,
+                name: newName,
+                is_admin: editIsAdmin,
+                employment_type: editEmployment,
+                ...(store?.business_type === "welfare_b"
+                  ? { default_hospital_name: editDefaultHospital.trim() || null }
+                  : {}),
+              }
             : c
         )
       );
@@ -230,6 +253,19 @@ export default function AdminCastsPage() {
                           />
                           <span className="text-sm text-gray-700">管理者通知</span>
                         </label>
+                        {isWelfare && (
+                          <label className="flex flex-col gap-1 min-w-0 w-full">
+                            <span className="text-xs text-gray-500">かかりつけ病院（通院報告の候補）</span>
+                            <input
+                              type="text"
+                              value={editDefaultHospital}
+                              onChange={(e) => setEditDefaultHospital(e.target.value)}
+                              placeholder="例：〇〇総合病院"
+                              className="w-full min-h-[44px] px-3 py-2 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                              autoComplete="organization"
+                            />
+                          </label>
+                        )}
                       </div>
                       <button
                         type="button"

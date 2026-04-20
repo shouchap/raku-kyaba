@@ -118,6 +118,8 @@ export interface Database {
           employment_type: "admin" | "regular" | "part_time" | null;
           /** シフトなしレギュラー向けリマインドの最終送信日（JST） */
           last_reminder_sent_date: string | null;
+          /** 福祉: かかりつけ病院（通院報告のクイックリプライ） */
+          default_hospital_name: string | null;
           created_at: string;
           updated_at: string;
         };

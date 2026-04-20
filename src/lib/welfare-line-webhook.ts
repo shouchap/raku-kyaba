@@ -8,6 +8,8 @@ import { getTodayJst } from "@/lib/date-utils";
 import {
   buildWelfareEndWorkChoiceFlexMessage,
   buildWelfareEveningEndFlexMessage,
+  buildWelfareHospitalDurationQuickReplyMessage,
+  buildWelfareHospitalNameQuestionMessage,
   buildWelfareMiddayHealthFlexMessage,
   buildWelfareMorningStartFlexMessage,
   buildWelfareWorkItemSelectFlexMessage,
@@ -51,6 +53,9 @@ type WelfareAction =
   | { kind: "end_work" }
   | { kind: "end_work_normal" }
   | { kind: "end_work_hospital" }
+  | { kind: "hospital_name_default" }
+  | { kind: "hospital_name_other" }
+  | { kind: "hospital_duration"; slot: "under1" | "between1_2" | "between2_3" | "halfday" | "other" }
   | { kind: "work_item"; item: string };
 
 export function parseWelfarePostbackData(raw: string): WelfareAction | null {
@@ -67,6 +72,21 @@ export function parseWelfarePostbackData(raw: string): WelfareAction | null {
   if (action === "end_work") return { kind: "end_work" };
   if (action === "end_work_normal") return { kind: "end_work_normal" };
   if (action === "end_work_hospital") return { kind: "end_work_hospital" };
+  if (action === "hospital_name_default") return { kind: "hospital_name_default" };
+  if (action === "hospital_name_other") return { kind: "hospital_name_other" };
+  if (action === "hospital_duration") {
+    const slot = sp.get("slot")?.trim();
+    if (
+      slot === "under1" ||
+      slot === "between1_2" ||
+      slot === "between2_3" ||
+      slot === "halfday" ||
+      slot === "other"
+    ) {
+      return { kind: "hospital_duration", slot };
+    }
+    return null;
+  }
   if (action === "work_item") {
     const item = sp.get("item")?.trim();
     if (!item) return null;
@@ -79,15 +99,20 @@ async function getCastForWelfare(
   supabase: ReturnType<typeof createSupabaseClient>,
   storeId: string,
   lineUserId: string
-): Promise<{ id: string } | null> {
+): Promise<{ id: string; default_hospital_name: string | null } | null> {
   const { data } = await supabase
     .from("casts")
-    .select("id")
+    .select("id, default_hospital_name")
     .eq("store_id", storeId)
     .eq("line_user_id", lineUserId)
     .eq("is_active", true)
     .maybeSingle();
-  return data?.id ? { id: data.id } : null;
+  if (!data?.id) return null;
+  const raw = (data as { id: string; default_hospital_name?: string | null }).default_hospital_name;
+  return {
+    id: data.id,
+    default_hospital_name: typeof raw === "string" && raw.trim() ? raw.trim() : null,
+  };
 }
 
 async function getOrCreateWelfareDailyLog(
@@ -116,6 +141,35 @@ async function getOrCreateWelfareDailyLog(
   }
   return inserted?.id ? { id: inserted.id as string } : null;
 }
+
+function blockedEveningEndMessage(p: string | null): string | null {
+  if (p === WELFARE_PENDING_WORK_ITEM) return "作業項目をボタンから選んでください。";
+  if (p === WELFARE_PENDING_HEALTH_REASON) return "体調についてのご記入を先に完了してください。";
+  if (
+    p === WELFARE_PENDING_HOSPITAL_NAME ||
+    p === WELFARE_PENDING_HOSPITAL_SYMPTOMS ||
+    p === WELFARE_PENDING_HOSPITAL_DURATION
+  ) {
+    return "通院報告の入力を続けてください。";
+  }
+  return null;
+}
+
+function canUseDirectEndWorkChoice(p: string | null): boolean {
+  return p === null || p === WELFARE_PENDING_END_CHOICE;
+}
+
+const HOSPITAL_DURATION_DETAIL_PROMPT = "通院時間の詳細を教えてください";
+
+const HOSPITAL_DURATION_LABEL: Record<
+  "under1" | "between1_2" | "between2_3" | "halfday",
+  string
+> = {
+  under1: "1時間未満",
+  between1_2: "1〜2時間",
+  between2_3: "2〜3時間",
+  halfday: "半日（3時間以上）",
+};
 
 async function safeReply(
   replyToken: string | undefined,
@@ -234,7 +288,6 @@ export async function tryHandleWelfareWorkJournalText(
 
 const HOSPITAL_EMPTY_REPLY = "内容を入力してください。";
 const HOSPITAL_Q2 = "症状や診察内容を教えてください";
-const HOSPITAL_Q3 = "通院にかかった時間（目安）を教えてください";
 const HOSPITAL_DONE =
   "通院報告を記録して作業を終了しました。お疲れ様でした。";
 
@@ -310,7 +363,7 @@ export async function tryHandleWelfareHospitalFlowText(
       await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
       return true;
     }
-    await safeReply(replyToken, channelAccessToken, [{ type: "text", text: HOSPITAL_Q3 }]);
+    await safeReply(replyToken, channelAccessToken, [buildWelfareHospitalDurationQuickReplyMessage()]);
     return true;
   }
 
@@ -511,12 +564,15 @@ async function handleWelfarePostback(
       .select("pending_line_flow")
       .eq("id", log.id)
       .maybeSingle();
-    if (cur?.pending_line_flow !== WELFARE_PENDING_END_CHOICE) {
+    const p = cur?.pending_line_flow ?? null;
+    const blocked = blockedEveningEndMessage(p);
+    if (blocked) {
+      await safeReply(replyToken, channelAccessToken, [{ type: "text", text: blocked }]);
+      return;
+    }
+    if (!canUseDirectEndWorkChoice(p)) {
       await safeReply(replyToken, channelAccessToken, [
-        {
-          type: "text",
-          text: "先に「作業を終了する」から終了方法を選んでください。",
-        },
+        { type: "text", text: "この操作は現在できません。" },
       ]);
       return;
     }
@@ -555,12 +611,15 @@ async function handleWelfarePostback(
       .select("pending_line_flow")
       .eq("id", log.id)
       .maybeSingle();
-    if (cur?.pending_line_flow !== WELFARE_PENDING_END_CHOICE) {
+    const p = cur?.pending_line_flow ?? null;
+    const blocked = blockedEveningEndMessage(p);
+    if (blocked) {
+      await safeReply(replyToken, channelAccessToken, [{ type: "text", text: blocked }]);
+      return;
+    }
+    if (!canUseDirectEndWorkChoice(p)) {
       await safeReply(replyToken, channelAccessToken, [
-        {
-          type: "text",
-          text: "先に「作業を終了する」から終了方法を選んでください。",
-        },
+        { type: "text", text: "この操作は現在できません。" },
       ]);
       return;
     }
@@ -581,8 +640,104 @@ async function handleWelfarePostback(
       return;
     }
     await safeReply(replyToken, channelAccessToken, [
-      { type: "text", text: "病院名を教えてください" },
+      buildWelfareHospitalNameQuestionMessage(cast.default_hospital_name),
     ]);
+    return;
+  }
+
+  if (action.kind === "hospital_name_default") {
+    const { data: cur } = await supabase
+      .from("welfare_daily_logs")
+      .select("pending_line_flow")
+      .eq("id", log.id)
+      .maybeSingle();
+    if (cur?.pending_line_flow !== WELFARE_PENDING_HOSPITAL_NAME) {
+      await safeReply(replyToken, channelAccessToken, [
+        { type: "text", text: "病院名の質問から操作してください。" },
+      ]);
+      return;
+    }
+    const def = cast.default_hospital_name?.trim();
+    if (!def) {
+      await safeReply(replyToken, channelAccessToken, [
+        {
+          type: "text",
+          text: "かかりつけ病院が未登録です。病院名をテキストで入力してください。",
+        },
+      ]);
+      return;
+    }
+    const excerpt = def.length > 2000 ? `${def.slice(0, 2000)}…` : def;
+    const { error } = await supabase
+      .from("welfare_daily_logs")
+      .update({
+        hospital_name: excerpt,
+        pending_line_flow: WELFARE_PENDING_HOSPITAL_SYMPTOMS,
+        updated_at: nowIso,
+      })
+      .eq("id", log.id);
+    if (error) {
+      console.error("[Welfare] hospital_name_default:", error);
+      await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
+      return;
+    }
+    await safeReply(replyToken, channelAccessToken, [{ type: "text", text: HOSPITAL_Q2 }]);
+    return;
+  }
+
+  if (action.kind === "hospital_name_other") {
+    const { data: cur } = await supabase
+      .from("welfare_daily_logs")
+      .select("pending_line_flow")
+      .eq("id", log.id)
+      .maybeSingle();
+    if (cur?.pending_line_flow !== WELFARE_PENDING_HOSPITAL_NAME) {
+      await safeReply(replyToken, channelAccessToken, [
+        { type: "text", text: "病院名の質問から操作してください。" },
+      ]);
+      return;
+    }
+    await safeReply(replyToken, channelAccessToken, [
+      { type: "text", text: "病院名を入力してください" },
+    ]);
+    return;
+  }
+
+  if (action.kind === "hospital_duration") {
+    const { data: cur } = await supabase
+      .from("welfare_daily_logs")
+      .select("pending_line_flow")
+      .eq("id", log.id)
+      .maybeSingle();
+    if (cur?.pending_line_flow !== WELFARE_PENDING_HOSPITAL_DURATION) {
+      await safeReply(replyToken, channelAccessToken, [
+        { type: "text", text: "先に症状の入力を完了してください。" },
+      ]);
+      return;
+    }
+    if (action.slot === "other") {
+      await safeReply(replyToken, channelAccessToken, [
+        { type: "text", text: HOSPITAL_DURATION_DETAIL_PROMPT },
+      ]);
+      return;
+    }
+    const label = HOSPITAL_DURATION_LABEL[action.slot];
+    const { error } = await supabase
+      .from("welfare_daily_logs")
+      .update({
+        visit_duration: label,
+        is_hospital_visit: true,
+        ended_at: nowIso,
+        pending_line_flow: null,
+        updated_at: nowIso,
+      })
+      .eq("id", log.id);
+    if (error) {
+      console.error("[Welfare] hospital_duration:", error);
+      await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
+      return;
+    }
+    await safeReply(replyToken, channelAccessToken, [{ type: "text", text: HOSPITAL_DONE }]);
     return;
   }
 
@@ -594,7 +749,10 @@ async function handleWelfarePostback(
       .maybeSingle();
     if (current?.pending_line_flow !== WELFARE_PENDING_WORK_ITEM) {
       await safeReply(replyToken, channelAccessToken, [
-        { type: "text", text: "先に「作業を終了する」から手続きしてください。" },
+        {
+          type: "text",
+          text: "先に夕方のメニューから「通常の作業終了」を選び、作業項目を選択してください。",
+        },
       ]);
       return;
     }

@@ -1,7 +1,7 @@
 /**
  * B型事業所（welfare_b）向け Flex Message（キャバクラ系ロジックと独立）
  */
-import type { LineReplyMessage } from "@/lib/line-reply";
+import type { LineReplyMessage, LineTextQuickReplyItem } from "@/lib/line-reply";
 
 const BODY_COLOR = "#37474F";
 const BTN_PRIMARY = "#00838F";
@@ -44,6 +44,102 @@ function postbackButton(label: string, data: string): object {
       data,
       displayText: label,
     },
+  };
+}
+
+/** LINE クイックリプライのラベル上限（目安 20 文字） */
+export function truncateWelfareQuickReplyLabel(text: string, maxLen = 20): string {
+  const t = String(text ?? "").trim();
+  if (t.length <= maxLen) return t;
+  if (maxLen < 2) return "…";
+  return `${t.slice(0, maxLen - 1)}…`;
+}
+
+/** Q1 病院名: かかりつけがあればクイックリプライ付き */
+export function buildWelfareHospitalNameQuestionMessage(
+  defaultHospitalName: string | null | undefined
+): LineReplyMessage {
+  const text = "病院名を教えてください";
+  const def = typeof defaultHospitalName === "string" ? defaultHospitalName.trim() : "";
+  if (!def) {
+    return { type: "text", text };
+  }
+  const items: LineTextQuickReplyItem[] = [
+    {
+      type: "action",
+      action: {
+        type: "postback",
+        label: truncateWelfareQuickReplyLabel(def),
+        data: "welfare_action=hospital_name_default",
+        displayText: def.length > 300 ? `${def.slice(0, 300)}…` : def,
+      },
+    },
+    {
+      type: "action",
+      action: {
+        type: "postback",
+        label: "その他（手入力）",
+        data: "welfare_action=hospital_name_other",
+        displayText: "その他（手入力）",
+      },
+    },
+  ];
+  return { type: "text", text, quickReply: { items } };
+}
+
+/** Q3 通院時間: クイックリプライ（「その他」は postback で別処理） */
+export function buildWelfareHospitalDurationQuickReplyMessage(): LineReplyMessage {
+  const items: LineTextQuickReplyItem[] = [
+    {
+      type: "action",
+      action: {
+        type: "postback",
+        label: "1時間未満",
+        data: "welfare_action=hospital_duration&slot=under1",
+        displayText: "1時間未満",
+      },
+    },
+    {
+      type: "action",
+      action: {
+        type: "postback",
+        label: "1〜2時間",
+        data: "welfare_action=hospital_duration&slot=between1_2",
+        displayText: "1〜2時間",
+      },
+    },
+    {
+      type: "action",
+      action: {
+        type: "postback",
+        label: "2〜3時間",
+        data: "welfare_action=hospital_duration&slot=between2_3",
+        displayText: "2〜3時間",
+      },
+    },
+    {
+      type: "action",
+      action: {
+        type: "postback",
+        label: "半日（3時間以上）",
+        data: "welfare_action=hospital_duration&slot=halfday",
+        displayText: "半日（3時間以上）",
+      },
+    },
+    {
+      type: "action",
+      action: {
+        type: "postback",
+        label: "その他（手入力）",
+        data: "welfare_action=hospital_duration&slot=other",
+        displayText: "その他（手入力）",
+      },
+    },
+  ];
+  return {
+    type: "text",
+    text: "通院にかかった時間（目安）を選んでください",
+    quickReply: { items },
   };
 }
 
@@ -129,7 +225,7 @@ export function buildWelfareMiddayHealthFlexMessage(
   };
 }
 
-/** ③ 夕方17:00 作業終了（終了ボタンのみ） */
+/** ③ 夕方17:00 作業終了（通常終了 / 通院報告をその場で選択） */
 export function buildWelfareEveningEndFlexMessage(
   bodyText?: string | null
 ): LineReplyMessage {
@@ -158,11 +254,18 @@ export function buildWelfareEveningEndFlexMessage(
       },
       footer: {
         type: "box",
-        layout: "vertical" as const,
+        layout: "horizontal" as const,
         paddingAll: "20px",
         paddingTop: "12px",
         spacing: "sm" as const,
-        contents: [postbackButton("作業を終了する", "welfare_action=end_work")],
+        contents: [
+          Object.assign(postbackButton("通常の作業終了", "welfare_action=end_work_normal"), {
+            flex: 1,
+          }),
+          Object.assign(postbackButton("通院報告をして終了", "welfare_action=end_work_hospital"), {
+            flex: 1,
+          }),
+        ],
       },
     },
   };
