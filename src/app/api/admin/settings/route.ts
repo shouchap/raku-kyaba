@@ -570,8 +570,8 @@ type PatchBody = {
   welfare_message_welcome?: string | null;
   /** カンマ区切り作業項目。未指定なら更新しない */
   welfare_work_items?: string | null;
-  /** キャバクラ系 / BAR（welfare_b では無効） */
-  business_type?: "cabaret" | "bar";
+  /** キャバクラ / BAR / 福祉（welfare_b） */
+  business_type?: "cabaret" | "welfare_b" | "bar";
   ask_guest_name?: boolean;
   ask_guest_time?: boolean;
 };
@@ -714,28 +714,26 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const { data: stRow, error: stErr } = await adminWelfare
+    const { data: stExists, error: stErr } = await adminWelfare
       .from("stores")
-      .select("business_type")
+      .select("id")
       .eq("id", storeId)
       .maybeSingle();
 
     if (stErr) {
-      logPostgrestError("PATCH welfare stores business_type", stErr);
+      logPostgrestError("PATCH welfare stores lookup", stErr);
       return NextResponse.json(
         { error: "Failed to load store", details: stErr.message, code: stErr.code },
         { status: 500 }
       );
     }
-    if (stRow?.business_type !== "welfare_b") {
-      return NextResponse.json(
-        { error: "welfare_settings_patch is only for stores with business_type welfare_b" },
-        { status: 400 }
-      );
+    if (!stExists) {
+      return NextResponse.json({ error: "Store not found" }, { status: 404 });
     }
 
     const nowIso = new Date().toISOString();
     const payload: Record<string, unknown> = {
+      business_type: "welfare_b",
       welfare_message_morning: wm.trim() === "" ? null : wm.trim(),
       welfare_message_midday: wmd.trim() === "" ? null : wmd.trim(),
       welfare_message_evening: we.trim() === "" ? null : we.trim(),
@@ -814,7 +812,9 @@ export async function PATCH(request: Request) {
   const regularRemindMessageProvided = typeof body.regular_remind_message === "string";
   const regularStartTimeProvided = Object.prototype.hasOwnProperty.call(body, "regular_start_time");
   const businessTypeProvided =
-    body.business_type === "cabaret" || body.business_type === "bar";
+    body.business_type === "cabaret" ||
+    body.business_type === "welfare_b" ||
+    body.business_type === "bar";
   const askGuestNameProvided = typeof body.ask_guest_name === "boolean";
   const askGuestTimeProvided = typeof body.ask_guest_time === "boolean";
 
@@ -1055,7 +1055,7 @@ export async function PATCH(request: Request) {
       }
     }
     if (businessTypeProvided) {
-      storePayload.business_type = body.business_type as "cabaret" | "bar";
+      storePayload.business_type = body.business_type as "cabaret" | "welfare_b" | "bar";
     }
     if (askGuestNameProvided) {
       storePayload.ask_guest_name = body.ask_guest_name as boolean;

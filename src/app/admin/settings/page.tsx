@@ -258,6 +258,7 @@ export default function AdminSettingsPage() {
           body: JSON.stringify({
             storeId: activeStoreId,
             welfare_settings_patch: true,
+            business_type: "welfare_b",
             welfare_message_morning: welfareMorning,
             welfare_message_midday: welfareMidday,
             welfare_message_evening: welfareEvening,
@@ -324,7 +325,7 @@ export default function AdminSettingsPage() {
           regular_remind_message:
             regularRemindMessage.trim() || DEFAULT_REGULAR_REMIND_BODY,
           regular_start_time: regularStartTime.trim() === "" ? null : regularStartTime.trim(),
-          business_type: businessType === "bar" ? "bar" : "cabaret",
+          business_type: businessType,
           ask_guest_name: askGuestName,
           ask_guest_time: askGuestTime,
         }),
@@ -411,9 +412,9 @@ export default function AdminSettingsPage() {
           </h1>
           <p className="text-xs sm:text-sm text-gray-600">
             {businessType === "welfare_b"
-              ? "B型事業所向けの定期配信メッセージを管理します"
+              ? "福祉施設向けの定期配信メッセージを管理します"
               : businessType === "bar"
-                ? "ELINE（BAR）向けのリマインド・来客ヒアリングを管理します"
+                ? "BAR 向けのリマインド・来客ヒアリングを管理します"
                 : "リマインド・各種設定を管理します"}
           </p>
         </div>
@@ -422,6 +423,45 @@ export default function AdminSettingsPage() {
           onSubmit={handleSave}
           className="rounded-lg border border-gray-200 bg-white shadow-sm p-4 sm:p-6"
         >
+          <div className="mb-8 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-4">
+            <h3 className="text-sm font-medium text-gray-900 mb-3">業態</h3>
+            <p className="text-xs text-gray-600 mb-4">
+              キャバクラ・BAR・福祉で、LINEのリマインドやヒアリングの挙動、および日報のデータ構造が異なります。店舗の業態に合わせて正しく選択してください。
+            </p>
+            <div className="flex flex-col sm:flex-row flex-wrap gap-3">
+              <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-gray-800">
+                <input
+                  type="radio"
+                  name="storeBusinessType"
+                  checked={businessType === "cabaret"}
+                  onChange={() => setBusinessType("cabaret")}
+                  className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                キャバクラ
+              </label>
+              <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-gray-800">
+                <input
+                  type="radio"
+                  name="storeBusinessType"
+                  checked={businessType === "bar"}
+                  onChange={() => setBusinessType("bar")}
+                  className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                BAR
+              </label>
+              <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-gray-800">
+                <input
+                  type="radio"
+                  name="storeBusinessType"
+                  checked={businessType === "welfare_b"}
+                  onChange={() => setBusinessType("welfare_b")}
+                  className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                福祉
+              </label>
+            </div>
+          </div>
+
           {businessType === "welfare_b" ? (
             <>
               <h2 className="text-sm font-medium text-gray-700 mb-6">
@@ -619,36 +659,6 @@ export default function AdminSettingsPage() {
                 リマインド設定
               </h2>
 
-              <div className="mb-8 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-4">
-                <h3 className="text-sm font-medium text-gray-900 mb-3">業態</h3>
-                <p className="text-xs text-gray-600 mb-4">
-                  キャバクラ系と ELINE（BAR）では LINE の来客ヒアリング挙動が異なります。BAR
-                  を選ぶと下記の「出勤時の質問設定」が表示されます。
-                </p>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-gray-800">
-                    <input
-                      type="radio"
-                      name="storeBusinessType"
-                      checked={businessType === "cabaret"}
-                      onChange={() => setBusinessType("cabaret")}
-                      className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    キャバクラ系
-                  </label>
-                  <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-gray-800">
-                    <input
-                      type="radio"
-                      name="storeBusinessType"
-                      checked={businessType === "bar"}
-                      onChange={() => setBusinessType("bar")}
-                      className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    ELINE（BAR）
-                  </label>
-                </div>
-              </div>
-
           {/* 有効/無効 */}
           <div className="mb-6">
             <label className="flex items-center gap-3 cursor-pointer">
@@ -835,7 +845,7 @@ export default function AdminSettingsPage() {
           {businessType === "bar" && (
             <div className="mb-8 rounded-lg border border-indigo-200 bg-indigo-50/70 px-4 py-4">
               <h3 className="text-sm font-medium text-gray-900 mb-2">
-                出勤時の質問設定（BAR / ELINE）
+                出勤時の質問設定（BAR）
               </h3>
               <p className="text-xs text-gray-600 mb-4">
                 組数の回答後、来客の名前・来店時間をどこまで聞くかを店舗ごとに設定します（BAR
