@@ -141,6 +141,7 @@ export default function AdminCastsPage() {
       setEditName("");
       setEditIsAdmin(false);
       setEditEmployment("part_time");
+      setEditDefaultHospital("");
     }
   };
 
@@ -149,6 +150,9 @@ export default function AdminCastsPage() {
       `「${cast.name}」さんを削除しますか？\n関連するシフト・出勤記録も削除されます。`
     );
     if (!ok) return;
+    if (cast.id === editingId) {
+      handleCancelEdit();
+    }
     setDeletingId(cast.id);
     setMessage(null);
     try {
@@ -179,161 +183,209 @@ export default function AdminCastsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="flex min-h-[40vh] items-center justify-center px-4 py-12">
         <p className="text-gray-500 text-sm sm:text-base">読み込み中...</p>
       </div>
     );
   }
 
   const isWelfare = store?.business_type === "welfare_b";
+  const listTitle = isWelfare ? "利用者一覧" : "キャスト一覧";
+  const editPanelTitle = isWelfare ? "利用者情報の編集" : "キャスト情報の編集";
 
   return (
-    <div className="min-h-screen bg-gray-50 py-4 sm:py-6 px-3 sm:px-6">
-      <div className="max-w-2xl mx-auto">
-        <div className="mb-4 sm:mb-6">
-          <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
-            {isWelfare ? "利用者管理" : "キャスト管理"}
-          </h1>
-          <p className="text-xs sm:text-sm text-gray-600">
-            {store?.name ?? "店舗"}
-          </p>
-        </div>
+    <div className="w-full p-4 sm:p-6 lg:p-8">
+      <div className="mb-6">
+        <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
+          {isWelfare ? "利用者管理" : "キャスト管理"}
+        </h1>
+        <p className="text-xs sm:text-sm text-gray-600">{store?.name ?? "店舗"}</p>
+      </div>
 
-        <div className="w-full rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <ul className="divide-y divide-gray-200">
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-8">
+        {/* 左: 一覧（約 40%） */}
+        <section
+          className="flex w-full min-w-0 flex-[2] flex-col rounded-xl border border-gray-200 bg-white shadow-sm"
+          aria-labelledby="casts-list-heading"
+        >
+          <div className="border-b border-gray-100 px-4 py-3 sm:px-5">
+            <h2 id="casts-list-heading" className="text-sm font-semibold text-gray-900">
+              {listTitle}
+            </h2>
+          </div>
+          <ul className="max-h-[min(70vh,720px)] divide-y divide-gray-100 overflow-y-auto overscroll-contain">
             {casts.length === 0 ? (
-              <li className="px-3 sm:px-4 py-6 sm:py-8 text-center text-gray-500 text-sm">
+              <li className="px-4 py-10 text-center text-sm text-gray-500 sm:px-5">
                 {isWelfare
                   ? "利用者が登録されていません。LINEで友だち追加すると自動登録されます。"
                   : "キャストが登録されていません。LINEで友だち追加すると自動登録されます。"}
               </li>
             ) : (
-              casts.map((cast) => (
-                <li
-                  key={cast.id}
-                  className="flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 hover:bg-gray-50"
-                >
-                  {editingId === cast.id ? (
-                    <>
-                      <div className="flex-1 min-w-0 flex flex-col sm:flex-row gap-2">
-                        <input
-                          type="text"
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleSaveEdit();
-                            if (e.key === "Escape") handleCancelEdit();
-                          }}
-                          className="flex-1 min-w-0 min-h-[44px] px-3 py-2 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                          placeholder={isWelfare ? "利用者名" : "名前"}
-                          autoFocus
-                        />
-                        <label className="flex flex-col gap-1 min-w-0 flex-1 sm:max-w-xs">
-                          <span className="text-xs text-gray-500">権限・勤務形態</span>
-                          <select
-                            value={editEmployment}
-                            onChange={(e) =>
-                              setEditEmployment(e.target.value as CastEmploymentType)
-                            }
-                            className="min-h-[44px] px-3 py-2 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
-                          >
-                            {EMPLOYMENT_OPTIONS.map((opt) => (
-                              <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="flex items-center gap-2 shrink-0 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={editIsAdmin}
-                            onChange={(e) => setEditIsAdmin(e.target.checked)}
-                            className="w-4 h-4 rounded border-gray-300 text-amber-500 focus:ring-amber-500"
-                          />
-                          <span className="text-sm text-gray-700">管理者通知</span>
-                        </label>
-                        {isWelfare && (
-                          <label className="flex flex-col gap-1 min-w-0 w-full">
-                            <span className="text-xs text-gray-500">かかりつけ病院（通院報告の候補）</span>
-                            <input
-                              type="text"
-                              value={editDefaultHospital}
-                              onChange={(e) => setEditDefaultHospital(e.target.value)}
-                              placeholder="例：〇〇総合病院"
-                              className="w-full min-h-[44px] px-3 py-2 text-base border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                              autoComplete="organization"
-                            />
-                          </label>
-                        )}
-                      </div>
+              casts.map((cast) => {
+                const selected = editingId === cast.id;
+                return (
+                  <li
+                    key={cast.id}
+                    className={`flex flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 ${
+                      selected
+                        ? "bg-sky-50/90 border-l-4 border-sky-300"
+                        : "hover:bg-gray-50/90"
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900 sm:text-base">
+                      {cast.name}
+                    </span>
+                    {!isWelfare && (
+                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                        {employmentLabel(cast)}
+                      </span>
+                    )}
+                    {cast.is_admin && (
+                      <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                        👑 通知
+                      </span>
+                    )}
+                    <div className="ml-auto flex shrink-0 gap-2">
                       <button
                         type="button"
-                        onClick={handleSaveEdit}
-                        disabled={saving}
-                        className="min-h-[44px] px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 touch-manipulation"
+                        onClick={() => handleStartEdit(cast)}
+                        disabled={deletingId !== null}
+                        className="min-h-[40px] rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-800 hover:bg-white disabled:opacity-50 sm:text-sm touch-manipulation"
                       >
-                        {saving ? "保存中..." : "保存"}
+                        編集
                       </button>
                       <button
                         type="button"
-                        onClick={handleCancelEdit}
-                        disabled={saving}
-                        className="min-h-[44px] px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 touch-manipulation"
+                        onClick={() => handleDelete(cast)}
+                        disabled={deletingId !== null}
+                        className="min-h-[40px] rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 sm:text-sm touch-manipulation"
                       >
-                        キャンセル
+                        {deletingId === cast.id ? "削除中..." : "削除"}
                       </button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="flex-1 min-w-0 font-medium text-gray-900 text-sm sm:text-base truncate">{cast.name}</span>
-                      {!isWelfare && (
-                        <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
-                          {employmentLabel(cast)}
-                        </span>
-                      )}
-                      {cast.is_admin && (
-                        <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium">
-                          👑 通知
-                        </span>
-                      )}
-                      <div className="flex gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleStartEdit(cast)}
-                          disabled={deletingId !== null}
-                          className="min-h-[44px] px-3 py-2 text-xs sm:text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 touch-manipulation"
-                        >
-                          編集
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(cast)}
-                          disabled={deletingId !== null}
-                          className="min-h-[44px] px-3 py-2 text-xs sm:text-sm border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50 touch-manipulation"
-                        >
-                          {deletingId === cast.id ? "削除中..." : "削除"}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </li>
-              ))
+                    </div>
+                  </li>
+                );
+              })
             )}
           </ul>
-        </div>
+        </section>
 
-        {message === "success" && (
-          <p className="mt-4 text-green-600 text-sm font-medium">
-            完了しました
-          </p>
-        )}
-        {message === "error" && (
-          <p className="mt-4 text-red-600 text-sm">
-            処理に失敗しました。再度お試しください。
-          </p>
-        )}
+        {/* 右: 編集フォーム（約 60%） */}
+        <section
+          className="flex w-full min-w-0 flex-[3] flex-col rounded-xl border border-gray-200 bg-white shadow-sm"
+          aria-labelledby="casts-edit-heading"
+        >
+          <div className="border-b border-gray-100 px-4 py-3 sm:px-5">
+            <h2 id="casts-edit-heading" className="text-sm font-semibold text-gray-900">
+              {editPanelTitle}
+            </h2>
+          </div>
+
+          <div className="flex min-h-[min(70vh,640px)] flex-1 flex-col p-4 sm:p-5">
+            {!editingId ? (
+              <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50/70 px-4 py-16 text-center">
+                <p className="max-w-sm text-sm leading-relaxed text-gray-500">
+                  左の一覧から「編集」を押すと、ここに{isWelfare ? "利用者" : "キャスト"}
+                  情報のフォームが表示されます。
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-1 flex-col gap-6">
+                <div className="flex w-full flex-col gap-4">
+                  <label className="block w-full">
+                    <span className="mb-1.5 block text-xs font-medium text-gray-600">
+                      {isWelfare ? "利用者名" : "名前"}
+                    </span>
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSaveEdit();
+                        if (e.key === "Escape") handleCancelEdit();
+                      }}
+                      className="w-full min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      placeholder={isWelfare ? "利用者名" : "名前"}
+                      autoFocus
+                    />
+                  </label>
+
+                  <label className="block w-full">
+                    <span className="mb-1.5 block text-xs font-medium text-gray-600">
+                      権限・勤務形態
+                    </span>
+                    <select
+                      value={editEmployment}
+                      onChange={(e) =>
+                        setEditEmployment(e.target.value as CastEmploymentType)
+                      }
+                      className="w-full min-h-[44px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      {EMPLOYMENT_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="flex w-full cursor-pointer items-start gap-3 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={editIsAdmin}
+                      onChange={(e) => setEditIsAdmin(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-amber-500 focus:ring-amber-500"
+                    />
+                    <span className="text-sm leading-snug text-gray-700">管理者通知を受け取る</span>
+                  </label>
+
+                  {isWelfare && (
+                    <label className="block w-full">
+                      <span className="mb-1.5 block text-xs font-medium text-gray-600">
+                        かかりつけ病院（通院報告の候補）
+                      </span>
+                      <input
+                        type="text"
+                        value={editDefaultHospital}
+                        onChange={(e) => setEditDefaultHospital(e.target.value)}
+                        placeholder="例：〇〇総合病院"
+                        className="w-full min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                        autoComplete="organization"
+                      />
+                    </label>
+                  )}
+                </div>
+
+                <div className="mt-auto flex w-full flex-wrap gap-3 border-t border-gray-100 pt-5">
+                  <button
+                    type="button"
+                    onClick={handleSaveEdit}
+                    disabled={saving}
+                    className="min-h-[44px] min-w-[6rem] rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 touch-manipulation"
+                  >
+                    {saving ? "保存中..." : "保存"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    disabled={saving}
+                    className="min-h-[44px] rounded-lg border border-gray-300 bg-white px-5 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50 touch-manipulation"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
       </div>
+
+      {message === "success" && (
+        <p className="mt-6 text-sm font-medium text-green-600">完了しました</p>
+      )}
+      {message === "error" && (
+        <p className="mt-6 text-sm text-red-600">処理に失敗しました。再度お試しください。</p>
+      )}
     </div>
   );
 }
