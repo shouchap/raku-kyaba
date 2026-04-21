@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
+import { normalizeDefaultHospitalNames } from "@/lib/welfare-line-flex";
 import type { CastEmploymentType } from "@/types/entities";
 
 type Cast = {
@@ -12,8 +13,8 @@ type Cast = {
   line_user_id?: string;
   is_admin?: boolean;
   employment_type?: CastEmploymentType | null;
-  /** 福祉: かかりつけ病院（LINE 通院報告） */
-  default_hospital_name?: string | null;
+  /** 福祉: かかりつけ病院（LINE 通院報告・複数可） */
+  default_hospital_names?: string[] | null;
   created_at?: string;
 };
 
@@ -39,7 +40,7 @@ export default function AdminCastsPage() {
   const [editName, setEditName] = useState("");
   const [editIsAdmin, setEditIsAdmin] = useState(false);
   const [editEmployment, setEditEmployment] = useState<CastEmploymentType>("part_time");
-  const [editDefaultHospital, setEditDefaultHospital] = useState("");
+  const [editHospitalNames, setEditHospitalNames] = useState<string[]>([""]);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState<"success" | "error" | null>(null);
@@ -51,7 +52,7 @@ export default function AdminCastsPage() {
       const [castsRes, storesRes] = await Promise.all([
         supabase
           .from("casts")
-          .select("id, name, store_id, line_user_id, is_admin, employment_type, default_hospital_name")
+          .select("id, name, store_id, line_user_id, is_admin, employment_type, default_hospital_names")
           .eq("store_id", storeId)
           .eq("is_active", true)
           .order("name"),
@@ -79,9 +80,8 @@ export default function AdminCastsPage() {
     setEditEmployment(
       em === "admin" || em === "regular" || em === "part_time" ? em : "part_time"
     );
-    setEditDefaultHospital(
-      typeof cast.default_hospital_name === "string" ? cast.default_hospital_name : ""
-    );
+    const names = normalizeDefaultHospitalNames(cast.default_hospital_names);
+    setEditHospitalNames(names.length > 0 ? [...names] : [""]);
   };
 
   const handleCancelEdit = () => {
@@ -89,7 +89,7 @@ export default function AdminCastsPage() {
     setEditName("");
     setEditIsAdmin(false);
     setEditEmployment("part_time");
-    setEditDefaultHospital("");
+    setEditHospitalNames([""]);
   };
 
   const handleSaveEdit = async () => {
@@ -108,7 +108,7 @@ export default function AdminCastsPage() {
         employment_type: editEmployment,
       };
       if (store?.business_type === "welfare_b") {
-        payload.default_hospital_name = editDefaultHospital.trim() || null;
+        payload.default_hospital_names = normalizeDefaultHospitalNames(editHospitalNames);
       }
       const { error } = await supabase
         .from("casts")
@@ -125,7 +125,9 @@ export default function AdminCastsPage() {
                 is_admin: editIsAdmin,
                 employment_type: editEmployment,
                 ...(store?.business_type === "welfare_b"
-                  ? { default_hospital_name: editDefaultHospital.trim() || null }
+                  ? {
+                      default_hospital_names: normalizeDefaultHospitalNames(editHospitalNames),
+                    }
                   : {}),
               }
             : c
@@ -141,7 +143,7 @@ export default function AdminCastsPage() {
       setEditName("");
       setEditIsAdmin(false);
       setEditEmployment("part_time");
-      setEditDefaultHospital("");
+      setEditHospitalNames([""]);
     }
   };
 
@@ -340,19 +342,52 @@ export default function AdminCastsPage() {
                   </label>
 
                   {isWelfare && (
-                    <label className="block w-full">
+                    <div className="block w-full">
                       <span className="mb-1.5 block text-xs font-medium text-gray-600">
                         かかりつけ病院（通院報告の候補）
                       </span>
-                      <input
-                        type="text"
-                        value={editDefaultHospital}
-                        onChange={(e) => setEditDefaultHospital(e.target.value)}
-                        placeholder="例：〇〇総合病院"
-                        className="w-full min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                        autoComplete="organization"
-                      />
-                    </label>
+                      <div className="flex flex-col gap-2">
+                        {editHospitalNames.map((row, idx) => (
+                          <div key={idx} className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={row}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setEditHospitalNames((prev) => {
+                                  const next = [...prev];
+                                  next[idx] = v;
+                                  return next;
+                                });
+                              }}
+                              placeholder="例：〇〇総合病院"
+                              className="min-h-[44px] flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                              autoComplete="organization"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditHospitalNames((prev) =>
+                                  prev.length <= 1 ? [""] : prev.filter((_, i) => i !== idx)
+                                )
+                              }
+                              className="shrink-0 min-h-[44px] min-w-[44px] rounded-lg border border-gray-300 bg-white px-2 text-sm text-gray-700 hover:bg-gray-50 touch-manipulation"
+                              title="この行を削除"
+                              aria-label="削除"
+                            >
+                              ❌
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditHospitalNames((p) => [...p, ""])}
+                        className="mt-3 min-h-[40px] rounded-lg border border-dashed border-gray-300 bg-gray-50/80 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 touch-manipulation"
+                      >
+                        ＋ 追加
+                      </button>
+                    </div>
                   )}
                 </div>
 

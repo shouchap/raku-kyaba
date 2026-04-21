@@ -55,35 +55,51 @@ export function truncateWelfareQuickReplyLabel(text: string, maxLen = 20): strin
   return `${t.slice(0, maxLen - 1)}…`;
 }
 
-/** Q1 病院名: かかりつけがあればクイックリプライ付き */
+/** クイックリプライ上限 13 件のうち「その他」用に 1 枠確保 */
+const MAX_HOSPITAL_QUICK_REPLIES = 12;
+
+/** DB / API から受け取った値を表示・照合用に正規化（trim・重複除去） */
+export function normalizeDefaultHospitalNames(raw: unknown): string[] {
+  if (!raw || !Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const x of raw) {
+    const t = typeof x === "string" ? x.trim() : "";
+    if (t && !seen.has(t)) {
+      seen.add(t);
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+/** Q1 病院名: かかりつけがあれば病院ごとにクイックリプライ＋その他 */
 export function buildWelfareHospitalNameQuestionMessage(
-  defaultHospitalName: string | null | undefined
+  defaultHospitalNames: string[] | null | undefined
 ): LineReplyMessage {
   const text = "病院名を教えてください";
-  const def = typeof defaultHospitalName === "string" ? defaultHospitalName.trim() : "";
-  if (!def) {
+  const names = normalizeDefaultHospitalNames(defaultHospitalNames);
+  if (names.length === 0) {
     return { type: "text", text };
   }
-  const items: LineTextQuickReplyItem[] = [
-    {
-      type: "action",
-      action: {
-        type: "postback",
-        label: truncateWelfareQuickReplyLabel(def),
-        data: "welfare_action=hospital_name_default",
-        displayText: def.length > 300 ? `${def.slice(0, 300)}…` : def,
-      },
+  const items: LineTextQuickReplyItem[] = names.slice(0, MAX_HOSPITAL_QUICK_REPLIES).map((name) => ({
+    type: "action",
+    action: {
+      type: "postback",
+      label: truncateWelfareQuickReplyLabel(name),
+      data: `welfare_action=hospital_name_pick&name=${encodeURIComponent(name)}`,
+      displayText: name.length > 300 ? `${name.slice(0, 300)}…` : name,
     },
-    {
-      type: "action",
-      action: {
-        type: "postback",
-        label: "その他（手入力）",
-        data: "welfare_action=hospital_name_other",
-        displayText: "その他（手入力）",
-      },
+  }));
+  items.push({
+    type: "action",
+    action: {
+      type: "postback",
+      label: "その他（手入力）",
+      data: "welfare_action=hospital_name_other",
+      displayText: "その他（手入力）",
     },
-  ];
+  });
   return { type: "text", text, quickReply: { items } };
 }
 
@@ -254,17 +270,13 @@ export function buildWelfareEveningEndFlexMessage(
       },
       footer: {
         type: "box",
-        layout: "horizontal" as const,
+        layout: "vertical" as const,
         paddingAll: "20px",
         paddingTop: "12px",
-        spacing: "sm" as const,
+        spacing: "md" as const,
         contents: [
-          Object.assign(postbackButton("通常の作業終了", "welfare_action=end_work_normal"), {
-            flex: 1,
-          }),
-          Object.assign(postbackButton("通院報告をして終了", "welfare_action=end_work_hospital"), {
-            flex: 1,
-          }),
+          postbackButton("通常の作業終了", "welfare_action=end_work_normal"),
+          postbackButton("通院報告をして終了", "welfare_action=end_work_hospital"),
         ],
       },
     },

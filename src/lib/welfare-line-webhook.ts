@@ -13,6 +13,7 @@ import {
   buildWelfareMiddayHealthFlexMessage,
   buildWelfareMorningStartFlexMessage,
   buildWelfareWorkItemSelectFlexMessage,
+  normalizeDefaultHospitalNames,
 } from "@/lib/welfare-line-flex";
 import type { LineMessageEvent, LinePostbackEvent } from "@/types/line-webhook";
 
@@ -53,6 +54,7 @@ type WelfareAction =
   | { kind: "end_work" }
   | { kind: "end_work_normal" }
   | { kind: "end_work_hospital" }
+  | { kind: "hospital_name_pick"; name: string }
   | { kind: "hospital_name_default" }
   | { kind: "hospital_name_other" }
   | { kind: "hospital_duration"; slot: "under1" | "between1_2" | "between2_3" | "halfday" | "other" }
@@ -72,6 +74,13 @@ export function parseWelfarePostbackData(raw: string): WelfareAction | null {
   if (action === "end_work") return { kind: "end_work" };
   if (action === "end_work_normal") return { kind: "end_work_normal" };
   if (action === "end_work_hospital") return { kind: "end_work_hospital" };
+  if (action === "hospital_name_pick") {
+    const raw = sp.get("name");
+    if (raw == null) return null;
+    const name = String(raw).trim();
+    if (!name) return null;
+    return { kind: "hospital_name_pick", name };
+  }
   if (action === "hospital_name_default") return { kind: "hospital_name_default" };
   if (action === "hospital_name_other") return { kind: "hospital_name_other" };
   if (action === "hospital_duration") {
@@ -99,19 +108,19 @@ async function getCastForWelfare(
   supabase: ReturnType<typeof createSupabaseClient>,
   storeId: string,
   lineUserId: string
-): Promise<{ id: string; default_hospital_name: string | null } | null> {
+): Promise<{ id: string; default_hospital_names: string[] } | null> {
   const { data } = await supabase
     .from("casts")
-    .select("id, default_hospital_name")
+    .select("id, default_hospital_names")
     .eq("store_id", storeId)
     .eq("line_user_id", lineUserId)
     .eq("is_active", true)
     .maybeSingle();
   if (!data?.id) return null;
-  const raw = (data as { id: string; default_hospital_name?: string | null }).default_hospital_name;
+  const raw = (data as { default_hospital_names?: unknown }).default_hospital_names;
   return {
     id: data.id,
-    default_hospital_name: typeof raw === "string" && raw.trim() ? raw.trim() : null,
+    default_hospital_names: normalizeDefaultHospitalNames(raw),
   };
 }
 
@@ -290,6 +299,31 @@ const HOSPITAL_EMPTY_REPLY = "内容を入力してください。";
 const HOSPITAL_Q2 = "症状や診察内容を教えてください";
 const HOSPITAL_DONE =
   "通院報告を記録して作業を終了しました。お疲れ様でした。";
+
+async function applyHospitalNameQuickPick(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  logId: string,
+  pickedName: string,
+  nowIso: string,
+  replyToken: string | undefined,
+  channelAccessToken: string | undefined
+): Promise<void> {
+  const excerpt = pickedName.length > 2000 ? `${pickedName.slice(0, 2000)}…` : pickedName;
+  const { error } = await supabase
+    .from("welfare_daily_logs")
+    .update({
+      hospital_name: excerpt,
+      pending_line_flow: WELFARE_PENDING_HOSPITAL_SYMPTOMS,
+      updated_at: nowIso,
+    })
+    .eq("id", logId);
+  if (error) {
+    console.error("[Welfare] hospital_name quick pick:", error);
+    await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
+    return;
+  }
+  await safeReply(replyToken, channelAccessToken, [{ type: "text", text: HOSPITAL_Q2 }]);
+}
 
 /**
  * 通院報告 3 問（pending: hospital_name → symptoms → duration）
@@ -640,8 +674,39 @@ async function handleWelfarePostback(
       return;
     }
     await safeReply(replyToken, channelAccessToken, [
-      buildWelfareHospitalNameQuestionMessage(cast.default_hospital_name),
+      buildWelfareHospitalNameQuestionMessage(cast.default_hospital_names),
     ]);
+    return;
+  }
+
+  if (action.kind === "hospital_name_pick") {
+    const { data: cur } = await supabase
+      .from("welfare_daily_logs")
+      .select("pending_line_flow")
+      .eq("id", log.id)
+      .maybeSingle();
+    if (cur?.pending_line_flow !== WELFARE_PENDING_HOSPITAL_NAME) {
+      await safeReply(replyToken, channelAccessToken, [
+        { type: "text", text: "病院名の質問から操作してください。" },
+      ]);
+      return;
+    }
+    const allowed = normalizeDefaultHospitalNames(cast.default_hospital_names);
+    if (!allowed.includes(action.name)) {
+      await safeReply(replyToken, channelAccessToken, [
+        { type: "text", text: "登録されていない病院名です。ボタンから選び直してください。" },
+        buildWelfareHospitalNameQuestionMessage(allowed),
+      ]);
+      return;
+    }
+    await applyHospitalNameQuickPick(
+      supabase,
+      log.id,
+      action.name,
+      nowIso,
+      replyToken,
+      channelAccessToken
+    );
     return;
   }
 
@@ -657,8 +722,8 @@ async function handleWelfarePostback(
       ]);
       return;
     }
-    const def = cast.default_hospital_name?.trim();
-    if (!def) {
+    const allowed = normalizeDefaultHospitalNames(cast.default_hospital_names);
+    if (allowed.length === 0) {
       await safeReply(replyToken, channelAccessToken, [
         {
           type: "text",
@@ -667,21 +732,20 @@ async function handleWelfarePostback(
       ]);
       return;
     }
-    const excerpt = def.length > 2000 ? `${def.slice(0, 2000)}…` : def;
-    const { error } = await supabase
-      .from("welfare_daily_logs")
-      .update({
-        hospital_name: excerpt,
-        pending_line_flow: WELFARE_PENDING_HOSPITAL_SYMPTOMS,
-        updated_at: nowIso,
-      })
-      .eq("id", log.id);
-    if (error) {
-      console.error("[Welfare] hospital_name_default:", error);
-      await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
+    if (allowed.length === 1) {
+      await applyHospitalNameQuickPick(
+        supabase,
+        log.id,
+        allowed[0]!,
+        nowIso,
+        replyToken,
+        channelAccessToken
+      );
       return;
     }
-    await safeReply(replyToken, channelAccessToken, [{ type: "text", text: HOSPITAL_Q2 }]);
+    await safeReply(replyToken, channelAccessToken, [
+      buildWelfareHospitalNameQuestionMessage(allowed),
+    ]);
     return;
   }
 

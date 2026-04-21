@@ -118,14 +118,19 @@ export interface Database {
           employment_type: "admin" | "regular" | "part_time" | null;
           /** シフトなしレギュラー向けリマインドの最終送信日（JST） */
           last_reminder_sent_date: string | null;
-          /** 福祉: かかりつけ病院（通院報告のクイックリプライ） */
-          default_hospital_name: string | null;
+          /** 福祉: かかりつけ病院（通院報告のクイックリプライ・複数可） */
+          default_hospital_names: string[];
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["casts"]["Row"], "id" | "created_at" | "updated_at"> & {
+        Insert: Omit<
+          Database["public"]["Tables"]["casts"]["Row"],
+          "id" | "created_at" | "updated_at" | "default_hospital_names"
+        > & {
           id?: string;
           is_active?: boolean;
+          /** 省略時は DB 既定で {} */
+          default_hospital_names?: string[];
           created_at?: string;
           updated_at?: string;
         };
