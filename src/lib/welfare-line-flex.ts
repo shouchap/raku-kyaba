@@ -103,58 +103,81 @@ export function buildWelfareHospitalNameQuestionMessage(
   return { type: "text", text, quickReply: { items } };
 }
 
-/** Q3 通院時間: クイックリプライ（「その他」は postback で別処理） */
-export function buildWelfareHospitalDurationQuickReplyMessage(): LineReplyMessage {
-  const items: LineTextQuickReplyItem[] = [
-    {
-      type: "action",
-      action: {
-        type: "postback",
-        label: "1時間未満",
-        data: "welfare_action=hospital_duration&slot=under1",
-        displayText: "1時間未満",
-      },
+export const WELFARE_HOSPITAL_START_TIMES = [
+  "9時",
+  "10時",
+  "11時",
+  "12時",
+  "13時",
+  "14時",
+  "15時",
+  "16時",
+  "17時",
+] as const;
+
+export const WELFARE_HOSPITAL_END_TIMES = [
+  "10時",
+  "11時",
+  "12時",
+  "13時",
+  "14時",
+  "15時",
+  "16時",
+  "17時",
+  "18時",
+] as const;
+
+/** Q3-1 通院開始時間 */
+export function buildWelfareHospitalStartTimeQuickReplyMessage(): LineReplyMessage {
+  const items: LineTextQuickReplyItem[] = WELFARE_HOSPITAL_START_TIMES.map((t) => ({
+    type: "action",
+    action: {
+      type: "postback",
+      label: t,
+      data: `welfare_action=hospital_duration_start&start_time=${encodeURIComponent(t)}`,
+      displayText: t,
     },
-    {
-      type: "action",
-      action: {
-        type: "postback",
-        label: "1〜2時間",
-        data: "welfare_action=hospital_duration&slot=between1_2",
-        displayText: "1〜2時間",
-      },
+  }));
+  items.push({
+    type: "action",
+    action: {
+      type: "postback",
+      label: "その他（手入力）",
+      data: "welfare_action=hospital_duration_start_other",
+      displayText: "その他（手入力）",
     },
-    {
-      type: "action",
-      action: {
-        type: "postback",
-        label: "2〜3時間",
-        data: "welfare_action=hospital_duration&slot=between2_3",
-        displayText: "2〜3時間",
-      },
-    },
-    {
-      type: "action",
-      action: {
-        type: "postback",
-        label: "半日（3時間以上）",
-        data: "welfare_action=hospital_duration&slot=halfday",
-        displayText: "半日（3時間以上）",
-      },
-    },
-    {
-      type: "action",
-      action: {
-        type: "postback",
-        label: "その他（手入力）",
-        data: "welfare_action=hospital_duration&slot=other",
-        displayText: "その他（手入力）",
-      },
-    },
-  ];
+  });
   return {
     type: "text",
-    text: "通院にかかった時間（目安）を選んでください",
+    text: "通院の【開始時間】を選んでください",
+    quickReply: { items },
+  };
+}
+
+/** Q3-2 通院終了時間 */
+export function buildWelfareHospitalEndTimeQuickReplyMessage(startTime: string): LineReplyMessage {
+  const st = String(startTime ?? "").trim();
+  const items: LineTextQuickReplyItem[] = WELFARE_HOSPITAL_END_TIMES.map((t) => ({
+    type: "action",
+    action: {
+      type: "postback",
+      label: t,
+      data: `welfare_action=hospital_duration_end&start_time=${encodeURIComponent(st)}&end_time=${encodeURIComponent(t)}`,
+      displayText: t,
+    },
+  }));
+  items.push({
+    type: "action",
+    action: {
+      type: "postback",
+      label: "その他（手入力）",
+      data: `welfare_action=hospital_duration_end_other&start_time=${encodeURIComponent(st)}`,
+      displayText: "その他（手入力）",
+    },
+  });
+  return {
+    type: "text",
+    text: "通院の【終了時間】を選んでください",
     quickReply: { items },
   };
 }

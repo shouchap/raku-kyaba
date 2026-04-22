@@ -189,6 +189,8 @@ export interface Database {
             | "welfare_hospital_name"
             | "welfare_hospital_symptoms"
             | "welfare_hospital_duration"
+            | "welfare_hospital_duration_start_input"
+            | "welfare_hospital_duration_end_input"
             | null;
           created_at: string;
           updated_at: string;
@@ -217,6 +219,8 @@ export interface Database {
             | "welfare_hospital_name"
             | "welfare_hospital_symptoms"
             | "welfare_hospital_duration"
+            | "welfare_hospital_duration_start_input"
+            | "welfare_hospital_duration_end_input"
             | null;
           created_at?: string;
           updated_at?: string;
