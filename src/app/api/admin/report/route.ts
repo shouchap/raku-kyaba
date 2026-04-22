@@ -158,7 +158,7 @@ export async function GET(request: Request) {
       const { data: schedRows, error: schedErr } = await admin
         .from("attendance_schedules")
         .select(
-          "id, cast_id, scheduled_date, is_dohan, is_sabaki, is_absent, is_late, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, response_status, is_action_completed"
+          "id, cast_id, scheduled_date, is_dohan, is_sabaki, is_absent, is_late, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, response_status, is_action_completed, last_reminded_at"
         )
         .eq("store_id", storeId)
         .in("cast_id", castIds)
@@ -182,6 +182,7 @@ export async function GET(request: Request) {
       periodStartYmd: start,
       periodEndYmd: end,
       regularHolidays,
+      unfilledCountMode: "sent_confirmation_only",
     });
 
     const bt =

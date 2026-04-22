@@ -21,6 +21,8 @@ export type AdminReportScheduleRow = {
     | "half_holiday"
     | null;
   is_action_completed?: boolean | null;
+  /** 出勤確認 Flex 送信済み日時（送信ログ代替） */
+  last_reminded_at?: string | null;
 };
 
 export type AdminReportIncident = {
@@ -44,6 +46,8 @@ export type AdminReportCastRow = {
   unfilledDays: number;
   incidents: AdminReportIncident[];
 };
+
+type UnfilledCountMode = "calendar_excluding_regular_holidays" | "sent_confirmation_only";
 
 export type AdminReportCastInput = {
   id: string;
@@ -122,7 +126,9 @@ export function countNonRegularHolidayDaysJst(
  * 集計対象キャストごとの月間／週間レポート行を生成する。
  * - 各数値は scheduled_date <= todayYmd の行のみ反映（未来の予定は含めない）
  * - 同一日は DB 上 UNIQUE のため二重集計しない
- * - 未入力: 定休日を除いた [期間開始, min(期間終了, 今日)] の暦日数 − 回答済み日数（distinct・定休日は減算対象外）
+ * - 未入力:
+ *   - calendar_excluding_regular_holidays: 定休除外の暦日数 − 回答済み日数（welfare_b）
+ *   - sent_confirmation_only: 出勤確認送信済みかつ未回答の件数（cabaret/bar）
  */
 export function buildAdminReportCastRows(
   casts: AdminReportCastInput[],
@@ -133,15 +139,23 @@ export function buildAdminReportCastRows(
     periodEndYmd: string;
     /** stores.regular_holidays（0=日〜6=土）。未指定は [] */
     regularHolidays?: number[];
+    /**
+     * 未入力の分母定義:
+     * - calendar_excluding_regular_holidays: 定休除外の暦日ベース（welfare_b）
+     * - sent_confirmation_only: 出勤確認送信済み件数ベース（cabaret/bar）
+     */
+    unfilledCountMode?: UnfilledCountMode;
   }
 ): AdminReportCastRow[] {
   const { todayYmd, periodStartYmd, periodEndYmd } = opts;
   const regularHolidays = opts.regularHolidays ?? [];
+  const unfilledCountMode = opts.unfilledCountMode ?? "calendar_excluding_regular_holidays";
 
   const windowEnd = unfilledWindowEndYmd(periodEndYmd, todayYmd);
   const unfilledRangeStart = periodStartYmd;
   const unfilledRangeEnd = windowEnd;
   const unfilledDenominatorDays =
+    unfilledCountMode !== "calendar_excluding_regular_holidays" ||
     unfilledRangeStart > unfilledRangeEnd
       ? 0
       : countNonRegularHolidayDaysJst(unfilledRangeStart, unfilledRangeEnd, regularHolidays);
@@ -241,11 +255,22 @@ export function buildAdminReportCastRows(
     incidents.sort((a, b) => a.dateStr.localeCompare(b.dateStr));
     sabakiDates.sort();
 
-    let answeredOnRequiredDays = 0;
-    for (const d of answeredDatesInWindow) {
-      if (!isYmdRegularHoliday(regularHolidays, d)) answeredOnRequiredDays += 1;
+    let unfilledDays = 0;
+    if (unfilledCountMode === "sent_confirmation_only") {
+      for (const row of rows) {
+        const dateStr = row.scheduled_date;
+        if (dateStr < unfilledRangeStart || dateStr > unfilledRangeEnd) continue;
+        if (!row.last_reminded_at) continue;
+        if (scheduleRowHasRecordedAction(row)) continue;
+        unfilledDays += 1;
+      }
+    } else {
+      let answeredOnRequiredDays = 0;
+      for (const d of answeredDatesInWindow) {
+        if (!isYmdRegularHoliday(regularHolidays, d)) answeredOnRequiredDays += 1;
+      }
+      unfilledDays = Math.max(0, unfilledDenominatorDays - answeredOnRequiredDays);
     }
-    const unfilledDays = Math.max(0, unfilledDenominatorDays - answeredOnRequiredDays);
 
     return {
       castId: cast.id,
