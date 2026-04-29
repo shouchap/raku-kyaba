@@ -536,14 +536,18 @@ export default function AdminSettingsPage() {
       <label htmlFor="guideHearingTime" className="block text-sm font-medium text-gray-700 mb-2">
         送信時刻（日本時間）
       </label>
-      <input
+      <select
         id="guideHearingTime"
-        type="time"
         value={guideHearingTime}
         onChange={(e) => setGuideHearingTime(e.target.value)}
-        step={3600}
         className="w-full max-w-xs min-h-[48px] px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
-      />
+      >
+        {REMIND_TIME_OPTIONS.map((t) => (
+          <option key={`guide-${t}`} value={t}>
+            {t}
+          </option>
+        ))}
+      </select>
       <p className="mt-2 text-xs text-gray-500">
         ヒアリング対象の個別指定は「キャスト管理」画面で設定します。
       </p>
@@ -870,13 +874,29 @@ export default function AdminSettingsPage() {
                 </div>
               </div>
               {guideHearingSection}
-              <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex flex-col sm:flex-row flex-wrap gap-2">
                 <button
                   type="submit"
-                  disabled={saving}
-                  className="flex-1 min-h-[48px] h-12 px-6 bg-blue-600 text-white text-base font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                  disabled={saving || testing || testingGuide}
+                  className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-blue-600 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
                 >
                   {saving ? "保存中..." : "設定を保存"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRemindTestSend}
+                  disabled={saving || testing || testingGuide}
+                  className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-gray-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
+                >
+                  {testing ? (testComplete ? "送信完了" : "送信中…") : "キャスト本日テスト送信"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGuideHearingTestSend}
+                  disabled={saving || testing || testingGuide}
+                  className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-emerald-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
+                >
+                  {testingGuide ? (guideTestComplete ? "送信完了" : "送信中…") : "ヒアリングテスト送信"}
                 </button>
               </div>
             </>
@@ -1314,11 +1334,11 @@ export default function AdminSettingsPage() {
           </div>
           {guideHearingSection}
 
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row flex-wrap gap-2">
             <button
               type="submit"
               disabled={saving || testing || testingGuide}
-              className="flex-1 min-h-[48px] h-12 px-6 bg-blue-600 text-white text-base font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-blue-600 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
             >
               {saving ? "保存中..." : "設定を保存"}
             </button>
@@ -1326,25 +1346,17 @@ export default function AdminSettingsPage() {
               type="button"
               onClick={handleRemindTestSend}
               disabled={saving || testing || testingGuide}
-              className="flex-1 min-h-[48px] h-12 px-6 bg-gray-700 text-white text-base font-medium rounded-lg hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-gray-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
             >
-              {testing
-                ? testComplete
-                  ? "テスト送信完了"
-                  : "送信中..."
-                : "今すぐテスト送信（本日分）"}
+              {testing ? (testComplete ? "送信完了" : "送信中…") : "キャスト本日テスト送信"}
             </button>
             <button
               type="button"
               onClick={handleGuideHearingTestSend}
               disabled={saving || testing || testingGuide}
-              className="flex-1 min-h-[48px] h-12 px-6 bg-emerald-700 text-white text-base font-medium rounded-lg hover:bg-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-emerald-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
             >
-              {testingGuide
-                ? guideTestComplete
-                  ? "テスト送信完了"
-                  : "送信中..."
-                : "案内数ヒアリングを今すぐテスト送信"}
+              {testingGuide ? (guideTestComplete ? "送信完了" : "送信中…") : "ヒアリングテスト送信"}
             </button>
           </div>
             </>
