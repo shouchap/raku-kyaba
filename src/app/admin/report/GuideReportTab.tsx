@@ -1,7 +1,10 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import type { DailyGuideResult } from "@/types/entities";
+import { getTodayJst } from "@/lib/date-utils";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -9,6 +12,13 @@ function pad2(n: number): string {
 
 function formatYm(year: number, month: number): string {
   return `${year}-${pad2(month)}`;
+}
+
+function getMonthRangeIso(year: number, month: number): { start: string; end: string } {
+  const start = `${year}-${pad2(month)}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const end = `${year}-${pad2(month)}-${pad2(lastDay)}`;
+  return { start, end };
 }
 
 /** 日付セルを yyyy-mm-dd → 「M月D日」 */
@@ -28,43 +38,213 @@ type Props = {
 };
 
 export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props) {
+  const router = useRouter();
   const ym = useMemo(() => formatYm(year, month), [year, month]);
+  const monthBounds = useMemo(() => getMonthRangeIso(year, month), [year, month]);
 
   const [rows, setRows] = useState<DailyGuideResult[]>([]);
+  const [guideStaffNames, setGuideStaffNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchGuideRows = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const url = `/api/admin/guide-report?storeId=${encodeURIComponent(storeId)}&ym=${encodeURIComponent(ym)}`;
-      const res = await fetch(url, { credentials: "include" });
-      const payload = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        rows?: DailyGuideResult[];
-        error?: string;
-        details?: string;
-      };
-      if (!res.ok) {
-        throw new Error(
-          [payload.error, payload.details].filter(Boolean).join(" — ") ||
-            "案内実績の取得に失敗しました"
-        );
+  const [toast, setToast] = useState<{ msg: string; kind: "success" | "error" } | null>(null);
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<"create" | "edit">("create");
+  const [editingRow, setEditingRow] = useState<DailyGuideResult | null>(null);
+  const [formDate, setFormDate] = useState("");
+  const [formStaff, setFormStaff] = useState("");
+  const [formCount, setFormCount] = useState(0);
+  const [modalSaving, setModalSaving] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  const defaultTargetDate = useMemo(() => {
+    const today = getTodayJst();
+    if (today >= monthBounds.start && today <= monthBounds.end) return today;
+    return monthBounds.start;
+  }, [monthBounds]);
+
+  const showToast = useCallback((msg: string, kind: "success" | "error" = "success") => {
+    setToast({ msg, kind });
+    window.setTimeout(() => setToast(null), kind === "error" ? 6000 : 4000);
+  }, []);
+
+  const refreshData = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true;
+      if (!silent) {
+        setLoading(true);
       }
-      setRows(Array.isArray(payload.rows) ? (payload.rows as DailyGuideResult[]) : []);
-    } catch (e: unknown) {
-      console.error(e);
-      setError(e instanceof Error ? e.message : "案内実績の取得に失敗しました");
-      setRows([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [storeId, ym]);
+      setError(null);
+      try {
+        const [reportRes, namesRes] = await Promise.all([
+          fetch(
+            `/api/admin/guide-report?storeId=${encodeURIComponent(storeId)}&ym=${encodeURIComponent(ym)}`,
+            { credentials: "include" }
+          ),
+          fetch(`/api/admin/guide-hearing?storeId=${encodeURIComponent(storeId)}`, {
+            credentials: "include",
+          }),
+        ]);
+
+        const reportPayload = (await reportRes.json().catch(() => ({}))) as {
+          ok?: boolean;
+          rows?: DailyGuideResult[];
+          error?: string;
+          details?: string;
+        };
+        if (!reportRes.ok) {
+          throw new Error(
+            [reportPayload.error, reportPayload.details].filter(Boolean).join(" — ") ||
+              "案内実績の取得に失敗しました"
+          );
+        }
+        setRows(Array.isArray(reportPayload.rows) ? (reportPayload.rows as DailyGuideResult[]) : []);
+
+        const namesPayload = (await namesRes.json().catch(() => ({}))) as {
+          guideStaffNames?: string[];
+        };
+        setGuideStaffNames(
+          Array.isArray(namesPayload.guideStaffNames)
+            ? namesPayload.guideStaffNames.map((s) => String(s ?? "").trim()).filter(Boolean)
+            : []
+        );
+      } catch (e: unknown) {
+        console.error(e);
+        setError(e instanceof Error ? e.message : "案内実績の取得に失敗しました");
+        setRows([]);
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [storeId, ym]
+  );
 
   useEffect(() => {
-    void fetchGuideRows();
-  }, [fetchGuideRows]);
+    void refreshData();
+  }, [refreshData]);
+
+  const openCreate = () => {
+    setModalMode("create");
+    setEditingRow(null);
+    setFormDate(defaultTargetDate);
+    setFormStaff(guideStaffNames[0] ?? "");
+    setFormCount(0);
+    setModalError(null);
+    setModalOpen(true);
+  };
+
+  const openEdit = (r: DailyGuideResult) => {
+    setModalMode("edit");
+    setEditingRow(r);
+    setFormDate(r.target_date);
+    setFormStaff(r.staff_name);
+    setFormCount(r.guide_count);
+    setModalError(null);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    if (modalSaving) return;
+    setModalOpen(false);
+    setModalError(null);
+  };
+
+  const saveModal = async () => {
+    setModalError(null);
+    if (!formDate || formDate < monthBounds.start || formDate > monthBounds.end) {
+      setModalError("日付は選択中の月（表示期間）内で指定してください。");
+      return;
+    }
+    const staff = formStaff.trim();
+    if (!staff) {
+      setModalError("スタッフ名を選択してください。");
+      return;
+    }
+    if (!Number.isInteger(formCount) || formCount < 0 || formCount > 9999) {
+      setModalError("組数は 0〜9999 の整数で入力してください。");
+      return;
+    }
+
+    setModalSaving(true);
+    try {
+      if (modalMode === "edit" && editingRow) {
+        const patchRes = await fetch("/api/admin/guide-hearing/results", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            storeId,
+            id: editingRow.id,
+            staffName: staff,
+            targetDate: formDate,
+            guideCount: formCount,
+          }),
+        });
+        const patchPayload = (await patchRes.json().catch(() => ({}))) as {
+          error?: string;
+          details?: string;
+        };
+        if (!patchRes.ok) {
+          throw new Error(
+            [patchPayload.error, patchPayload.details].filter(Boolean).join(" — ") || "保存に失敗しました"
+          );
+        }
+      } else {
+        const putRes = await fetch("/api/admin/guide-hearing/results", {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            storeId,
+            staffName: staff,
+            targetDate: formDate,
+            guideCount: formCount,
+          }),
+        });
+        const putPayload = (await putRes.json().catch(() => ({}))) as { error?: string };
+        if (!putRes.ok) {
+          throw new Error(putPayload.error ?? "保存に失敗しました");
+        }
+      }
+
+      setModalOpen(false);
+      showToast(modalMode === "create" ? "追加しました。" : "保存しました。", "success");
+      await refreshData({ silent: true });
+      router.refresh();
+    } catch (e: unknown) {
+      setModalError(e instanceof Error ? e.message : "保存に失敗しました");
+    } finally {
+      setModalSaving(false);
+    }
+  };
+
+  const confirmDelete = async (r: DailyGuideResult) => {
+    if (
+      !window.confirm(
+        `${formatJaDateCell(r.target_date)} · ${r.staff_name}（${r.guide_count}組）を削除しますか？`
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch("/api/admin/guide-hearing/results", {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId, id: r.id }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        throw new Error(payload.error ?? "削除に失敗しました");
+      }
+      showToast("削除しました。", "success");
+      await refreshData({ silent: true });
+      router.refresh();
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : "削除に失敗しました", "error");
+    }
+  };
 
   const totalGuides = useMemo(
     () => rows.reduce((sum, r) => sum + (typeof r.guide_count === "number" ? r.guide_count : 0), 0),
@@ -97,8 +277,23 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
     return <p className="text-gray-600">案内実績を読み込み中…</p>;
   }
 
+  const namesReady = guideStaffNames.length > 0;
+
   return (
     <div className="space-y-8">
+      {toast && (
+        <div
+          role="status"
+          className={`print:hidden fixed bottom-4 right-4 z-[60] max-w-sm rounded-lg border px-4 py-3 text-sm font-medium shadow-lg ${
+            toast.kind === "error"
+              ? "border-red-200 bg-red-50 text-red-900"
+              : "border-emerald-200 bg-emerald-50 text-emerald-900"
+          }`}
+        >
+          {toast.msg}
+        </div>
+      )}
+
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 print:hidden">
           {error}
@@ -157,14 +352,32 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
       </section>
 
       <section aria-labelledby="guide-detail-heading">
-        <h2
-          id="guide-detail-heading"
-          className="mb-3 text-base font-semibold text-gray-900"
-        >
-          日別明細
-        </h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 id="guide-detail-heading" className="text-base font-semibold text-gray-900">
+            日別明細
+          </h2>
+          <button
+            type="button"
+            onClick={openCreate}
+            disabled={!namesReady}
+            title={
+              namesReady
+                ? undefined
+                : "システム設定で案内スタッフ名を登録してください"
+            }
+            className="print:hidden inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Plus className="h-4 w-4 shrink-0" aria-hidden />
+            新規手動追加
+          </button>
+        </div>
+        {!namesReady && (
+          <p className="mb-3 text-xs text-amber-800 print:hidden">
+            手動追加・編集には、システム設定の「案内スタッフの名前登録」に少なくとも1名を登録してください。
+          </p>
+        )}
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
-          <table className="min-w-[520px] w-full text-left text-sm">
+          <table className="min-w-[560px] w-full text-left text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">日付</th>
@@ -172,12 +385,15 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                 <th className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
                   組数
                 </th>
+                <th className="print:hidden px-4 py-3 text-center font-semibold text-gray-900 whitespace-nowrap w-[7rem]">
+                  アクション
+                </th>
               </tr>
             </thead>
             <tbody>
               {detailRows.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="px-4 py-10 text-center text-gray-500">
+                  <td colSpan={4} className="px-4 py-10 text-center text-gray-500">
                     この月の案内実績データはありません。
                   </td>
                 </tr>
@@ -192,6 +408,27 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{r.staff_name}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-gray-900">{r.guide_count}</td>
+                    <td className="print:hidden px-4 py-2 text-center">
+                      <div className="inline-flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(r)}
+                          disabled={!namesReady}
+                          className="rounded-md p-2 text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label={`${r.staff_name}の${formatJaDateCell(r.target_date)}を編集`}
+                        >
+                          <Pencil className="h-4 w-4" aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void confirmDelete(r)}
+                          className="rounded-md p-2 text-red-700 hover:bg-red-50"
+                          aria-label={`${r.staff_name}の${formatJaDateCell(r.target_date)}を削除`}
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}
@@ -199,6 +436,107 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
           </table>
         </div>
       </section>
+
+      {modalOpen && (
+        <div
+          className="print:hidden fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="guide-result-modal-title"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closeModal();
+          }}
+        >
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
+            <h3 id="guide-result-modal-title" className="text-lg font-semibold text-gray-900">
+              {modalMode === "create" ? "案内実績を追加" : "案内実績を編集"}
+            </h3>
+            <div className="mt-4 space-y-4">
+              <div>
+                <label htmlFor="guide-form-date" className="block text-sm font-medium text-gray-700">
+                  日付
+                </label>
+                <input
+                  id="guide-form-date"
+                  type="date"
+                  value={formDate}
+                  min={monthBounds.start}
+                  max={monthBounds.end}
+                  onChange={(e) => setFormDate(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  {monthTitleLabel}の範囲（{monthBounds.start} 〜 {monthBounds.end}）のみ
+                </p>
+              </div>
+              <div>
+                <label htmlFor="guide-form-staff" className="block text-sm font-medium text-gray-700">
+                  スタッフ名
+                </label>
+                <select
+                  id="guide-form-staff"
+                  value={formStaff}
+                  onChange={(e) => setFormStaff(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
+                >
+                  <option value="">選択してください</option>
+                  {guideStaffNames.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="guide-form-count" className="block text-sm font-medium text-gray-700">
+                  組数
+                </label>
+                <input
+                  id="guide-form-count"
+                  type="number"
+                  min={0}
+                  max={9999}
+                  step={1}
+                  value={Number.isFinite(formCount) ? formCount : 0}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === "") {
+                      setFormCount(0);
+                      return;
+                    }
+                    const n = parseInt(raw, 10);
+                    if (!Number.isNaN(n)) setFormCount(n);
+                  }}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
+                />
+              </div>
+              {modalError && (
+                <p className="text-sm text-red-700" role="alert">
+                  {modalError}
+                </p>
+              )}
+            </div>
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeModal}
+                disabled={modalSaving}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveModal()}
+                disabled={modalSaving || !namesReady}
+                className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {modalSaving ? "保存中…" : "保存"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
