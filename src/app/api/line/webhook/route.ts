@@ -28,6 +28,12 @@ import {
 } from "@/lib/line-webhook-attendance";
 import { handleWelfareWebhook, type WelfareStoreContext } from "@/lib/welfare-line-webhook";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
+import {
+  buildGuideCountSelectMessage,
+  buildGuideTargetSelectMessage,
+  parseGuideActionPostbackData,
+  upsertGuideResult,
+} from "@/lib/guide-hearing";
 
 const app = new Hono();
 
@@ -260,7 +266,7 @@ app.post("*", async (c) => {
         try {
           await processWebhookEvent(
             event,
-            body.destination,
+            resolvedStoreId,
             supabase,
             channelAccessToken,
             welfareStoreContext
@@ -293,7 +299,7 @@ app.post("*", async (c) => {
 
 async function processWebhookEvent(
   event: LineWebhookBody["events"][number],
-  _destination: string | undefined,
+  resolvedStoreId: string | null,
   supabase: ReturnType<typeof createSupabaseClient>,
   channelAccessToken?: string,
   welfareStoreContext?: WelfareStoreContext | null
@@ -341,6 +347,31 @@ async function processWebhookEvent(
       );
       if (reservationFollowupHandled) {
         console.log("[Webhook] 予約フォロー（時間/人数）postback を処理しました");
+        break;
+      }
+
+      const guideAction = parseGuideActionPostbackData(rawData);
+      if (guideAction?.kind === "select_staff") {
+        await handleGuideSelectStaffResponse({
+          userId,
+          storeId: resolvedStoreId,
+          staffName: guideAction.staffName,
+          supabase,
+          replyToken: postbackEvent.replyToken,
+          channelAccessToken,
+        });
+        break;
+      }
+      if (guideAction?.kind === "submit_count") {
+        await handleGuideSubmitCountResponse({
+          userId,
+          storeId: resolvedStoreId,
+          staffName: guideAction.staffName,
+          guideCount: guideAction.count,
+          supabase,
+          replyToken: postbackEvent.replyToken,
+          channelAccessToken,
+        });
         break;
       }
 
@@ -449,6 +480,163 @@ async function processWebhookEvent(
 
     default:
       console.log("[Webhook] 未対応イベント:", event.type);
+  }
+}
+
+async function validateGuideReporter(params: {
+  userId: string;
+  storeId: string;
+  supabase: ReturnType<typeof createSupabaseClient>;
+}): Promise<boolean> {
+  const { data, error } = await params.supabase
+    .from("stores")
+    .select("guide_hearing_reporter_id")
+    .eq("id", params.storeId)
+    .maybeSingle();
+  if (error) {
+    console.error("[GuideWebhook] reporter validation store fetch failed:", error.message);
+    return false;
+  }
+  const reporterId = data?.guide_hearing_reporter_id;
+  if (!reporterId) return false;
+  const { data: reporterCast, error: castErr } = await params.supabase
+    .from("casts")
+    .select("id")
+    .eq("id", reporterId)
+    .eq("store_id", params.storeId)
+    .eq("line_user_id", params.userId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (castErr) {
+    console.error("[GuideWebhook] reporter cast fetch failed:", castErr.message);
+    return false;
+  }
+  return Boolean(reporterCast?.id);
+}
+
+async function fetchGuideTargetsForStore(params: {
+  storeId: string;
+  supabase: ReturnType<typeof createSupabaseClient>;
+}): Promise<string[]> {
+  const { data, error } = await params.supabase
+    .from("stores")
+    .select("guide_staff_names")
+    .eq("id", params.storeId)
+    .maybeSingle();
+  if (error) {
+    console.error("[GuideWebhook] fetch targets failed:", error.message);
+    return [];
+  }
+  const names = Array.isArray(data?.guide_staff_names)
+    ? data.guide_staff_names.map((v: unknown) => String(v ?? "").trim()).filter(Boolean)
+    : [];
+  return names;
+}
+
+async function handleGuideSelectStaffResponse(params: {
+  userId: string;
+  storeId: string | null;
+  staffName: string;
+  supabase: ReturnType<typeof createSupabaseClient>;
+  replyToken?: string;
+  channelAccessToken?: string;
+}): Promise<void> {
+  if (!params.storeId || !params.replyToken || !params.channelAccessToken) return;
+  const isReporter = await validateGuideReporter({
+    userId: params.userId,
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!isReporter) return;
+
+  const targets = await fetchGuideTargetsForStore({
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!targets.includes(params.staffName)) {
+    console.error("[GuideWebhook] select target invalid:", params.staffName);
+    await sendReply(params.replyToken, params.channelAccessToken, [
+      { type: "text", text: "対象スタッフが見つかりません。もう一度選択してください。" },
+    ]);
+    return;
+  }
+
+  await sendReply(params.replyToken, params.channelAccessToken, [
+    buildGuideCountSelectMessage(params.staffName),
+  ]);
+}
+
+async function handleGuideSubmitCountResponse(params: {
+  userId: string;
+  storeId: string | null;
+  staffName: string;
+  guideCount: number;
+  supabase: ReturnType<typeof createSupabaseClient>;
+  replyToken?: string;
+  channelAccessToken?: string;
+}): Promise<void> {
+  if (!params.storeId) return;
+  if (!Number.isInteger(params.guideCount) || params.guideCount < 0) return;
+  const isReporter = await validateGuideReporter({
+    userId: params.userId,
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!isReporter) {
+    return;
+  }
+
+  const targets = await fetchGuideTargetsForStore({
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!targets.includes(params.staffName)) {
+    console.error("[GuideWebhook] submit target invalid:", params.staffName);
+    if (params.replyToken && params.channelAccessToken) {
+      await sendReply(params.replyToken, params.channelAccessToken, [
+        { type: "text", text: "対象スタッフが見つかりません。もう一度選択してください。" },
+      ]);
+    }
+    return;
+  }
+
+  try {
+    await upsertGuideResult({
+      supabase: params.supabase,
+      storeId: params.storeId,
+      staffName: params.staffName,
+      guideCount: params.guideCount,
+    });
+  } catch (err) {
+    console.error("[GuideWebhook] upsert failed:", err);
+    if (params.replyToken && params.channelAccessToken) {
+      await sendReply(params.replyToken, params.channelAccessToken, [
+        { type: "text", text: "保存中にエラーが発生しました。時間をおいて再度お試しください。" },
+      ]);
+    }
+    return;
+  }
+
+  const nextTargets = await fetchGuideTargetsForStore({
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  const targetName = params.staffName;
+
+  if (params.replyToken && params.channelAccessToken) {
+    await sendReply(params.replyToken, params.channelAccessToken, [
+      {
+        type: "text",
+        text:
+          `${targetName}さんの案内数を${params.guideCount}組で登録しました。` +
+          "続けて入力する場合は以下のボタンから選んでください。",
+      },
+      {
+        ...buildGuideTargetSelectMessage({
+          staffNames: nextTargets,
+        }),
+      },
+    ]);
   }
 }
 

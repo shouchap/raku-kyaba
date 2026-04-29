@@ -57,6 +57,16 @@ export interface Database {
           welfare_message_welcome: string | null;
           /** B型: 作業項目（カンマ区切り）。NULL で Flex は既定 */
           welfare_work_items: string | null;
+          /** 案内数ヒアリング送信を有効にするか */
+          guide_hearing_enabled: boolean;
+          /** 案内数ヒアリング送信時刻（HH:00, JST） */
+          guide_hearing_time: string | null;
+          /** 最終ヒアリング送信営業日（JST DATE） */
+          last_guide_hearing_sent_date: string | null;
+          /** 案内数ヒアリング通知を受ける担当キャストID */
+          guide_hearing_reporter_id: string | null;
+          /** 案内数入力対象スタッフ名（文字列） */
+          guide_staff_names: string[];
           created_at: string;
           updated_at: string;
         };
@@ -80,6 +90,11 @@ export interface Database {
           | "welfare_message_evening"
           | "welfare_message_welcome"
           | "welfare_work_items"
+          | "guide_hearing_enabled"
+          | "guide_hearing_time"
+          | "last_guide_hearing_sent_date"
+          | "guide_hearing_reporter_id"
+          | "guide_staff_names"
           | "ask_guest_name"
           | "ask_guest_time"
         > & {
@@ -101,10 +116,57 @@ export interface Database {
           welfare_message_evening?: string | null;
           welfare_message_welcome?: string | null;
           welfare_work_items?: string | null;
+          guide_hearing_enabled?: boolean;
+          guide_hearing_time?: string | null;
+          last_guide_hearing_sent_date?: string | null;
+          guide_hearing_reporter_id?: string | null;
+          guide_staff_names?: string[];
           ask_guest_name?: boolean;
           ask_guest_time?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["stores"]["Insert"]>;
+      };
+      staffs: {
+        Row: {
+          id: string;
+          store_id: string;
+          name: string;
+          line_user_id: string | null;
+          is_guide_target: boolean;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["staffs"]["Row"],
+          "id" | "created_at" | "updated_at"
+        > & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["staffs"]["Insert"]>;
+      };
+      daily_guide_results: {
+        Row: {
+          id: string;
+          store_id: string;
+          staff_name: string;
+          target_date: string;
+          guide_count: number;
+          responded_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["daily_guide_results"]["Row"],
+          "id" | "created_at" | "updated_at"
+        > & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["daily_guide_results"]["Insert"]>;
       };
       casts: {
         Row: {
@@ -115,7 +177,9 @@ export interface Database {
           is_active: boolean;
           is_admin: boolean;
           /** 勤務形態: admin / regular / part_time（NULL はバイト扱い） */
-          employment_type: "admin" | "regular" | "part_time" | null;
+          employment_type: "admin" | "regular" | "part_time" | "employee" | null;
+          /** 案内数ヒアリング対象（営業終了時LINE送信） */
+          is_guide_target: boolean;
           /** シフトなしレギュラー向けリマインドの最終送信日（JST） */
           last_reminder_sent_date: string | null;
           /** 福祉: かかりつけ病院（通院報告のクイックリプライ・複数可） */
@@ -125,10 +189,11 @@ export interface Database {
         };
         Insert: Omit<
           Database["public"]["Tables"]["casts"]["Row"],
-          "id" | "created_at" | "updated_at" | "default_hospital_names"
+          "id" | "created_at" | "updated_at" | "default_hospital_names" | "is_guide_target"
         > & {
           id?: string;
           is_active?: boolean;
+          is_guide_target?: boolean;
           /** 省略時は DB 既定で {} */
           default_hospital_names?: string[];
           created_at?: string;

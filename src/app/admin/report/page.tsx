@@ -18,6 +18,7 @@ import {
   getTodayJst,
 } from "@/lib/date-utils";
 import { ChevronDown, ChevronRight, Printer } from "lucide-react";
+import { GuideReportTab } from "./GuideReportTab";
 import "./report-print.css";
 
 type Store = {
@@ -81,6 +82,8 @@ type SortKey =
   | "unfilled";
 
 type ViewMode = "month" | "week" | "day";
+
+type ReportMainTab = "cast" | "guide";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -195,6 +198,9 @@ function AdminReportContent() {
         ? "day"
         : "month";
 
+  const reportTab: ReportMainTab =
+    searchParams.get("tab") === "guide" ? "guide" : "cast";
+
   const ymFromUrl = parseYmParam(searchParams.get("ym"));
   const [year, setYear] = useState(ymFromUrl?.year ?? defaultYm.year);
   const [month, setMonth] = useState(ymFromUrl?.month ?? defaultYm.month);
@@ -243,6 +249,19 @@ function AdminReportContent() {
     params.set("date", today);
     router.replace(`/admin/report?${params.toString()}`);
   }, [viewMode, dayParamRaw, today, router, searchParams]);
+
+  /** 案内数レポートは月次のみ。タブ選択時に view=month に正規化 */
+  useEffect(() => {
+    if (reportTab !== "guide") return;
+    if (viewMode === "month") return;
+    const anchor = viewMode === "day" ? dayDate : weekMonday;
+    const [sy, sm] = anchor.split("-").map(Number);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", "guide");
+    params.set("view", "month");
+    params.set("ym", formatYm(sy, sm));
+    router.replace(`/admin/report?${params.toString()}`);
+  }, [reportTab, viewMode, dayDate, weekMonday, router, searchParams]);
 
   const { start, end } = useMemo(() => {
     if (viewMode === "day") {
@@ -333,6 +352,28 @@ function AdminReportContent() {
     setDayParams(today);
   }, [today, setDayParams]);
 
+  const setReportTab = useCallback(
+    (next: ReportMainTab) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "guide") {
+        params.set("tab", "guide");
+        params.set("view", "month");
+        const anchor =
+          viewMode === "day"
+            ? dayDate
+            : viewMode === "week"
+              ? weekMonday
+              : `${year}-${pad2(month)}-01`;
+        const [sy, sm] = anchor.split("-").map(Number);
+        params.set("ym", formatYm(sy, sm));
+      } else {
+        params.delete("tab");
+      }
+      router.push(`/admin/report?${params.toString()}`);
+    },
+    [searchParams, router, viewMode, dayDate, weekMonday, year, month]
+  );
+
   const goPrevDay = useCallback(() => {
     setDayParams(addCalendarDaysJst(dayDate, -1));
   }, [dayDate, setDayParams]);
@@ -394,6 +435,12 @@ function AdminReportContent() {
             ? "bar"
             : "cabaret";
       setBusinessType(bt);
+
+      if (reportTab === "guide") {
+        setWelfareRows([]);
+        setCabaretReports([]);
+        return;
+      }
 
       if (bt === "welfare_b") {
         setCabaretReports([]);
@@ -458,7 +505,7 @@ function AdminReportContent() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, start, end, activeStoreId, viewMode, dayDate]);
+  }, [supabase, start, end, activeStoreId, viewMode, dayDate, reportTab]);
 
   useEffect(() => {
     fetchData();
@@ -586,22 +633,60 @@ function AdminReportContent() {
   const hasDetails = (r: CastReport) =>
     r.incidents.length > 0 || r.sabakiDates.length > 0;
 
+  const guideMonthRange = useMemo(() => getMonthRangeIso(year, month), [year, month]);
+
   return (
     <div className="admin-report-print-root p-4 sm:p-6">
       <div className="mb-6">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
-          {businessType === "welfare_b"
-            ? `日報一覧（${periodKindLabel}）`
-            : `レポート（${periodKindLabel}集計）`}
+          {reportTab === "guide"
+            ? "案内数レポート（月間）"
+            : businessType === "welfare_b"
+              ? `日報一覧（${periodKindLabel}）`
+              : `レポート（${periodKindLabel}集計）`}
         </h1>
         <p className="mt-1 text-sm text-gray-600 print:text-xs">
           {store?.name ?? "店舗"}
-          {businessType === "welfare_b"
-            ? " · 就労継続支援B型の日次記録（作業・体調）を一覧表示します。"
-            : " · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。"}
+          {reportTab === "guide"
+            ? " · LINEで記録した案内組数を月別に集計します。"
+            : businessType === "welfare_b"
+              ? " · 就労継続支援B型の日次記録（作業・体調）を一覧表示します。"
+              : " · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。"}
         </p>
       </div>
 
+      <div className="mb-6 print:hidden" role="tablist" aria-label="レポート種別">
+        <div className="inline-flex rounded-xl border border-gray-200/90 bg-gray-100/70 p-1 shadow-inner">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={reportTab === "cast"}
+            onClick={() => setReportTab("cast")}
+            className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition-all ${
+              reportTab === "cast"
+                ? "bg-white text-gray-900 shadow-sm ring-1 ring-gray-200/90"
+                : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            キャスト出勤レポート
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={reportTab === "guide"}
+            onClick={() => setReportTab("guide")}
+            className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition-all ${
+              reportTab === "guide"
+                ? "bg-white text-gray-900 shadow-sm ring-1 ring-emerald-200/90"
+                : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            案内数レポート
+          </button>
+        </div>
+      </div>
+
+      {reportTab === "cast" && (
       <div className="mb-4 flex flex-wrap gap-2 print:hidden">
         <button
           type="button"
@@ -639,8 +724,9 @@ function AdminReportContent() {
           </button>
         )}
       </div>
+      )}
 
-      {!loading && (
+      {reportTab === "cast" && !loading && (
         <div className="mb-4 flex flex-wrap items-center gap-2 sm:gap-3 print:hidden">
           <label
             htmlFor="report-cast-filter"
@@ -666,7 +752,27 @@ function AdminReportContent() {
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 print:hidden">
-          {viewMode === "month" ? (
+          {reportTab === "guide" ? (
+            <>
+              <button
+                type="button"
+                onClick={goPrevMonth}
+                className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                ＜ 先月
+              </button>
+              <span className="min-w-[10rem] text-center text-base font-semibold text-gray-900">
+                {`${year}年${month}月`}
+              </span>
+              <button
+                type="button"
+                onClick={goNextMonth}
+                className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                次月 ＞
+              </button>
+            </>
+          ) : viewMode === "month" ? (
             <>
               <button
                 type="button"
@@ -731,9 +837,11 @@ function AdminReportContent() {
 
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-xs text-gray-500">
-            {viewMode === "day"
-              ? `表示日: ${dayDate}`
-              : `集計期間: ${start} 〜 ${end}`}
+            {reportTab === "guide"
+              ? `集計期間: ${guideMonthRange.start} 〜 ${guideMonthRange.end}`
+              : viewMode === "day"
+                ? `表示日: ${dayDate}`
+                : `集計期間: ${start} 〜 ${end}`}
           </p>
           <button
             type="button"
@@ -754,6 +862,17 @@ function AdminReportContent() {
 
       {loading ? (
         <p className="text-gray-600">読み込み中…</p>
+      ) : reportTab === "guide" ? (
+        activeStoreId ? (
+          <GuideReportTab
+            storeId={activeStoreId}
+            year={year}
+            month={month}
+            monthTitleLabel={`${year}年${month}月`}
+          />
+        ) : (
+          <p className="text-gray-600">店舗を選択してください。</p>
+        )
       ) : businessType === "welfare_b" ? (
         <div className="report-table-wrap report-table-welfare-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
           <table className="report-table report-table-welfare min-w-[1180px] w-full text-left text-sm">

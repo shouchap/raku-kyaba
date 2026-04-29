@@ -104,3 +104,6 @@ export type AttendancePostbackData =
 
 /** 来客予定ヒアリング（クイックリプライ） */
 export type ReservationPostbackData = "reservation_yes" | "reservation_no";
+
+/** 案内数ヒアリング（従業員向け） */
+export type GuidePostbackData = `guide_count:${number}` | "guide_count:other";

@@ -2,7 +2,7 @@
  * 出勤リマインドの勤務形態（casts.employment_type）に基づく分岐
  */
 
-export type CastEmploymentType = "admin" | "regular" | "part_time";
+export type CastEmploymentType = "admin" | "regular" | "part_time" | "employee";
 
 /** リマインド送信から除外（管理者・店長向け） */
 export function shouldSkipRemindForCast(

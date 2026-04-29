@@ -35,6 +35,12 @@ type ReminderConfig = {
   welcome_message: string;
 };
 
+type GuideReporterCandidate = {
+  id: string;
+  name: string;
+  line_user_id: string | null;
+};
+
 const DEFAULT_CONFIG: ReminderConfig = {
   enabled: true,
   messageTemplate:
@@ -53,6 +59,12 @@ const DEFAULT_CONFIG: ReminderConfig = {
     "{name}さん、はじめまして。出勤・退勤の連絡はこのLINEから行えます。よろしくお願いいたします。",
 };
 
+function normalizeGuideHearingTime(value: string): string {
+  const m = value.trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!m) return "02:00";
+  return `${m[1]}:00`;
+}
+
 export default function AdminSettingsPage() {
   const activeStoreId = useActiveStoreId();
   const [businessType, setBusinessType] = useState<"cabaret" | "welfare_b" | "bar">("cabaret");
@@ -69,9 +81,14 @@ export default function AdminSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testingGuide, setTestingGuide] = useState(false);
   const [testComplete, setTestComplete] = useState(false);
+  const [guideTestComplete, setGuideTestComplete] = useState(false);
+  const [testErrorDetail, setTestErrorDetail] = useState<string | null>(null);
+  const [guideTestErrorDetail, setGuideTestErrorDetail] = useState<string | null>(null);
+  const [guideTestResultDetail, setGuideTestResultDetail] = useState<string | null>(null);
   const [message, setMessage] = useState<
-    "success" | "error" | "test_success" | "test_error" | null
+    "success" | "error" | "test_success" | "test_error" | "guide_test_success" | "guide_test_error" | null
   >(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [config, setConfig] = useState<ReminderConfig>(DEFAULT_CONFIG);
@@ -88,6 +105,12 @@ export default function AdminSettingsPage() {
   const [regularRemindMessage, setRegularRemindMessage] = useState(DEFAULT_REGULAR_REMIND_BODY);
   /** 週間シフト「レギュラー一括設定」用のデフォルト出勤時刻（空＝未設定） */
   const [regularStartTime, setRegularStartTime] = useState("");
+  const [guideHearingEnabled, setGuideHearingEnabled] = useState(false);
+  const [guideHearingTime, setGuideHearingTime] = useState("02:00");
+  const [guideHearingReporterId, setGuideHearingReporterId] = useState("");
+  const [guideReporterCandidates, setGuideReporterCandidates] = useState<GuideReporterCandidate[]>([]);
+  const [guideStaffInput, setGuideStaffInput] = useState("");
+  const [guideStaffNames, setGuideStaffNames] = useState<string[]>([]);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -234,6 +257,37 @@ export default function AdminSettingsPage() {
               : DEFAULT_CONFIG.welcome_message,
         });
       }
+
+      const guideRes = await fetch(
+        `/api/admin/guide-hearing?storeId=${encodeURIComponent(storeId)}`
+      );
+      if (guideRes.ok) {
+        const guideData = (await guideRes.json()) as {
+          enabled?: boolean;
+          sendTime?: string;
+          reporterCastId?: string | null;
+          reporterCandidates?: GuideReporterCandidate[];
+          guideStaffNames?: string[];
+        };
+        setGuideHearingEnabled(guideData.enabled === true);
+        if (
+          typeof guideData.sendTime === "string" &&
+          REMIND_TIME_OPTIONS.includes(guideData.sendTime)
+        ) {
+          setGuideHearingTime(guideData.sendTime);
+        }
+        setGuideHearingReporterId(
+          typeof guideData.reporterCastId === "string" ? guideData.reporterCastId : ""
+        );
+        setGuideReporterCandidates(
+          Array.isArray(guideData.reporterCandidates) ? guideData.reporterCandidates : []
+        );
+        setGuideStaffNames(
+          Array.isArray(guideData.guideStaffNames)
+            ? guideData.guideStaffNames.map((v) => String(v ?? "").trim()).filter(Boolean)
+            : []
+        );
+      }
     } catch (err) {
       console.error("[Settings] Error:", err);
     } finally {
@@ -244,6 +298,24 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     fetchConfig();
   }, [fetchConfig]);
+
+  const saveGuideHearing = async () => {
+    const res = await fetch("/api/admin/guide-hearing", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        storeId: activeStoreId,
+        enabled: guideHearingEnabled,
+        sendTime: normalizeGuideHearingTime(guideHearingTime),
+        reporterCastId: guideHearingReporterId === "" ? null : guideHearingReporterId,
+        guideStaffNames,
+      }),
+    });
+    if (!res.ok) {
+      const payload = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(payload.error ?? "案内数ヒアリング設定の保存に失敗しました");
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -291,6 +363,7 @@ export default function AdminSettingsPage() {
             typeof payload.error === "string" ? payload.error : "保存に失敗しました"
           );
         }
+        await saveGuideHearing();
         setMessage("success");
         return;
       }
@@ -363,6 +436,7 @@ export default function AdminSettingsPage() {
       if (typeof payload.warning === "string" && payload.warning.trim()) {
         setSaveWarning(payload.warning.trim());
       }
+      await saveGuideHearing();
       setMessage("success");
     } catch (err) {
       console.error("[Settings] Save error:", err);
@@ -372,9 +446,10 @@ export default function AdminSettingsPage() {
     }
   };
 
-  const handleTestSend = async () => {
+  const handleRemindTestSend = async () => {
     setTesting(true);
     setTestComplete(false);
+    setTestErrorDetail(null);
     setMessage(null);
     try {
       const res = await fetch("/api/remind?manual=true");
@@ -390,10 +465,161 @@ export default function AdminSettingsPage() {
       }, 3000);
     } catch (err) {
       console.error("[Settings] Test send error:", err);
+      setTestErrorDetail(err instanceof Error ? err.message : "テスト送信に失敗しました");
       setMessage("test_error");
       setTesting(false);
     }
   };
+
+  const handleGuideHearingTestSend = async () => {
+    setTestingGuide(true);
+    setGuideTestComplete(false);
+    setGuideTestErrorDetail(null);
+    setGuideTestResultDetail(null);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/guide-hearing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId: activeStoreId }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        sent?: number;
+        failedCount?: number;
+        tokenSource?: string;
+        targetCount?: number;
+        reporter?: { name?: string | null };
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? "送信に失敗しました");
+      }
+      const sent = typeof data.sent === "number" ? data.sent : 0;
+      const failedCount = typeof data.failedCount === "number" ? data.failedCount : 0;
+      const tokenSource = typeof data.tokenSource === "string" ? data.tokenSource : "unknown";
+      const targetCount = typeof data.targetCount === "number" ? data.targetCount : 0;
+      const reporterName = data.reporter?.name?.trim() || "担当者";
+      setGuideTestResultDetail(
+        `${reporterName}へ送信 ${sent}件 / 対象スタッフ ${targetCount}名（失敗 ${failedCount}件, token: ${tokenSource}）`
+      );
+      setGuideTestComplete(true);
+      setMessage("guide_test_success");
+      setTimeout(() => {
+        setGuideTestComplete(false);
+        setTestingGuide(false);
+      }, 3000);
+    } catch (err) {
+      console.error("[Settings] Guide test send error:", err);
+      setGuideTestErrorDetail(
+        err instanceof Error ? err.message : "案内数ヒアリングのテスト送信に失敗しました"
+      );
+      setMessage("guide_test_error");
+      setTestingGuide(false);
+    }
+  };
+
+  const guideHearingSection = (
+    <div className="mb-8 rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-4">
+      <h3 className="text-sm font-medium text-gray-900 mb-3">案内数ヒアリング設定</h3>
+      <label className="flex items-start gap-3 cursor-pointer mb-4">
+        <input
+          type="checkbox"
+          checked={guideHearingEnabled}
+          onChange={(e) => setGuideHearingEnabled(e.target.checked)}
+          className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+        />
+        <span className="text-sm text-gray-700 leading-snug">
+          営業終了時に案内スタッフへ「本日の案内組数」をLINEでヒアリングする
+        </span>
+      </label>
+
+      <label htmlFor="guideHearingTime" className="block text-sm font-medium text-gray-700 mb-2">
+        送信時刻（日本時間）
+      </label>
+      <input
+        id="guideHearingTime"
+        type="time"
+        value={guideHearingTime}
+        onChange={(e) => setGuideHearingTime(e.target.value)}
+        step={3600}
+        className="w-full max-w-xs min-h-[48px] px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+      />
+      <p className="mt-2 text-xs text-gray-500">
+        ヒアリング対象の個別指定は「キャスト管理」画面で設定します。
+      </p>
+      <label htmlFor="guideHearingReporter" className="block text-sm font-medium text-gray-700 mt-4 mb-2">
+        LINE受取担当者（1名）
+      </label>
+      <select
+        id="guideHearingReporter"
+        value={guideHearingReporterId}
+        onChange={(e) => setGuideHearingReporterId(e.target.value)}
+        className="w-full max-w-md min-h-[48px] px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+      >
+        <option value="">未選択</option>
+        {guideReporterCandidates.map((c) => (
+          <option key={c.id} value={c.id} disabled={!c.line_user_id}>
+            {c.name}{c.line_user_id ? "" : "（LINE未連携）"}
+          </option>
+        ))}
+      </select>
+      <label htmlFor="guideStaffInput" className="block text-sm font-medium text-gray-700 mt-4 mb-2">
+        案内スタッフの名前登録
+      </label>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          id="guideStaffInput"
+          type="text"
+          value={guideStaffInput}
+          onChange={(e) => setGuideStaffInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            const name = guideStaffInput.trim();
+            if (!name) return;
+            setGuideStaffNames((prev) => (prev.includes(name) ? prev : [...prev, name]));
+            setGuideStaffInput("");
+          }}
+          placeholder="例: A君"
+          className="w-full max-w-md min-h-[48px] px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => {
+            const name = guideStaffInput.trim();
+            if (!name) return;
+            setGuideStaffNames((prev) => (prev.includes(name) ? prev : [...prev, name]));
+            setGuideStaffInput("");
+          }}
+          className="min-h-[48px] px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
+        >
+          追加
+        </button>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {guideStaffNames.length === 0 ? (
+          <p className="text-xs text-gray-500">未登録です。入力して追加してください。</p>
+        ) : (
+          guideStaffNames.map((name) => (
+            <span
+              key={name}
+              className="inline-flex items-center gap-2 rounded-full bg-emerald-100 text-emerald-900 px-3 py-1 text-xs"
+            >
+              {name}
+              <button
+                type="button"
+                onClick={() => setGuideStaffNames((prev) => prev.filter((v) => v !== name))}
+                className="text-emerald-700 hover:text-emerald-900"
+                aria-label={`${name} を削除`}
+              >
+                ×
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -643,6 +869,7 @@ export default function AdminSettingsPage() {
                   ))}
                 </div>
               </div>
+              {guideHearingSection}
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="submit"
@@ -1085,19 +1312,20 @@ export default function AdminSettingsPage() {
               ※ {"{name}"} はキャスト名に置換されます（友だち追加時に本人へ送信）
             </p>
           </div>
+          {guideHearingSection}
 
           <div className="flex flex-col sm:flex-row gap-3">
             <button
               type="submit"
-              disabled={saving || testing}
+              disabled={saving || testing || testingGuide}
               className="flex-1 min-h-[48px] h-12 px-6 bg-blue-600 text-white text-base font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
             >
               {saving ? "保存中..." : "設定を保存"}
             </button>
             <button
               type="button"
-              onClick={handleTestSend}
-              disabled={saving || testing}
+              onClick={handleRemindTestSend}
+              disabled={saving || testing || testingGuide}
               className="flex-1 min-h-[48px] h-12 px-6 bg-gray-700 text-white text-base font-medium rounded-lg hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
             >
               {testing
@@ -1105,6 +1333,18 @@ export default function AdminSettingsPage() {
                   ? "テスト送信完了"
                   : "送信中..."
                 : "今すぐテスト送信（本日分）"}
+            </button>
+            <button
+              type="button"
+              onClick={handleGuideHearingTestSend}
+              disabled={saving || testing || testingGuide}
+              className="flex-1 min-h-[48px] h-12 px-6 bg-emerald-700 text-white text-base font-medium rounded-lg hover:bg-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+            >
+              {testingGuide
+                ? guideTestComplete
+                  ? "テスト送信完了"
+                  : "送信中..."
+                : "案内数ヒアリングを今すぐテスト送信"}
             </button>
           </div>
             </>
@@ -1126,6 +1366,16 @@ export default function AdminSettingsPage() {
             テスト送信が完了しました
           </p>
         )}
+        {message === "guide_test_success" && (
+          <div className="mt-4 space-y-1">
+            <p className="text-green-600 text-sm font-medium">
+              案内数ヒアリングのテスト送信が完了しました
+            </p>
+            {guideTestResultDetail && (
+              <p className="text-xs text-gray-600">{guideTestResultDetail}</p>
+            )}
+          </div>
+        )}
         {message === "error" && (
           <p className="mt-4 text-red-600 text-sm">
             保存に失敗しました。再度お試しください。
@@ -1133,7 +1383,13 @@ export default function AdminSettingsPage() {
         )}
         {message === "test_error" && (
           <p className="mt-4 text-red-600 text-sm">
-            テスト送信に失敗しました。再度お試しください。
+            {testErrorDetail ?? "テスト送信に失敗しました。再度お試しください。"}
+          </p>
+        )}
+        {message === "guide_test_error" && (
+          <p className="mt-4 text-red-600 text-sm">
+            {guideTestErrorDetail ??
+              "案内数ヒアリングのテスト送信に失敗しました。再度お試しください。"}
           </p>
         )}
       </div>

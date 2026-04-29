@@ -13,6 +13,7 @@ type Cast = {
   line_user_id?: string;
   is_admin?: boolean;
   employment_type?: CastEmploymentType | null;
+  is_guide_target?: boolean;
   /** 福祉: かかりつけ病院（LINE 通院報告・複数可） */
   default_hospital_names?: string[] | null;
   created_at?: string;
@@ -28,6 +29,7 @@ const EMPLOYMENT_OPTIONS: { value: CastEmploymentType; label: string }[] = [
   { value: "admin", label: "管理者" },
   { value: "regular", label: "レギュラー" },
   { value: "part_time", label: "バイト" },
+  { value: "employee", label: "従業員" },
 ];
 
 export default function AdminCastsPage() {
@@ -40,6 +42,7 @@ export default function AdminCastsPage() {
   const [editName, setEditName] = useState("");
   const [editIsAdmin, setEditIsAdmin] = useState(false);
   const [editEmployment, setEditEmployment] = useState<CastEmploymentType>("part_time");
+  const [editIsGuideTarget, setEditIsGuideTarget] = useState(false);
   const [editHospitalNames, setEditHospitalNames] = useState<string[]>([""]);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -52,7 +55,7 @@ export default function AdminCastsPage() {
       const [castsRes, storesRes] = await Promise.all([
         supabase
           .from("casts")
-          .select("id, name, store_id, line_user_id, is_admin, employment_type, default_hospital_names")
+          .select("id, name, store_id, line_user_id, is_admin, employment_type, is_guide_target, default_hospital_names")
           .eq("store_id", storeId)
           .eq("is_active", true)
           .order("name"),
@@ -78,8 +81,9 @@ export default function AdminCastsPage() {
     setEditIsAdmin(cast.is_admin ?? false);
     const em = cast.employment_type;
     setEditEmployment(
-      em === "admin" || em === "regular" || em === "part_time" ? em : "part_time"
+      em === "admin" || em === "regular" || em === "part_time" || em === "employee" ? em : "part_time"
     );
+    setEditIsGuideTarget(cast.is_guide_target === true);
     const names = normalizeDefaultHospitalNames(cast.default_hospital_names);
     setEditHospitalNames(names.length > 0 ? [...names] : [""]);
   };
@@ -89,6 +93,7 @@ export default function AdminCastsPage() {
     setEditName("");
     setEditIsAdmin(false);
     setEditEmployment("part_time");
+    setEditIsGuideTarget(false);
     setEditHospitalNames([""]);
   };
 
@@ -106,6 +111,7 @@ export default function AdminCastsPage() {
         name: newName,
         is_admin: editIsAdmin,
         employment_type: editEmployment,
+        is_guide_target: editIsGuideTarget,
       };
       if (store?.business_type === "welfare_b") {
         payload.default_hospital_names = normalizeDefaultHospitalNames(editHospitalNames);
@@ -124,6 +130,7 @@ export default function AdminCastsPage() {
                 name: newName,
                 is_admin: editIsAdmin,
                 employment_type: editEmployment,
+                is_guide_target: editIsGuideTarget,
                 ...(store?.business_type === "welfare_b"
                   ? {
                       default_hospital_names: normalizeDefaultHospitalNames(editHospitalNames),
@@ -143,6 +150,7 @@ export default function AdminCastsPage() {
       setEditName("");
       setEditIsAdmin(false);
       setEditEmployment("part_time");
+      setEditIsGuideTarget(false);
       setEditHospitalNames([""]);
     }
   };
@@ -180,6 +188,7 @@ export default function AdminCastsPage() {
     if (em === "admin") return "管理者";
     if (em === "regular") return "レギュラー";
     if (em === "part_time") return "バイト";
+    if (em === "employee") return "従業員";
     return "バイト";
   };
 
@@ -339,6 +348,18 @@ export default function AdminCastsPage() {
                       className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-amber-500 focus:ring-amber-500"
                     />
                     <span className="text-sm leading-snug text-gray-700">管理者通知を受け取る</span>
+                  </label>
+
+                  <label className="flex w-full cursor-pointer items-start gap-3 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={editIsGuideTarget}
+                      onChange={(e) => setEditIsGuideTarget(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-emerald-600 focus:ring-emerald-600"
+                    />
+                    <span className="text-sm leading-snug text-gray-700">
+                      案内数ヒアリングの対象にする（営業終了時にLINE送信）
+                    </span>
                   </label>
 
                   {isWelfare && (
