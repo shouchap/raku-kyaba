@@ -20,8 +20,8 @@ export type GuideStaffRow = {
 
 export type GuidePostbackParseResult = { kind: "count"; count: number } | null;
 export type GuideActionParseResult =
-  | { kind: "select_staff"; staffName: string }
-  | { kind: "submit_count"; staffName: string; count: number }
+  | { kind: "select_staff"; staffName: string; peopleCount?: number }
+  | { kind: "submit_count"; staffName: string; count: number; peopleCount?: number }
   | { kind: "submit_people"; staffName: string; count: number; peopleCount: number }
   | null;
 
@@ -97,15 +97,15 @@ export function buildGuideHearingMessage(storeName?: string | null): LineReplyMe
   };
 }
 
-export function buildGuideTargetSelectItems(
-  staffNames: string[]
-): LineTextQuickReplyItem[] {
+export function buildGuideTargetSelectItems(staffNames: string[], peopleCount?: number): LineTextQuickReplyItem[] {
   return staffNames.slice(0, 13).map((name) => ({
     type: "action",
     action: {
       type: "postback",
       label: name,
-      data: `action=select_guide_staff&staff_name=${encodeURIComponent(name)}`,
+      data:
+        `action=select_guide_staff&staff_name=${encodeURIComponent(name)}` +
+        (Number.isInteger(peopleCount) ? `&people_count=${peopleCount}` : ""),
       displayText: name,
     },
   }));
@@ -114,18 +114,22 @@ export function buildGuideTargetSelectItems(
 export function buildGuideTargetSelectMessage(params: {
   storeName?: string | null;
   staffNames: string[];
+  peopleCount?: number;
 }): LineReplyMessage {
   const storeLabel = params.storeName?.trim() ? `（${params.storeName.trim()}）` : "";
   return {
     type: "text",
     text: `案内数の入力対象を選んでください${storeLabel}。`,
     quickReply: {
-      items: buildGuideTargetSelectItems(params.staffNames),
+      items: buildGuideTargetSelectItems(params.staffNames, params.peopleCount),
     },
   };
 }
 
-export function buildGuideCountSelectItems(staffName: string): LineTextQuickReplyItem[] {
+export function buildGuideCountSelectItems(
+  staffName: string,
+  peopleCount?: number
+): LineTextQuickReplyItem[] {
   const items: LineTextQuickReplyItem[] = [];
   for (let i = 0; i <= 10; i++) {
     items.push({
@@ -133,7 +137,9 @@ export function buildGuideCountSelectItems(staffName: string): LineTextQuickRepl
       action: {
         type: "postback",
         label: `${i}組`,
-        data: `action=submit_guide_count&staff_name=${encodeURIComponent(staffName)}&count=${i}`,
+        data:
+          `action=submit_guide_count&staff_name=${encodeURIComponent(staffName)}&count=${i}` +
+          (Number.isInteger(peopleCount) ? `&people_count=${peopleCount}` : ""),
         displayText: `${i}組`,
       },
     });
@@ -141,12 +147,12 @@ export function buildGuideCountSelectItems(staffName: string): LineTextQuickRepl
   return items;
 }
 
-export function buildGuideCountSelectMessage(staffName: string): LineReplyMessage {
+export function buildGuideCountSelectMessage(staffName: string, peopleCount?: number): LineReplyMessage {
   return {
     type: "text",
     text: `【${staffName}さん】の案内組数を教えてください。`,
     quickReply: {
-      items: buildGuideCountSelectItems(staffName),
+      items: buildGuideCountSelectItems(staffName, peopleCount),
     },
   };
 }
@@ -198,12 +204,31 @@ export function parseGuideActionPostbackData(rawData: string): GuideActionParseR
   if (!staffName) return null;
 
   if (action === "select_guide_staff") {
-    return { kind: "select_staff", staffName };
+    const peopleCountRaw = params.get("people_count");
+    const peopleCount = peopleCountRaw == null ? NaN : Number(peopleCountRaw);
+    if (peopleCountRaw != null && (!Number.isInteger(peopleCount) || peopleCount < 0 || peopleCount > 9999)) {
+      return null;
+    }
+    return {
+      kind: "select_staff",
+      staffName,
+      peopleCount: Number.isInteger(peopleCount) ? peopleCount : undefined,
+    };
   }
   if (action === "submit_guide_count") {
     const count = Number(params.get("count"));
     if (!Number.isInteger(count) || count < 0 || count > 10) return null;
-    return { kind: "submit_count", staffName, count };
+    const peopleCountRaw = params.get("people_count");
+    const peopleCount = peopleCountRaw == null ? NaN : Number(peopleCountRaw);
+    if (peopleCountRaw != null && (!Number.isInteger(peopleCount) || peopleCount < 0 || peopleCount > 9999)) {
+      return null;
+    }
+    return {
+      kind: "submit_count",
+      staffName,
+      count,
+      peopleCount: Number.isInteger(peopleCount) ? peopleCount : undefined,
+    };
   }
   if (action === "submit_guide_people") {
     const count = Number(params.get("count"));
