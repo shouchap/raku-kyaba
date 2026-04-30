@@ -10,6 +10,13 @@ type CronResult = {
   error?: string;
 };
 
+type StoreBaseRow = {
+  id: string;
+  name: string | null;
+  guide_hearing_time: string | null;
+  last_guide_hearing_sent_date?: string | null;
+};
+
 export async function GET(request: Request) {
   try {
     const authHeader = request.headers.get("authorization");
@@ -40,34 +47,63 @@ export async function GET(request: Request) {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const businessDate = resolveBusinessDateFromJst();
 
-    const { data: stores, error } = await supabase
+    let stores: StoreBaseRow[] = [];
+    let storesHasLastSentDate = true;
+
+    const withLastSent = await supabase
       .from("stores")
       .select("id, name, guide_hearing_time, last_guide_hearing_sent_date");
 
-    if (error || !stores) {
+    if (withLastSent.error?.code === "42703") {
+      storesHasLastSentDate = false;
+      const fallback = await supabase
+        .from("stores")
+        .select("id, name, guide_hearing_time");
+      if (fallback.error || !fallback.data) {
+        console.error("[CRON] stores fetch failed (fallback):", {
+          message: fallback.error?.message,
+          details: fallback.error?.details,
+          hint: fallback.error?.hint,
+          code: fallback.error?.code,
+        });
+        return NextResponse.json(
+          {
+            error: "DB Error",
+            message: fallback.error?.message,
+            details: fallback.error?.details,
+            hint: fallback.error?.hint,
+            code: fallback.error?.code,
+          },
+          { status: 500 }
+        );
+      }
+      stores = fallback.data as StoreBaseRow[];
+    } else if (withLastSent.error || !withLastSent.data) {
       console.error("[CRON] stores fetch failed:", {
-        message: error?.message,
-        details: error?.details,
-        hint: error?.hint,
-        code: error?.code,
+        message: withLastSent.error?.message,
+        details: withLastSent.error?.details,
+        hint: withLastSent.error?.hint,
+        code: withLastSent.error?.code,
       });
       return NextResponse.json(
         {
           error: "DB Error",
-          message: error?.message,
-          details: error?.details,
-          hint: error?.hint,
-          code: error?.code,
+          message: withLastSent.error?.message,
+          details: withLastSent.error?.details,
+          hint: withLastSent.error?.hint,
+          code: withLastSent.error?.code,
         },
         { status: 500 }
       );
+    } else {
+      stores = withLastSent.data as StoreBaseRow[];
     }
 
     const targetStores = stores.filter(
       (store) =>
         store.guide_hearing_time &&
         store.guide_hearing_time.startsWith(currentHour + ":") &&
-        store.last_guide_hearing_sent_date !== businessDate
+        (!storesHasLastSentDate || store.last_guide_hearing_sent_date !== businessDate)
     );
 
     if (targetStores.length === 0) {
@@ -179,15 +215,17 @@ export async function GET(request: Request) {
         successCount++;
         results.push({ storeId: store.id, sent: 1 });
 
-        const { error: updateErr } = await supabase
-          .from("stores")
-          .update({
-            last_guide_hearing_sent_date: businessDate,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", store.id);
-        if (updateErr) {
-          console.error("[CRON] failed to update last_guide_hearing_sent_date:", updateErr.message);
+        if (storesHasLastSentDate) {
+          const { error: updateErr } = await supabase
+            .from("stores")
+            .update({
+              last_guide_hearing_sent_date: businessDate,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", store.id);
+          if (updateErr) {
+            console.error("[CRON] failed to update last_guide_hearing_sent_date:", updateErr.message);
+          }
         }
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
