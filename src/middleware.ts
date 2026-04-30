@@ -17,6 +17,11 @@ import { isSuperAdminUser } from "@/lib/super-admin";
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
+  /** Cloud Scheduler 用: /api/cron/* は認証・メンテ判定を一切通さず素通し */
+  if (pathname.startsWith("/api/cron/")) {
+    return NextResponse.next();
+  }
+
   /** 管理 API: メンテナンス中は DB 不整合防止のため一括拒否 */
   if (pathname.startsWith("/api/admin")) {
     if (isMaintenanceMode()) {
@@ -112,5 +117,6 @@ export const config = {
      */
     "/((?!_next/static|_next/image|favicon.ico|api|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)",
     "/api/admin/:path*",
+    "/api/cron/:path*",
   ],
 };
