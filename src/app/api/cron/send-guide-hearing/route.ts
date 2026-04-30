@@ -29,9 +29,10 @@ export async function GET(request: Request) {
     const { createClient } = await import('@supabase/supabase-js');
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // 💡 修正ポイント：guide_staff_names（スタッフ名リスト）もDBから取得する
     const { data: stores, error } = await supabase
       .from('stores')
-      .select('id, name, guide_hearing_time, line_channel_access_token');
+      .select('id, name, guide_hearing_time, line_channel_access_token, guide_staff_names');
 
     if (error || !stores) {
       return NextResponse.json({ error: "DB Error" }, { status: 500 });
@@ -53,16 +54,31 @@ export async function GET(request: Request) {
       const accessToken = store.line_channel_access_token || defaultLineToken;
       if (!accessToken) continue;
 
+      // 💡 修正ポイント：DBに登録されているスタッフ名の配列を取得
+      const staffNames = Array.isArray(store.guide_staff_names) ? store.guide_staff_names : [];
+
+      if (staffNames.length === 0) {
+          console.warn(`[CRON] ${store.name} のスタッフ名が登録されていません`);
+          continue;
+      }
+
+      // 💡 修正ポイント：スタッフ名からLINEの選択肢（クイックリプライ）を動的に作る
+      // （※LINEの仕様上、ボタンは最大13個までなので .slice(0, 13) で安全対策をしています）
+      const quickReplyItems = staffNames.slice(0, 13).map((name: string) => ({
+        type: "action",
+        action: {
+          type: "message",
+          label: name, // ボタンの見た目（例：和也）
+          text: name   // 押した時に送信される文字（例：和也）
+        }
+      }));
+
+      // 3枚目の画像と全く同じテキストとボタンの構成
       const messagePayload = {
         type: "text",
-        text: `【案内数ヒアリング】\n${store.name} のご担当者様\n\n本日のご案内組数を教えてください。`,
+        text: `案内数の入力対象を選んでください (${store.name})。`,
         quickReply: {
-          items: [
-            { type: "action", action: { type: "message", label: "0組", text: "案内数: 0組" } },
-            { type: "action", action: { type: "message", label: "1組", text: "案内数: 1組" } },
-            { type: "action", action: { type: "message", label: "2組", text: "案内数: 2組" } },
-            { type: "action", action: { type: "message", label: "3組以上", text: "案内数: 3組以上" } }
-          ]
+          items: quickReplyItems
         }
       };
 
