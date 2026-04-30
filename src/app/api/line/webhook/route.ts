@@ -357,7 +357,6 @@ async function processWebhookEvent(
           userId,
           storeId: resolvedStoreId,
           staffName: guideAction.staffName,
-          peopleCount: guideAction.peopleCount,
           supabase,
           replyToken: postbackEvent.replyToken,
           channelAccessToken,
@@ -365,29 +364,15 @@ async function processWebhookEvent(
         break;
       }
       if (guideAction?.kind === "submit_count") {
-        const peopleCount = guideAction.peopleCount;
-        if (typeof peopleCount === "number" && Number.isInteger(peopleCount)) {
-          await handleGuideSubmitCountResponse({
-            userId,
-            storeId: resolvedStoreId,
-            staffName: guideAction.staffName,
-            guideCount: guideAction.count,
-            peopleCount,
-            supabase,
-            replyToken: postbackEvent.replyToken,
-            channelAccessToken,
-          });
-        } else {
-          await handleGuideSelectPeopleResponse({
-            userId,
-            storeId: resolvedStoreId,
-            staffName: guideAction.staffName,
-            guideCount: guideAction.count,
-            supabase,
-            replyToken: postbackEvent.replyToken,
-            channelAccessToken,
-          });
-        }
+        await handleGuideSelectPeopleResponse({
+          userId,
+          storeId: resolvedStoreId,
+          staffName: guideAction.staffName,
+          guideCount: guideAction.count,
+          supabase,
+          replyToken: postbackEvent.replyToken,
+          channelAccessToken,
+        });
         break;
       }
       if (guideAction?.kind === "submit_people") {
@@ -566,7 +551,6 @@ async function handleGuideSelectStaffResponse(params: {
   userId: string;
   storeId: string | null;
   staffName: string;
-  peopleCount?: number;
   supabase: ReturnType<typeof createSupabaseClient>;
   replyToken?: string;
   channelAccessToken?: string;
@@ -592,7 +576,7 @@ async function handleGuideSelectStaffResponse(params: {
   }
 
   await sendReply(params.replyToken, params.channelAccessToken, [
-    buildGuideCountSelectMessage(params.staffName, params.peopleCount),
+    buildGuideCountSelectMessage(params.staffName),
   ]);
 }
 
@@ -667,7 +651,6 @@ async function handleGuideSubmitCountResponse(params: {
       {
         ...buildGuideTargetSelectMessage({
           staffNames: nextTargets,
-          peopleCount: params.peopleCount,
         }),
       },
     ]);
