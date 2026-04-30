@@ -30,6 +30,7 @@ import { handleWelfareWebhook, type WelfareStoreContext } from "@/lib/welfare-li
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import {
   buildGuideCountSelectMessage,
+  buildGuidePeopleSelectMessage,
   buildGuideTargetSelectMessage,
   parseGuideActionPostbackData,
   upsertGuideResult,
@@ -363,11 +364,24 @@ async function processWebhookEvent(
         break;
       }
       if (guideAction?.kind === "submit_count") {
+        await handleGuideSelectPeopleResponse({
+          userId,
+          storeId: resolvedStoreId,
+          staffName: guideAction.staffName,
+          guideCount: guideAction.count,
+          supabase,
+          replyToken: postbackEvent.replyToken,
+          channelAccessToken,
+        });
+        break;
+      }
+      if (guideAction?.kind === "submit_people") {
         await handleGuideSubmitCountResponse({
           userId,
           storeId: resolvedStoreId,
           staffName: guideAction.staffName,
           guideCount: guideAction.count,
+          peopleCount: guideAction.peopleCount,
           supabase,
           replyToken: postbackEvent.replyToken,
           channelAccessToken,
@@ -571,12 +585,14 @@ async function handleGuideSubmitCountResponse(params: {
   storeId: string | null;
   staffName: string;
   guideCount: number;
+  peopleCount: number;
   supabase: ReturnType<typeof createSupabaseClient>;
   replyToken?: string;
   channelAccessToken?: string;
 }): Promise<void> {
   if (!params.storeId) return;
   if (!Number.isInteger(params.guideCount) || params.guideCount < 0) return;
+  if (!Number.isInteger(params.peopleCount) || params.peopleCount < 0) return;
   const isReporter = await validateGuideReporter({
     userId: params.userId,
     storeId: params.storeId,
@@ -606,6 +622,7 @@ async function handleGuideSubmitCountResponse(params: {
       storeId: params.storeId,
       staffName: params.staffName,
       guideCount: params.guideCount,
+      peopleCount: params.peopleCount,
     });
   } catch (err) {
     console.error("[GuideWebhook] upsert failed:", err);
@@ -628,7 +645,7 @@ async function handleGuideSubmitCountResponse(params: {
       {
         type: "text",
         text:
-          `${targetName}さんの案内数を${params.guideCount}組で登録しました。` +
+          `${targetName}さんの案内数を${params.guideCount}組・${params.peopleCount}人で登録しました。` +
           "続けて入力する場合は以下のボタンから選んでください。",
       },
       {
@@ -638,6 +655,41 @@ async function handleGuideSubmitCountResponse(params: {
       },
     ]);
   }
+}
+
+async function handleGuideSelectPeopleResponse(params: {
+  userId: string;
+  storeId: string | null;
+  staffName: string;
+  guideCount: number;
+  supabase: ReturnType<typeof createSupabaseClient>;
+  replyToken?: string;
+  channelAccessToken?: string;
+}): Promise<void> {
+  if (!params.storeId || !params.replyToken || !params.channelAccessToken) return;
+  if (!Number.isInteger(params.guideCount) || params.guideCount < 0) return;
+  const isReporter = await validateGuideReporter({
+    userId: params.userId,
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!isReporter) return;
+
+  const targets = await fetchGuideTargetsForStore({
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!targets.includes(params.staffName)) {
+    console.error("[GuideWebhook] select people target invalid:", params.staffName);
+    await sendReply(params.replyToken, params.channelAccessToken, [
+      { type: "text", text: "対象スタッフが見つかりません。もう一度選択してください。" },
+    ]);
+    return;
+  }
+
+  await sendReply(params.replyToken, params.channelAccessToken, [
+    buildGuidePeopleSelectMessage(params.staffName, params.guideCount),
+  ]);
 }
 
 const DEFAULT_ADMIN_NOTIFY_NEW_CAST = "新しく {name} さんが登録されました！";

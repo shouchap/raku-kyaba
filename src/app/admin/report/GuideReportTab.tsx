@@ -55,6 +55,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
   const [formDate, setFormDate] = useState("");
   const [formStaff, setFormStaff] = useState("");
   const [formCount, setFormCount] = useState(0);
+  const [formPeopleCount, setFormPeopleCount] = useState(0);
   const [modalSaving, setModalSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
@@ -130,6 +131,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
     setFormDate(defaultTargetDate);
     setFormStaff(guideStaffNames[0] ?? "");
     setFormCount(0);
+    setFormPeopleCount(0);
     setModalError(null);
     setModalOpen(true);
   };
@@ -140,6 +142,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
     setFormDate(r.target_date);
     setFormStaff(r.staff_name);
     setFormCount(r.guide_count);
+    setFormPeopleCount(typeof r.people_count === "number" ? r.people_count : 0);
     setModalError(null);
     setModalOpen(true);
   };
@@ -165,6 +168,10 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
       setModalError("組数は 0〜9999 の整数で入力してください。");
       return;
     }
+    if (!Number.isInteger(formPeopleCount) || formPeopleCount < 0 || formPeopleCount > 9999) {
+      setModalError("人数は 0〜9999 の整数で入力してください。");
+      return;
+    }
 
     setModalSaving(true);
     try {
@@ -179,6 +186,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
             staffName: staff,
             targetDate: formDate,
             guideCount: formCount,
+            peopleCount: formPeopleCount,
           }),
         });
         const patchPayload = (await patchRes.json().catch(() => ({}))) as {
@@ -200,6 +208,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
             staffName: staff,
             targetDate: formDate,
             guideCount: formCount,
+            peopleCount: formPeopleCount,
           }),
         });
         const putPayload = (await putRes.json().catch(() => ({}))) as { error?: string };
@@ -250,16 +259,28 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
     () => rows.reduce((sum, r) => sum + (typeof r.guide_count === "number" ? r.guide_count : 0), 0),
     [rows]
   );
+  const totalPeople = useMemo(
+    () =>
+      rows.reduce(
+        (sum, r) => sum + (typeof r.people_count === "number" ? r.people_count : 0),
+        0
+      ),
+    [rows]
+  );
 
   const staffTotals = useMemo(() => {
-    const m = new Map<string, number>();
+    const m = new Map<string, { guide: number; people: number }>();
     for (const r of rows) {
       const name = String(r.staff_name ?? "").trim() || "（無名）";
-      m.set(name, (m.get(name) ?? 0) + (typeof r.guide_count === "number" ? r.guide_count : 0));
+      const prev = m.get(name) ?? { guide: 0, people: 0 };
+      m.set(name, {
+        guide: prev.guide + (typeof r.guide_count === "number" ? r.guide_count : 0),
+        people: prev.people + (typeof r.people_count === "number" ? r.people_count : 0),
+      });
     }
     return [...m.entries()]
-      .map(([staff_name, total]) => ({ staff_name, total }))
-      .sort((a, b) => b.total - a.total || a.staff_name.localeCompare(b.staff_name, "ja"));
+      .map(([staff_name, totals]) => ({ staff_name, guideTotal: totals.guide, peopleTotal: totals.people }))
+      .sort((a, b) => b.guideTotal - a.guideTotal || a.staff_name.localeCompare(b.staff_name, "ja"));
   }, [rows]);
 
   /** 日付新しい順。同一日はスタッフ名で安定ソート */
@@ -311,6 +332,9 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
           {totalGuides}
           <span className="ml-2 text-lg font-semibold text-emerald-800 sm:text-xl">組</span>
         </p>
+        <p className="mt-2 text-sm font-medium text-emerald-900/90">
+          合計人数: <span className="tabular-nums">{totalPeople}</span>人
+        </p>
       </section>
 
       <section aria-labelledby="guide-staff-heading">
@@ -326,12 +350,13 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="px-4 py-3 font-semibold text-gray-900">スタッフ名</th>
                 <th className="px-4 py-3 text-right font-semibold text-gray-900">合計（組）</th>
+                <th className="px-4 py-3 text-right font-semibold text-gray-900">合計（人）</th>
               </tr>
             </thead>
             <tbody>
               {staffTotals.length === 0 ? (
                 <tr>
-                  <td colSpan={2} className="px-4 py-10 text-center text-gray-500">
+                  <td colSpan={3} className="px-4 py-10 text-center text-gray-500">
                     この月の案内実績データはありません。
                   </td>
                 </tr>
@@ -342,7 +367,8 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                     className="border-b border-gray-100 hover:bg-gray-50/80"
                   >
                     <td className="px-4 py-3 font-medium text-gray-900">{row.staff_name}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-gray-900">{row.total}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-gray-900">{row.guideTotal}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-gray-900">{row.peopleTotal}</td>
                   </tr>
                 ))
               )}
@@ -385,6 +411,9 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                 <th className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
                   組数
                 </th>
+                <th className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  人数
+                </th>
                 <th className="print:hidden px-4 py-3 text-center font-semibold text-gray-900 whitespace-nowrap w-[7rem]">
                   アクション
                 </th>
@@ -393,7 +422,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
             <tbody>
               {detailRows.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-gray-500">
+                  <td colSpan={5} className="px-4 py-10 text-center text-gray-500">
                     この月の案内実績データはありません。
                   </td>
                 </tr>
@@ -408,6 +437,9 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{r.staff_name}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-gray-900">{r.guide_count}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-gray-900">
+                      {typeof r.people_count === "number" ? r.people_count : 0}
+                    </td>
                     <td className="print:hidden px-4 py-2 text-center">
                       <div className="inline-flex items-center justify-center gap-1">
                         <button
@@ -506,6 +538,29 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                     }
                     const n = parseInt(raw, 10);
                     if (!Number.isNaN(n)) setFormCount(n);
+                  }}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
+                />
+              </div>
+              <div>
+                <label htmlFor="guide-form-people" className="block text-sm font-medium text-gray-700">
+                  人数
+                </label>
+                <input
+                  id="guide-form-people"
+                  type="number"
+                  min={0}
+                  max={9999}
+                  step={1}
+                  value={Number.isFinite(formPeopleCount) ? formPeopleCount : 0}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === "") {
+                      setFormPeopleCount(0);
+                      return;
+                    }
+                    const n = parseInt(raw, 10);
+                    if (!Number.isNaN(n)) setFormPeopleCount(n);
                   }}
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
                 />

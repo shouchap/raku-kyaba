@@ -84,6 +84,7 @@ type SortKey =
 type ViewMode = "month" | "week" | "day";
 
 type ReportMainTab = "cast" | "guide";
+type SortPreset = "attendance" | "absent" | "late" | "dohan";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -595,6 +596,15 @@ function AdminReportContent() {
     }
   };
 
+  const sortPresetValue: SortPreset | "" = useMemo(() => {
+    if (sortDir !== "desc") return "";
+    if (sortKey === "attendance") return "attendance";
+    if (sortKey === "absent") return "absent";
+    if (sortKey === "late") return "late";
+    if (sortKey === "dohan") return "dohan";
+    return "";
+  }, [sortKey, sortDir]);
+
   const toggleExpand = (castId: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -747,6 +757,42 @@ function AdminReportContent() {
               </option>
             ))}
           </select>
+          {businessType !== "welfare_b" && (
+            <>
+              <label
+                htmlFor="report-sort-preset"
+                className="text-sm font-medium text-gray-700 whitespace-nowrap"
+              >
+                並び替え
+              </label>
+              <select
+                id="report-sort-preset"
+                value={sortPresetValue}
+                onChange={(e) => {
+                  const v = e.target.value as SortPreset | "";
+                  if (v === "attendance") {
+                    setSortKey("attendance");
+                    setSortDir("desc");
+                  } else if (v === "absent") {
+                    setSortKey("absent");
+                    setSortDir("desc");
+                  } else if (v === "late") {
+                    setSortKey("late");
+                    setSortDir("desc");
+                  } else if (v === "dohan") {
+                    setSortKey("dohan");
+                    setSortDir("desc");
+                  }
+                }}
+                className="min-h-[44px] min-w-[10rem] max-w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 outline-none"
+              >
+                <option value="attendance">出勤数（多い順）</option>
+                <option value="absent">欠勤（多い順）</option>
+                <option value="late">遅刻（多い順）</option>
+                <option value="dohan">同伴（多い順）</option>
+              </select>
+            </>
+          )}
         </div>
       )}
 

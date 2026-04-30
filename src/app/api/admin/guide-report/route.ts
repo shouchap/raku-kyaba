@@ -94,7 +94,7 @@ export async function GET(request: Request) {
 
   const { data: rows, error: qErr } = await admin
     .from("daily_guide_results")
-    .select("id, store_id, staff_name, target_date, guide_count, responded_at")
+    .select("id, store_id, staff_name, target_date, guide_count, people_count, responded_at")
     .eq("store_id", storeId)
     .gte("target_date", start)
     .lte("target_date", end)

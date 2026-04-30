@@ -22,6 +22,7 @@ export type GuidePostbackParseResult = { kind: "count"; count: number } | null;
 export type GuideActionParseResult =
   | { kind: "select_staff"; staffName: string }
   | { kind: "submit_count"; staffName: string; count: number }
+  | { kind: "submit_people"; staffName: string; count: number; peopleCount: number }
   | null;
 
 function jstDateParts(base: Date): { yyyy: number; mm: number; dd: number; hour: number } {
@@ -150,6 +151,37 @@ export function buildGuideCountSelectMessage(staffName: string): LineReplyMessag
   };
 }
 
+export function buildGuidePeopleSelectItems(
+  staffName: string,
+  count: number
+): LineTextQuickReplyItem[] {
+  const items: LineTextQuickReplyItem[] = [];
+  for (let i = 0; i <= 20; i++) {
+    items.push({
+      type: "action",
+      action: {
+        type: "postback",
+        label: `${i}人`,
+        data:
+          `action=submit_guide_people&staff_name=${encodeURIComponent(staffName)}` +
+          `&count=${count}&people_count=${i}`,
+        displayText: `${i}人`,
+      },
+    });
+  }
+  return items;
+}
+
+export function buildGuidePeopleSelectMessage(staffName: string, count: number): LineReplyMessage {
+  return {
+    type: "text",
+    text: `【${staffName}さん】の人数を選択してください（案内組数: ${count}組）。`,
+    quickReply: {
+      items: buildGuidePeopleSelectItems(staffName, count),
+    },
+  };
+}
+
 export function parseGuidePostbackData(rawData: string): GuidePostbackParseResult {
   const params = new URLSearchParams(rawData.trim());
   if (params.get("action") !== "guide_count") return null;
@@ -172,6 +204,13 @@ export function parseGuideActionPostbackData(rawData: string): GuideActionParseR
     if (!Number.isInteger(count) || count < 0 || count > 10) return null;
     return { kind: "submit_count", staffName, count };
   }
+  if (action === "submit_guide_people") {
+    const count = Number(params.get("count"));
+    const peopleCount = Number(params.get("people_count"));
+    if (!Number.isInteger(count) || count < 0 || count > 10) return null;
+    if (!Number.isInteger(peopleCount) || peopleCount < 0 || peopleCount > 9999) return null;
+    return { kind: "submit_people", staffName, count, peopleCount };
+  }
   return null;
 }
 
@@ -180,6 +219,7 @@ export async function upsertGuideResult(params: {
   storeId: string;
   staffName: string;
   guideCount: number;
+  peopleCount?: number;
   respondedAtIso?: string;
 }): Promise<void> {
   const respondedAtIso = params.respondedAtIso ?? new Date().toISOString();
@@ -191,6 +231,7 @@ export async function upsertGuideResult(params: {
       staff_name: params.staffName,
       target_date: targetDate,
       guide_count: params.guideCount,
+      people_count: Number.isInteger(params.peopleCount) ? params.peopleCount : null,
       responded_at: respondedAtIso,
     },
     {

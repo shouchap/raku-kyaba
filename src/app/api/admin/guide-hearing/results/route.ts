@@ -51,6 +51,7 @@ type PutBody = {
   staffName?: string;
   targetDate?: string;
   guideCount?: unknown;
+  peopleCount?: unknown;
 };
 
 /**
@@ -73,6 +74,10 @@ export async function PUT(request: Request) {
     typeof body.guideCount === "number" && Number.isFinite(body.guideCount)
       ? Math.floor(body.guideCount)
       : NaN;
+  const peopleCount =
+    typeof body.peopleCount === "number" && Number.isFinite(body.peopleCount)
+      ? Math.floor(body.peopleCount)
+      : NaN;
 
   if (!isValidStoreId(storeId)) {
     return NextResponse.json({ error: "Valid storeId is required" }, { status: 400 });
@@ -91,6 +96,9 @@ export async function PUT(request: Request) {
   }
   if (!Number.isInteger(guideCount) || guideCount < 0 || guideCount > 9999) {
     return NextResponse.json({ error: "guideCount must be an integer from 0 to 9999" }, { status: 400 });
+  }
+  if (!Number.isInteger(peopleCount) || peopleCount < 0 || peopleCount > 9999) {
+    return NextResponse.json({ error: "peopleCount must be an integer from 0 to 9999" }, { status: 400 });
   }
 
   let admin: ReturnType<typeof createServiceRoleClient>;
@@ -123,6 +131,7 @@ export async function PUT(request: Request) {
       staff_name: staffName,
       target_date: targetDate,
       guide_count: guideCount,
+      people_count: peopleCount,
       responded_at: respondedAt,
     },
     { onConflict: "store_id,staff_name,target_date" }
@@ -145,6 +154,7 @@ type PatchBody = {
   staffName?: string;
   targetDate?: string;
   guideCount?: unknown;
+  peopleCount?: unknown;
 };
 
 /**
@@ -168,6 +178,10 @@ export async function PATCH(request: Request) {
     typeof body.guideCount === "number" && Number.isFinite(body.guideCount)
       ? Math.floor(body.guideCount)
       : NaN;
+  const peopleCount =
+    typeof body.peopleCount === "number" && Number.isFinite(body.peopleCount)
+      ? Math.floor(body.peopleCount)
+      : NaN;
 
   if (!isValidStoreId(storeId) || !id) {
     return NextResponse.json({ error: "Valid storeId and id are required" }, { status: 400 });
@@ -186,6 +200,9 @@ export async function PATCH(request: Request) {
   }
   if (!Number.isInteger(guideCount) || guideCount < 0 || guideCount > 9999) {
     return NextResponse.json({ error: "guideCount must be an integer from 0 to 9999" }, { status: 400 });
+  }
+  if (!Number.isInteger(peopleCount) || peopleCount < 0 || peopleCount > 9999) {
+    return NextResponse.json({ error: "peopleCount must be an integer from 0 to 9999" }, { status: 400 });
   }
 
   let admin: ReturnType<typeof createServiceRoleClient>;
@@ -232,6 +249,7 @@ export async function PATCH(request: Request) {
       staff_name: staffName,
       target_date: targetDate,
       guide_count: guideCount,
+      people_count: peopleCount,
       responded_at: respondedAt,
     })
     .eq("id", id)

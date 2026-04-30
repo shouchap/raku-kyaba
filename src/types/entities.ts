@@ -43,5 +43,6 @@ export type DailyGuideResult = {
   /** YYYY-MM-DD（営業日） */
   target_date: string;
   guide_count: number;
+  people_count: number | null;
   responded_at: string;
 };

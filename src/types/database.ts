@@ -154,6 +154,7 @@ export interface Database {
           staff_name: string;
           target_date: string;
           guide_count: number;
+          people_count: number | null;
           responded_at: string;
           created_at: string;
           updated_at: string;
