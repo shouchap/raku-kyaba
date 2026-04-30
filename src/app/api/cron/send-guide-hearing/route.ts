@@ -51,7 +51,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: storeErr.message }, { status: 500 });
   }
 
-  const results: Array<{ storeId: string; sent: number; skipped?: string }> = [];
+  const results: Array<{
+    storeId: string;
+    sent: number;
+    skipped?: string;
+    error?: string;
+  }> = [];
 
   for (const store of stores ?? []) {
     const targetHour = parseGuideHearingHour(store.guide_hearing_time);
@@ -95,31 +100,48 @@ export async function GET(request: Request) {
       continue;
     }
 
-    await sendPushMessage(
-      reporter.line_user_id,
-      token.token,
-      [
+    try {
+      await sendPushMessage(reporter.line_user_id, token.token, [
         buildGuideTargetSelectMessage({
           storeName: store.name,
           staffNames,
         }),
-      ]
-    );
+      ]);
 
-    const sent = 1;
+      const sent = 1;
 
-    if (sent > 0) {
-      await supabase
-        .from("stores")
-        .update({
-          last_guide_hearing_sent_date: businessDate,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", store.id);
+      if (sent > 0) {
+        const { error: updateErr } = await supabase
+          .from("stores")
+          .update({
+            last_guide_hearing_sent_date: businessDate,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", store.id);
+        if (updateErr) {
+          console.error("[GuideCron] failed to update last_guide_hearing_sent_date:", {
+            storeId: store.id,
+            message: updateErr.message,
+          });
+        }
+      }
+
+      results.push({ storeId: store.id, sent });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[GuideCron] send failed:", { storeId: store.id, message });
+      results.push({
+        storeId: store.id,
+        sent: 0,
+        skipped: "send_failed",
+        error: message,
+      });
     }
-
-    results.push({ storeId: store.id, sent });
   }
 
   return NextResponse.json({ ok: true, hourJst, businessDate, results });
+}
+
+export async function POST(request: Request) {
+  return GET(request);
 }
