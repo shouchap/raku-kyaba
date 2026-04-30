@@ -39,7 +39,10 @@ export async function GET(request: Request) {
     }
 
     // 4. 今送るべき店舗だけを絞り込む
-    const targetStores = stores.filter(store => store.guide_hearing_time === currentTimeStr);
+    // "21:00" / "21:00:00" のようなフォーマット差異を吸収するため前方一致で判定
+    const targetStores = stores.filter(
+      (store) => store.guide_hearing_time && store.guide_hearing_time.startsWith(currentHour + ":")
+    );
     
     if (targetStores.length === 0) {
       console.log(`[CRON] ${currentTimeStr} に送信設定されている店舗はありませんでした。`);
