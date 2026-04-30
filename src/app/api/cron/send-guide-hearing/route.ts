@@ -42,9 +42,7 @@ export async function GET(request: Request) {
 
     const { data: stores, error } = await supabase
       .from("stores")
-      .select(
-        "id, name, guide_hearing_time, guide_hearing_reporter_id, guide_staff_names, last_guide_hearing_sent_date"
-      );
+      .select("id, name, guide_hearing_time, last_guide_hearing_sent_date");
 
     if (error || !stores) {
       console.error("[CRON] stores fetch failed:", {
@@ -90,16 +88,71 @@ export async function GET(request: Request) {
         continue;
       }
 
-      const staffNames = Array.isArray(store.guide_staff_names)
-        ? store.guide_staff_names.map((name: unknown) => String(name ?? "").trim()).filter(Boolean)
-        : [];
+      let reporterId: string | null = null;
+      let staffNames: string[] = [];
+
+      // 新スキーマ（guide_hearing_reporter_id / guide_staff_names）が使える場合は優先
+      const { data: configStore, error: configErr } = await supabase
+        .from("stores")
+        .select("guide_hearing_reporter_id, guide_staff_names")
+        .eq("id", store.id)
+        .maybeSingle();
+
+      if (!configErr && configStore) {
+        reporterId =
+          typeof configStore.guide_hearing_reporter_id === "string"
+            ? configStore.guide_hearing_reporter_id
+            : null;
+        staffNames = Array.isArray(configStore.guide_staff_names)
+          ? configStore.guide_staff_names.map((name: unknown) => String(name ?? "").trim()).filter(Boolean)
+          : [];
+      } else {
+        // 旧スキーマ互換フォールバック（casts.is_guide_target / is_admin）
+        if (configErr) {
+          console.warn("[CRON] stores config columns unavailable, fallback to casts:", {
+            storeId: store.id,
+            message: configErr.message,
+            code: configErr.code,
+          });
+        }
+        const { data: castTargets, error: castTargetErr } = await supabase
+          .from("casts")
+          .select("name, is_admin, is_guide_target, line_user_id")
+          .eq("store_id", store.id)
+          .eq("is_active", true);
+        if (castTargetErr) {
+          results.push({
+            storeId: store.id,
+            sent: 0,
+            skipped: "config_fetch_failed",
+            error: castTargetErr.message,
+          });
+          continue;
+        }
+        const rows = castTargets ?? [];
+        staffNames = rows
+          .filter((r) => r.is_guide_target === true)
+          .map((r) => String(r.name ?? "").trim())
+          .filter(Boolean);
+        const adminCandidate = rows.find((r) => r.is_admin === true && !!r.line_user_id);
+        if (adminCandidate?.line_user_id) {
+          const { data: reporterCast } = await supabase
+            .from("casts")
+            .select("id")
+            .eq("store_id", store.id)
+            .eq("line_user_id", adminCandidate.line_user_id)
+            .maybeSingle();
+          reporterId = reporterCast?.id ?? null;
+        }
+      }
+
       if (staffNames.length === 0) {
         console.warn(`[CRON] ${store.name} のスタッフ名が登録されていません`);
         results.push({ storeId: store.id, sent: 0, skipped: "no_targets" });
         continue;
       }
 
-      if (!store.guide_hearing_reporter_id) {
+      if (!reporterId) {
         results.push({ storeId: store.id, sent: 0, skipped: "no_reporter" });
         continue;
       }
@@ -107,7 +160,7 @@ export async function GET(request: Request) {
       const { data: reporter, error: reporterErr } = await supabase
         .from("casts")
         .select("id, line_user_id")
-        .eq("id", store.guide_hearing_reporter_id)
+        .eq("id", reporterId)
         .eq("store_id", store.id)
         .eq("is_active", true)
         .maybeSingle();
