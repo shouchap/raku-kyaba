@@ -1,111 +1,184 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
 
-export const dynamic = 'force-dynamic';
-// Vercelで爆発しにくい、標準のNodeランタイムに戻します
-export const runtime = 'nodejs';
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+type CronResult = {
+  storeId: string;
+  sent: number;
+  skipped?: string;
+  error?: string;
+};
 
 export async function GET(request: Request) {
   try {
-    // 1. 環境変数の取得
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
-    // LINEの共通トークン（もしあれば）
-    const defaultLineToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim();
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    const cronSecret = process.env.CRON_SECRET?.trim();
 
     if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.json({ error: "Missing Supabase config" }, { status: 500 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Missing Supabase config",
+          missingEnv: [
+            !supabaseUrl ? "NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL" : null,
+            !supabaseKey ? "SUPABASE_SERVICE_ROLE_KEY" : null,
+          ].filter(Boolean),
+        },
+        { status: 500 }
+      );
     }
 
-    // 2. 現在の時間を取得（例: "09:00"）
-    // 日本時間(JST)で計算する
+    if (cronSecret) {
+      const authHeader = request.headers.get("authorization");
+      if (authHeader?.trim() !== `Bearer ${cronSecret}`) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+    }
+
     const now = new Date();
     const jstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    const currentHour = jstTime.getUTCHours().toString().padStart(2, '0');
+    const currentHour = jstTime.getUTCHours().toString().padStart(2, "0");
     const currentTimeStr = `${currentHour}:00`;
-    
-    console.log(`[CRON] 案内数ヒアリング開始 - 現在時刻(JST): ${currentTimeStr}`);
 
-    // 3. DBから店舗を取得
-    const { createClient } = await import('@supabase/supabase-js');
+    const { createClient } = await import("@supabase/supabase-js");
+    const guideLib = await import("@/lib/guide-hearing");
+    const lineReplyLib = await import("@/lib/line-reply");
+    const lineTokenLib = await import("@/lib/line-channel-token");
+
     const supabase = createClient(supabaseUrl, supabaseKey);
+    const businessDate = guideLib.resolveBusinessDateFromJst();
 
-    const { data: stores, error } = await supabase
-      .from('stores')
-      .select('id, name, guide_hearing_time, line_channel_access_token');
+    const { data: stores, error: storeErr } = await supabase
+      .from("stores")
+      .select(
+        "id, name, guide_hearing_enabled, guide_hearing_time, guide_hearing_reporter_id, guide_staff_names, line_channel_access_token, last_guide_hearing_sent_date"
+      )
+      .eq("guide_hearing_enabled", true);
 
-    if (error || !stores) {
-      return NextResponse.json({ error: "DB Error", details: error }, { status: 500 });
+    if (storeErr || !stores) {
+      return NextResponse.json(
+        { ok: false, error: "DB Error", details: storeErr?.message ?? "Failed to load stores" },
+        { status: 500 }
+      );
     }
 
-    // 4. 今送るべき店舗だけを絞り込む
-    // "21:00" / "21:00:00" のようなフォーマット差異を吸収するため前方一致で判定
     const targetStores = stores.filter(
-      (store) => store.guide_hearing_time && store.guide_hearing_time.startsWith(currentHour + ":")
+      (store) =>
+        typeof store.guide_hearing_time === "string" &&
+        store.guide_hearing_time.startsWith(currentHour + ":")
     );
-    
+
     if (targetStores.length === 0) {
-      console.log(`[CRON] ${currentTimeStr} に送信設定されている店舗はありませんでした。`);
-      return NextResponse.json({ status: "skipped", message: "No target stores" });
+      return NextResponse.json({
+        ok: true,
+        status: "skipped",
+        message: "No target stores",
+        hourJst: currentTimeStr,
+        businessDate,
+      });
     }
 
-    console.log(`[CRON] 送信対象店舗: ${targetStores.length}件`);
+    const results: CronResult[] = [];
 
-    // 5. 爆発しない安全な方法でLINE APIを直接叩く
-    // （Cursorの複雑なモジュールを使わず、標準のfetch関数を使います）
-    let successCount = 0;
-    
     for (const store of targetStores) {
-      const accessToken = store.line_channel_access_token || defaultLineToken;
-      
-      if (!accessToken) {
-        console.warn(`[CRON] ${store.name} のLINEトークンがありません。スキップします。`);
+      if (store.last_guide_hearing_sent_date === businessDate) {
+        results.push({ storeId: store.id, sent: 0, skipped: "already_sent" });
         continue;
       }
 
-      // 送信するメッセージ（サイト運営さん向けの案内数ヒアリング）
-      // ※フルネーム表示などの要件は、ここで調整できます。
-      const messageText = `【案内数ヒアリング】\n${store.name} のサイト運営ご担当者様\n\n本日のご案内組数を教えてください。`;
+      const token = await lineTokenLib.fetchResolvedLineChannelAccessTokenForStore(
+        supabase,
+        store.id,
+        "[GuideCron]"
+      );
+      if (!token?.token) {
+        results.push({ storeId: store.id, sent: 0, skipped: "no_line_token" });
+        continue;
+      }
+
+      if (!store.guide_hearing_reporter_id) {
+        results.push({ storeId: store.id, sent: 0, skipped: "no_reporter" });
+        continue;
+      }
+
+      const staffNames = Array.isArray(store.guide_staff_names)
+        ? store.guide_staff_names.map((v: unknown) => String(v ?? "").trim()).filter(Boolean)
+        : [];
+      if (staffNames.length === 0) {
+        results.push({ storeId: store.id, sent: 0, skipped: "no_targets" });
+        continue;
+      }
+
+      const { data: reporter, error: reporterErr } = await supabase
+        .from("casts")
+        .select("id, line_user_id")
+        .eq("id", store.guide_hearing_reporter_id)
+        .eq("store_id", store.id)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (reporterErr || !reporter?.id || !reporter.line_user_id) {
+        results.push({ storeId: store.id, sent: 0, skipped: "invalid_reporter" });
+        continue;
+      }
 
       try {
-        const lineResponse = await fetch('https://api.line.me/v2/bot/message/broadcast', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`
-          },
-          body: JSON.stringify({
-            messages: [
-              {
-                type: "text",
-                text: messageText
-              }
-            ]
-          })
-        });
+        await lineReplyLib.sendPushMessage(reporter.line_user_id, token.token, [
+          guideLib.buildGuideTargetSelectMessage({
+            storeName: store.name,
+            staffNames,
+          }),
+        ]);
 
-        if (lineResponse.ok) {
-          console.log(`[CRON] ${store.name} への送信成功`);
-          successCount++;
-        } else {
-          const errorData = await lineResponse.text();
-          console.error(`[CRON] ${store.name} への送信失敗:`, errorData);
+        const { error: updateErr } = await supabase
+          .from("stores")
+          .update({
+            last_guide_hearing_sent_date: businessDate,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", store.id);
+        if (updateErr) {
+          console.error("[GuideCron] failed to update last_guide_hearing_sent_date:", {
+            storeId: store.id,
+            message: updateErr.message,
+          });
         }
-      } catch (lineError) {
-        console.error(`[CRON] ${store.name} 送信中に例外発生:`, lineError);
+
+        results.push({ storeId: store.id, sent: 1 });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[GuideCron] send failed:", { storeId: store.id, message });
+        results.push({
+          storeId: store.id,
+          sent: 0,
+          skipped: "send_failed",
+          error: message,
+        });
       }
     }
 
-    return NextResponse.json({ 
-      status: "ok", 
-      message: `Completed`, 
+    return NextResponse.json({
+      ok: true,
+      hourJst: currentTimeStr,
+      businessDate,
       targetCount: targetStores.length,
-      successCount: successCount
+      successCount: results.filter((r) => r.sent > 0).length,
+      results,
     });
-
-  } catch (err: any) {
-    console.error("Critical Runtime Error:", err.message);
-    return NextResponse.json({ error: "Runtime execution failed", message: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error("[GuideCron] fatal error:", {
+      message,
+      stack,
+      method: request.method,
+      url: request.url,
+    });
+    return NextResponse.json(
+      { ok: false, error: "Runtime execution failed", message },
+      { status: 500 }
+    );
   }
 }
 
