@@ -127,14 +127,24 @@ export async function GET(request: Request) {
       let reporterId: string | null = null;
       let staffNames: string[] = [];
 
-      // 新スキーマ（guide_hearing_reporter_id / guide_staff_names）が使える場合は優先
+      // システム設定（guide_hearing_reporter_id / guide_staff_names）を唯一の送信元設定として扱う
       const { data: configStore, error: configErr } = await supabase
         .from("stores")
         .select("guide_hearing_reporter_id, guide_staff_names")
         .eq("id", store.id)
         .maybeSingle();
 
-      if (!configErr && configStore) {
+      if (configErr) {
+        results.push({
+          storeId: store.id,
+          sent: 0,
+          skipped: "config_fetch_failed",
+          error: configErr.message,
+        });
+        continue;
+      }
+
+      if (configStore) {
         reporterId =
           typeof configStore.guide_hearing_reporter_id === "string"
             ? configStore.guide_hearing_reporter_id
@@ -142,44 +152,6 @@ export async function GET(request: Request) {
         staffNames = Array.isArray(configStore.guide_staff_names)
           ? configStore.guide_staff_names.map((name: unknown) => String(name ?? "").trim()).filter(Boolean)
           : [];
-      } else {
-        // 旧スキーマ互換フォールバック（casts.is_guide_target / is_admin）
-        if (configErr) {
-          console.warn("[CRON] stores config columns unavailable, fallback to casts:", {
-            storeId: store.id,
-            message: configErr.message,
-            code: configErr.code,
-          });
-        }
-        const { data: castTargets, error: castTargetErr } = await supabase
-          .from("casts")
-          .select("name, is_admin, is_guide_target, line_user_id")
-          .eq("store_id", store.id)
-          .eq("is_active", true);
-        if (castTargetErr) {
-          results.push({
-            storeId: store.id,
-            sent: 0,
-            skipped: "config_fetch_failed",
-            error: castTargetErr.message,
-          });
-          continue;
-        }
-        const rows = castTargets ?? [];
-        staffNames = rows
-          .filter((r) => r.is_guide_target === true)
-          .map((r) => String(r.name ?? "").trim())
-          .filter(Boolean);
-        const adminCandidate = rows.find((r) => r.is_admin === true && !!r.line_user_id);
-        if (adminCandidate?.line_user_id) {
-          const { data: reporterCast } = await supabase
-            .from("casts")
-            .select("id")
-            .eq("store_id", store.id)
-            .eq("line_user_id", adminCandidate.line_user_id)
-            .maybeSingle();
-          reporterId = reporterCast?.id ?? null;
-        }
       }
 
       if (staffNames.length === 0) {
