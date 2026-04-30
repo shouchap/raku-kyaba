@@ -156,7 +156,8 @@ export function buildGuidePeopleSelectItems(
   count: number
 ): LineTextQuickReplyItem[] {
   const items: LineTextQuickReplyItem[] = [];
-  for (let i = 0; i <= 20; i++) {
+  // LINE quick reply の上限（13個）を超えないよう 0〜12人に制限
+  for (let i = 0; i <= 12; i++) {
     items.push({
       type: "action",
       action: {
