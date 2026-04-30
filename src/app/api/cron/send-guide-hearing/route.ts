@@ -11,6 +11,19 @@ function getSupabaseClient() {
   return createClient(url, key);
 }
 
+function getMissingRequiredEnvVars(): string[] {
+  const missing: string[] = [];
+  const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim();
+  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!supabaseUrl) {
+    missing.push("NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL");
+  }
+  if (!serviceRole) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  }
+  return missing;
+}
+
 function checkCronAuth(request: Request): NextResponse | null {
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) return null;
@@ -26,9 +39,29 @@ export async function GET(request: Request) {
     const authRes = checkCronAuth(request);
     if (authRes) return authRes;
 
+    const missingEnv = getMissingRequiredEnvVars();
+    if (missingEnv.length > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "required environment variables are missing",
+          missingEnv,
+          note: "For LINE token, each store can use stores.line_channel_access_token, or fallback to env LINE_CHANNEL_ACCESS_TOKEN.",
+        },
+        { status: 500 }
+      );
+    }
+
     const supabase = getSupabaseClient();
     if (!supabase) {
-      return NextResponse.json({ error: "Supabase configuration missing" }, { status: 500 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "failed to initialize Supabase client",
+          details: "Check NEXT_PUBLIC_SUPABASE_URL/SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY",
+        },
+        { status: 500 }
+      );
     }
 
     // import 由来のクラッシュを可視化するため、依存の読み込みを実行時に行う
