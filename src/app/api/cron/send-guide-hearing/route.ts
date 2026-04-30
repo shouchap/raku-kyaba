@@ -43,12 +43,26 @@ export async function GET(request: Request) {
     const { data: stores, error } = await supabase
       .from("stores")
       .select(
-        "id, name, guide_hearing_enabled, guide_hearing_time, guide_hearing_reporter_id, guide_staff_names, line_channel_access_token, last_guide_hearing_sent_date"
-      )
-      .eq("guide_hearing_enabled", true);
+        "id, name, guide_hearing_time, guide_hearing_reporter_id, guide_staff_names, last_guide_hearing_sent_date"
+      );
 
     if (error || !stores) {
-      return NextResponse.json({ error: "DB Error", details: error?.message }, { status: 500 });
+      console.error("[CRON] stores fetch failed:", {
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint,
+        code: error?.code,
+      });
+      return NextResponse.json(
+        {
+          error: "DB Error",
+          message: error?.message,
+          details: error?.details,
+          hint: error?.hint,
+          code: error?.code,
+        },
+        { status: 500 }
+      );
     }
 
     const targetStores = stores.filter(
