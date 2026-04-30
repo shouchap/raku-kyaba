@@ -1,175 +1,72 @@
+import { NextResponse } from "next/server";
+// 猛毒を避けるため、ここでDBやLINEのモジュールは一切importしません。
+
 export const dynamic = "force-dynamic";
-export const runtime = "edge";
 
-type CronResult = {
-  storeId: string;
-  sent: number;
-  skipped?: string;
-  error?: string;
-};
-
-async function runGuideHearingCron(request: Request): Promise<Response> {
+export async function GET(request: Request) {
   try {
-    // 1) 認証（CRON_SECRET が設定されている場合のみ）
-    const cronSecret = process.env.CRON_SECRET?.trim() ?? "";
+    // 1. 環境変数のチェック（ここで落ちるのを防ぐ）
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const cronSecret = process.env.CRON_SECRET;
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.error("Missing Supabase credentials");
+      return NextResponse.json({ error: "Missing Supabase configuration" }, { status: 500 });
+    }
+
+    // 2. セキュリティチェック（Cloud Schedulerからのアクセスか確認）
     if (cronSecret) {
       const authHeader = request.headers.get("authorization");
-      if (authHeader?.trim() !== `Bearer ${cronSecret}`) {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      if (authHeader !== `Bearer ${cronSecret}`) {
+        console.warn("Unauthorized access attempt");
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
     }
 
-    // 2) 必須ENVの遅延評価
-    const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim() ?? "";
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
-    const missingEnv: string[] = [];
-    if (!supabaseUrl) missingEnv.push("NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL");
-    if (!serviceRoleKey) missingEnv.push("SUPABASE_SERVICE_ROLE_KEY");
-    if (missingEnv.length > 0) {
-      return Response.json(
-        {
-          ok: false,
-          error: "required environment variables are missing",
-          missingEnv,
-        },
-        { status: 500 }
-      );
-    }
+    // 3. 必要なモジュールだけを、安全なこの場所で読み込む
+    // ※もしここからのimportで落ちる場合は、どのモジュールが原因か特定できます
+    console.log("Starting guide hearing process...");
 
-    // 3) 依存モジュールはすべて実行時 import
+    // （ここから下に、本来の案内数ヒアリングのロジックを書きますが、
+    // まずは「DBから店舗一覧を取得するだけ」の安全な処理にします）
     const { createClient } = await import("@supabase/supabase-js");
-    const guideLib = await import("@/lib/guide-hearing");
-    const lineReplyLib = await import("@/lib/line-reply");
-    const lineTokenLib = await import("@/lib/line-channel-token");
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const hourJst = guideLib.getCurrentHourJst();
-    const businessDate = guideLib.resolveBusinessDateFromJst();
-
-    const { data: stores, error: storeErr } = await supabase
+    const { data: stores, error } = await supabase
       .from("stores")
-      .select(
-        "id, name, guide_hearing_enabled, guide_hearing_time, guide_hearing_reporter_id, guide_staff_names, line_channel_access_token, last_guide_hearing_sent_date"
-      )
-      .eq("guide_hearing_enabled", true);
+      .select("id, name, guide_hearing_time")
+      // テストのため、とりあえず全部取得します
+      .limit(5);
 
-    if (storeErr) {
-      return Response.json(
-        { ok: false, error: "failed to fetch stores", details: storeErr.message },
-        { status: 500 }
-      );
+    if (error) {
+      console.error("Supabase Error:", error);
+      return NextResponse.json({ error: "Database error", details: error }, { status: 500 });
     }
 
-    const results: CronResult[] = [];
+    console.log("Successfully fetched stores:", stores);
 
-    for (const store of stores ?? []) {
-      const targetHour = guideLib.parseGuideHearingHour(store.guide_hearing_time);
-      if (targetHour === null || targetHour !== hourJst) {
-        results.push({ storeId: store.id, sent: 0, skipped: "hour_mismatch" });
-        continue;
-      }
-      if (store.last_guide_hearing_sent_date === businessDate) {
-        results.push({ storeId: store.id, sent: 0, skipped: "already_sent" });
-        continue;
-      }
-
-      const token = await lineTokenLib.fetchResolvedLineChannelAccessTokenForStore(
-        supabase,
-        store.id,
-        "[GuideCron]"
-      );
-      if (!token?.token) {
-        results.push({ storeId: store.id, sent: 0, skipped: "no_line_token" });
-        continue;
-      }
-
-      if (!store.guide_hearing_reporter_id) {
-        results.push({ storeId: store.id, sent: 0, skipped: "no_reporter" });
-        continue;
-      }
-
-      const staffNames = Array.isArray(store.guide_staff_names)
-        ? store.guide_staff_names.map((v: unknown) => String(v ?? "").trim()).filter(Boolean)
-        : [];
-      if (staffNames.length === 0) {
-        results.push({ storeId: store.id, sent: 0, skipped: "no_targets" });
-        continue;
-      }
-
-      const { data: reporter, error: reporterErr } = await supabase
-        .from("casts")
-        .select("id, line_user_id")
-        .eq("id", store.guide_hearing_reporter_id)
-        .eq("store_id", store.id)
-        .eq("is_active", true)
-        .maybeSingle();
-
-      if (reporterErr || !reporter?.id || !reporter.line_user_id) {
-        results.push({ storeId: store.id, sent: 0, skipped: "invalid_reporter" });
-        continue;
-      }
-
-      try {
-        await lineReplyLib.sendPushMessage(reporter.line_user_id, token.token, [
-          guideLib.buildGuideTargetSelectMessage({
-            storeName: store.name,
-            staffNames,
-          }),
-        ]);
-
-        const { error: updateErr } = await supabase
-          .from("stores")
-          .update({
-            last_guide_hearing_sent_date: businessDate,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", store.id);
-
-        if (updateErr) {
-          console.error("[GuideCron] failed to update last_guide_hearing_sent_date:", {
-            storeId: store.id,
-            message: updateErr.message,
-          });
-        }
-
-        results.push({ storeId: store.id, sent: 1 });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error("[GuideCron] send failed:", { storeId: store.id, message });
-        results.push({
-          storeId: store.id,
-          sent: 0,
-          skipped: "send_failed",
-          error: message,
-        });
-      }
-    }
-
-    return Response.json({ ok: true, hourJst, businessDate, results });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error("[GuideCron] fatal error:", {
-      message,
-      stack,
-      method: request.method,
-      url: request.url,
+    // 成功したら、取得した店舗データをそのまま返す（LINEはまだ送らない）
+    return NextResponse.json({
+      status: "ok",
+      message: "Database connection successful",
+      stores,
     });
-    return Response.json(
+  } catch (err: unknown) {
+    // もし予期せぬエラーが起きても、絶対にここで捕まえてログに出す
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("Critical Runtime Error:", message);
+    return NextResponse.json(
       {
-        ok: false,
-        error: "guide hearing cron failed",
-        details: message,
+        error: "Runtime execution failed",
+        message,
       },
       { status: 500 }
     );
   }
 }
 
-export async function GET(request: Request) {
-  return runGuideHearingCron(request);
-}
-
+// POSTメソッドも用意しておく
 export async function POST(request: Request) {
-  return runGuideHearingCron(request);
+  return GET(request);
 }
