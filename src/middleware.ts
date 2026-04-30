@@ -46,6 +46,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  /** 認証不要ページではセッション取得を省略し Edge の待ち時間を短縮 */
+  const skipAuthSession =
+    pathname === "/guide" ||
+    pathname.startsWith("/guide/") ||
+    pathname.startsWith("/cast/special-shift/");
+  if (skipAuthSession) {
+    return NextResponse.next({
+      request: { headers: requestHeaders },
+    });
+  }
+
   let response = NextResponse.next({
     request: { headers: requestHeaders },
   });

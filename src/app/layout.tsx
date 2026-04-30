@@ -17,10 +17,6 @@ export default function RootLayout({
           name="viewport"
           content="width=device-width, initial-scale=1, viewport-fit=cover"
         />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&display=swap"
-          rel="stylesheet"
-        />
       </head>
       <body className="min-h-screen overflow-x-hidden antialiased">
         {children}
