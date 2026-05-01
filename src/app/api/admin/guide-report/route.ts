@@ -5,6 +5,7 @@ import { isValidStoreId, parseActiveStoreIdFromCookieHeader } from "@/lib/curren
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { isSuperAdminUser } from "@/lib/super-admin";
 import { logPostgrestError } from "@/lib/postgrest-error";
+import { isDailyGuideResultsMissingSekGoldColumns } from "@/lib/daily-guide-results-compat";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,48 @@ function monthRangeFromYm(ym: string): { start: string; end: string } | null {
   const lastDay = new Date(y, m, 0).getDate();
   const end = `${y}-${pad2(m)}-${pad2(lastDay)}`;
   return { start, end };
+}
+
+const GUIDE_REPORT_SELECT_WITH_SEK_GOLD =
+  "id, store_id, staff_name, target_date, sek_guide_count, sek_people_count, gold_guide_count, gold_people_count, guide_count, people_count, responded_at";
+
+const GUIDE_REPORT_SELECT_LEGACY =
+  "id, store_id, staff_name, target_date, guide_count, people_count, responded_at";
+
+/** DB がマイグレーション040より前でも動くよう、合計をセク側へ寄せた行を返す */
+function coerceLegacyGuideRows(
+  rows: Array<{
+    id: string;
+    store_id: string;
+    staff_name: string;
+    target_date: string;
+    guide_count: number;
+    people_count: number | null;
+    responded_at: string;
+  }>
+): Array<{
+  id: string;
+  store_id: string;
+  staff_name: string;
+  target_date: string;
+  sek_guide_count: number;
+  sek_people_count: number;
+  gold_guide_count: number;
+  gold_people_count: number;
+  guide_count: number;
+  people_count: number | null;
+  responded_at: string;
+}> {
+  return rows.map((r) => {
+    const people = typeof r.people_count === "number" ? r.people_count : 0;
+    return {
+      ...r,
+      sek_guide_count: r.guide_count,
+      sek_people_count: people,
+      gold_guide_count: 0,
+      gold_people_count: 0,
+    };
+  });
 }
 
 /**
@@ -92,21 +135,39 @@ export async function GET(request: Request) {
 
   const { start, end } = range;
 
-  const { data: rows, error: qErr } = await admin
+  let rowsFirst = await admin
     .from("daily_guide_results")
-    .select(
-      "id, store_id, staff_name, target_date, sek_guide_count, sek_people_count, gold_guide_count, gold_people_count, guide_count, people_count, responded_at"
-    )
+    .select(GUIDE_REPORT_SELECT_WITH_SEK_GOLD)
     .eq("store_id", storeId)
     .gte("target_date", start)
     .lte("target_date", end)
     .order("target_date", { ascending: false })
     .order("staff_name", { ascending: true });
 
-  if (qErr) {
-    logPostgrestError("GET /api/admin/guide-report daily_guide_results", qErr);
+  let outRows = rowsFirst.data ?? [];
+
+  if (rowsFirst.error && isDailyGuideResultsMissingSekGoldColumns(rowsFirst.error.message)) {
+    const legacy = await admin
+      .from("daily_guide_results")
+      .select(GUIDE_REPORT_SELECT_LEGACY)
+      .eq("store_id", storeId)
+      .gte("target_date", start)
+      .lte("target_date", end)
+      .order("target_date", { ascending: false })
+      .order("staff_name", { ascending: true });
+
+    if (legacy.error) {
+      logPostgrestError("GET /api/admin/guide-report daily_guide_results (legacy)", legacy.error);
+      return NextResponse.json(
+        { error: "Failed to load guide results", details: legacy.error.message },
+        { status: 500 }
+      );
+    }
+    outRows = coerceLegacyGuideRows(legacy.data ?? []);
+  } else if (rowsFirst.error) {
+    logPostgrestError("GET /api/admin/guide-report daily_guide_results", rowsFirst.error);
     return NextResponse.json(
-      { error: "Failed to load guide results", details: qErr.message },
+      { error: "Failed to load guide results", details: rowsFirst.error.message },
       { status: 500 }
     );
   }
@@ -115,6 +176,6 @@ export async function GET(request: Request) {
     ok: true,
     ym,
     period: { start, end },
-    rows: rows ?? [],
+    rows: outRows,
   });
 }

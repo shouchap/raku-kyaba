@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LineReplyMessage, LineTextQuickReplyItem } from "@/lib/line-reply";
+import { isDailyGuideResultsMissingSekGoldColumns } from "@/lib/daily-guide-results-compat";
 
 export type GuideHearingStoreRow = {
   id: string;
@@ -379,7 +380,8 @@ export async function upsertGuideResult(params: {
   const targetDate = resolveBusinessDateFromJst(new Date(respondedAtIso));
   const guideCount = params.sekGuideCount + params.goldGuideCount;
   const peopleCount = params.sekPeopleCount + params.goldPeopleCount;
-  const { error } = await params.supabase.from("daily_guide_results").upsert(
+  const conflictOpts = { onConflict: "store_id,staff_name,target_date" as const };
+  let { error } = await params.supabase.from("daily_guide_results").upsert(
     {
       store_id: params.storeId,
       staff_name: params.staffName,
@@ -392,10 +394,21 @@ export async function upsertGuideResult(params: {
       people_count: peopleCount,
       responded_at: respondedAtIso,
     },
-    {
-      onConflict: "store_id,staff_name,target_date",
-    }
+    conflictOpts
   );
+  if (error && isDailyGuideResultsMissingSekGoldColumns(error.message)) {
+    ({ error } = await params.supabase.from("daily_guide_results").upsert(
+      {
+        store_id: params.storeId,
+        staff_name: params.staffName,
+        target_date: targetDate,
+        guide_count: guideCount,
+        people_count: peopleCount,
+        responded_at: respondedAtIso,
+      },
+      conflictOpts
+    ));
+  }
   if (error) {
     throw new Error(`daily_guide_results upsert failed: ${error.message}`);
   }

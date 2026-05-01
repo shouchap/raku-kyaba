@@ -5,6 +5,7 @@ import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-au
 import { isValidStoreId, parseActiveStoreIdFromCookieHeader } from "@/lib/current-store";
 import { isSuperAdminUser } from "@/lib/super-admin";
 import { logPostgrestError } from "@/lib/postgrest-error";
+import { isDailyGuideResultsMissingSekGoldColumns } from "@/lib/daily-guide-results-compat";
 
 export const dynamic = "force-dynamic";
 
@@ -187,7 +188,8 @@ export async function PUT(request: Request) {
 
   const respondedAt = new Date().toISOString();
 
-  const { error: upErr } = await admin.from("daily_guide_results").upsert(
+  const conflictKey = { onConflict: "store_id,staff_name,target_date" as const };
+  let { error: upErr } = await admin.from("daily_guide_results").upsert(
     {
       store_id: storeId,
       staff_name: staffName,
@@ -200,8 +202,22 @@ export async function PUT(request: Request) {
       people_count: counts.peopleCount,
       responded_at: respondedAt,
     },
-    { onConflict: "store_id,staff_name,target_date" }
+    conflictKey
   );
+
+  if (upErr && isDailyGuideResultsMissingSekGoldColumns(upErr.message)) {
+    ({ error: upErr } = await admin.from("daily_guide_results").upsert(
+      {
+        store_id: storeId,
+        staff_name: staffName,
+        target_date: targetDate,
+        guide_count: counts.guideCount,
+        people_count: counts.peopleCount,
+        responded_at: respondedAt,
+      },
+      conflictKey
+    ));
+  }
 
   if (upErr) {
     logPostgrestError("PUT guide-hearing/results upsert", upErr);
@@ -302,7 +318,7 @@ export async function PATCH(request: Request) {
 
   const respondedAt = new Date().toISOString();
 
-  const { error: upErr } = await admin
+  let { error: upErr } = await admin
     .from("daily_guide_results")
     .update({
       staff_name: staffName,
@@ -317,6 +333,20 @@ export async function PATCH(request: Request) {
     })
     .eq("id", id)
     .eq("store_id", storeId);
+
+  if (upErr && isDailyGuideResultsMissingSekGoldColumns(upErr.message)) {
+    ({ error: upErr } = await admin
+      .from("daily_guide_results")
+      .update({
+        staff_name: staffName,
+        target_date: targetDate,
+        guide_count: counts.guideCount,
+        people_count: counts.peopleCount,
+        responded_at: respondedAt,
+      })
+      .eq("id", id)
+      .eq("store_id", storeId));
+  }
 
   if (upErr) {
     logPostgrestError("PATCH guide-hearing/results update", upErr);
