@@ -153,6 +153,10 @@ export interface Database {
           store_id: string;
           staff_name: string;
           target_date: string;
+          sek_guide_count: number;
+          sek_people_count: number;
+          gold_guide_count: number;
+          gold_people_count: number;
           guide_count: number;
           people_count: number | null;
           responded_at: string;

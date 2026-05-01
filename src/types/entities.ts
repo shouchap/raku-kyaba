@@ -42,7 +42,13 @@ export type DailyGuideResult = {
   staff_name: string;
   /** YYYY-MM-DD（営業日） */
   target_date: string;
+  sek_guide_count: number;
+  sek_people_count: number;
+  gold_guide_count: number;
+  gold_people_count: number;
+  /** セク + GOLD の合計組数 */
   guide_count: number;
+  /** セク + GOLD の合計人数 */
   people_count: number | null;
   responded_at: string;
 };

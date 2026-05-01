@@ -46,12 +46,85 @@ function staffNameAllowed(staffName: string, allowed: string[]): boolean {
   return allowed.includes(n);
 }
 
+function floorInt(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? Math.floor(v) : NaN;
+}
+
+/** セク/GOLD 4項目、または従来の guideCount/peopleCount（セクのみとして保存） */
+function parseGuideSplitCounts(body: Record<string, unknown>): NextResponse | {
+  sekGuideCount: number;
+  sekPeopleCount: number;
+  goldGuideCount: number;
+  goldPeopleCount: number;
+  guideCount: number;
+  peopleCount: number;
+} {
+  const sgc = floorInt(body.sekGuideCount);
+  const spc = floorInt(body.sekPeopleCount);
+  const ggc = floorInt(body.goldGuideCount);
+  const gpc = floorInt(body.goldPeopleCount);
+  const splitComplete =
+    Number.isInteger(sgc) &&
+    Number.isInteger(spc) &&
+    Number.isInteger(ggc) &&
+    Number.isInteger(gpc);
+
+  if (splitComplete) {
+    const nums = [sgc, spc, ggc, gpc];
+    if (nums.some((n) => n < 0 || n > 9999)) {
+      return NextResponse.json(
+        { error: "sekGuideCount, sekPeopleCount, goldGuideCount, goldPeopleCount must be integers from 0 to 9999" },
+        { status: 400 }
+      );
+    }
+    return {
+      sekGuideCount: sgc,
+      sekPeopleCount: spc,
+      goldGuideCount: ggc,
+      goldPeopleCount: gpc,
+      guideCount: sgc + ggc,
+      peopleCount: spc + gpc,
+    };
+  }
+
+  const gc = floorInt(body.guideCount);
+  const pc = floorInt(body.peopleCount);
+  if (Number.isInteger(gc) && Number.isInteger(pc)) {
+    if (gc < 0 || gc > 9999 || pc < 0 || pc > 9999) {
+      return NextResponse.json(
+        { error: "guideCount and peopleCount must be integers from 0 to 9999" },
+        { status: 400 }
+      );
+    }
+    return {
+      sekGuideCount: gc,
+      sekPeopleCount: pc,
+      goldGuideCount: 0,
+      goldPeopleCount: 0,
+      guideCount: gc,
+      peopleCount: pc,
+    };
+  }
+
+  return NextResponse.json(
+    {
+      error:
+        "sekGuideCount, sekPeopleCount, goldGuideCount, goldPeopleCount がすべて必要です（または従来どおり guideCount と peopleCount のみ）",
+    },
+    { status: 400 }
+  );
+}
+
 type PutBody = {
   storeId?: string;
   staffName?: string;
   targetDate?: string;
   guideCount?: unknown;
   peopleCount?: unknown;
+  sekGuideCount?: unknown;
+  sekPeopleCount?: unknown;
+  goldGuideCount?: unknown;
+  goldPeopleCount?: unknown;
 };
 
 /**
@@ -70,14 +143,6 @@ export async function PUT(request: Request) {
   const storeId = typeof body.storeId === "string" ? body.storeId.trim() : "";
   const staffName = typeof body.staffName === "string" ? body.staffName.trim() : "";
   const targetDate = typeof body.targetDate === "string" ? body.targetDate.trim() : "";
-  const guideCount =
-    typeof body.guideCount === "number" && Number.isFinite(body.guideCount)
-      ? Math.floor(body.guideCount)
-      : NaN;
-  const peopleCount =
-    typeof body.peopleCount === "number" && Number.isFinite(body.peopleCount)
-      ? Math.floor(body.peopleCount)
-      : NaN;
 
   if (!isValidStoreId(storeId)) {
     return NextResponse.json({ error: "Valid storeId is required" }, { status: 400 });
@@ -94,12 +159,9 @@ export async function PUT(request: Request) {
   if (!staffName) {
     return NextResponse.json({ error: "staffName is required" }, { status: 400 });
   }
-  if (!Number.isInteger(guideCount) || guideCount < 0 || guideCount > 9999) {
-    return NextResponse.json({ error: "guideCount must be an integer from 0 to 9999" }, { status: 400 });
-  }
-  if (!Number.isInteger(peopleCount) || peopleCount < 0 || peopleCount > 9999) {
-    return NextResponse.json({ error: "peopleCount must be an integer from 0 to 9999" }, { status: 400 });
-  }
+
+  const counts = parseGuideSplitCounts(body as Record<string, unknown>);
+  if (counts instanceof NextResponse) return counts;
 
   let admin: ReturnType<typeof createServiceRoleClient>;
   try {
@@ -130,8 +192,12 @@ export async function PUT(request: Request) {
       store_id: storeId,
       staff_name: staffName,
       target_date: targetDate,
-      guide_count: guideCount,
-      people_count: peopleCount,
+      sek_guide_count: counts.sekGuideCount,
+      sek_people_count: counts.sekPeopleCount,
+      gold_guide_count: counts.goldGuideCount,
+      gold_people_count: counts.goldPeopleCount,
+      guide_count: counts.guideCount,
+      people_count: counts.peopleCount,
       responded_at: respondedAt,
     },
     { onConflict: "store_id,staff_name,target_date" }
@@ -155,6 +221,10 @@ type PatchBody = {
   targetDate?: string;
   guideCount?: unknown;
   peopleCount?: unknown;
+  sekGuideCount?: unknown;
+  sekPeopleCount?: unknown;
+  goldGuideCount?: unknown;
+  goldPeopleCount?: unknown;
 };
 
 /**
@@ -174,14 +244,6 @@ export async function PATCH(request: Request) {
   const id = typeof body.id === "string" ? body.id.trim() : "";
   const staffName = typeof body.staffName === "string" ? body.staffName.trim() : "";
   const targetDate = typeof body.targetDate === "string" ? body.targetDate.trim() : "";
-  const guideCount =
-    typeof body.guideCount === "number" && Number.isFinite(body.guideCount)
-      ? Math.floor(body.guideCount)
-      : NaN;
-  const peopleCount =
-    typeof body.peopleCount === "number" && Number.isFinite(body.peopleCount)
-      ? Math.floor(body.peopleCount)
-      : NaN;
 
   if (!isValidStoreId(storeId) || !id) {
     return NextResponse.json({ error: "Valid storeId and id are required" }, { status: 400 });
@@ -198,12 +260,9 @@ export async function PATCH(request: Request) {
   if (!staffName) {
     return NextResponse.json({ error: "staffName is required" }, { status: 400 });
   }
-  if (!Number.isInteger(guideCount) || guideCount < 0 || guideCount > 9999) {
-    return NextResponse.json({ error: "guideCount must be an integer from 0 to 9999" }, { status: 400 });
-  }
-  if (!Number.isInteger(peopleCount) || peopleCount < 0 || peopleCount > 9999) {
-    return NextResponse.json({ error: "peopleCount must be an integer from 0 to 9999" }, { status: 400 });
-  }
+
+  const counts = parseGuideSplitCounts(body as Record<string, unknown>);
+  if (counts instanceof NextResponse) return counts;
 
   let admin: ReturnType<typeof createServiceRoleClient>;
   try {
@@ -248,8 +307,12 @@ export async function PATCH(request: Request) {
     .update({
       staff_name: staffName,
       target_date: targetDate,
-      guide_count: guideCount,
-      people_count: peopleCount,
+      sek_guide_count: counts.sekGuideCount,
+      sek_people_count: counts.sekPeopleCount,
+      gold_guide_count: counts.goldGuideCount,
+      gold_people_count: counts.goldPeopleCount,
+      guide_count: counts.guideCount,
+      people_count: counts.peopleCount,
       responded_at: respondedAt,
     })
     .eq("id", id)

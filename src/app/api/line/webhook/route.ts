@@ -29,8 +29,11 @@ import {
 import { handleWelfareWebhook, type WelfareStoreContext } from "@/lib/welfare-line-webhook";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import {
-  buildGuideCountSelectMessage,
-  buildGuidePeopleSelectMessage,
+  buildGuideEntryModeMessage,
+  buildGuideGoldCountSelectMessage,
+  buildGuideGoldPeopleSelectMessage,
+  buildGuideSekCountSelectMessage,
+  buildGuideSekPeopleSelectMessage,
   buildGuideTargetSelectMessage,
   parseGuideActionPostbackData,
   upsertGuideResult,
@@ -363,25 +366,66 @@ async function processWebhookEvent(
         });
         break;
       }
-      if (guideAction?.kind === "submit_count") {
-        await handleGuideSelectPeopleResponse({
+      if (guideAction?.kind === "start_entry") {
+        await handleGuideStartEntryResponse({
           userId,
           storeId: resolvedStoreId,
           staffName: guideAction.staffName,
-          guideCount: guideAction.count,
+          mode: guideAction.mode,
           supabase,
           replyToken: postbackEvent.replyToken,
           channelAccessToken,
         });
         break;
       }
-      if (guideAction?.kind === "submit_people") {
-        await handleGuideSubmitCountResponse({
+      if (guideAction?.kind === "submit_sek_count") {
+        await handleGuideSekCountResponse({
           userId,
           storeId: resolvedStoreId,
           staffName: guideAction.staffName,
-          guideCount: guideAction.count,
-          peopleCount: guideAction.peopleCount,
+          sekCount: guideAction.sekCount,
+          supabase,
+          replyToken: postbackEvent.replyToken,
+          channelAccessToken,
+        });
+        break;
+      }
+      if (guideAction?.kind === "submit_sek_people") {
+        await handleGuideSekPeopleResponse({
+          userId,
+          storeId: resolvedStoreId,
+          staffName: guideAction.staffName,
+          sekCount: guideAction.sekCount,
+          sekPeopleCount: guideAction.sekPeopleCount,
+          supabase,
+          replyToken: postbackEvent.replyToken,
+          channelAccessToken,
+        });
+        break;
+      }
+      if (guideAction?.kind === "submit_gold_count") {
+        await handleGuideGoldCountResponse({
+          userId,
+          storeId: resolvedStoreId,
+          staffName: guideAction.staffName,
+          sekCount: guideAction.sekCount,
+          sekPeopleCount: guideAction.sekPeopleCount,
+          goldCount: guideAction.goldCount,
+          supabase,
+          replyToken: postbackEvent.replyToken,
+          channelAccessToken,
+        });
+        break;
+      }
+      if (guideAction?.kind === "submit_gold_people") {
+        await handleGuideGoldPeopleResponse({
+          userId,
+          storeId: resolvedStoreId,
+          staffName: guideAction.staffName,
+          sekCount: guideAction.sekCount,
+          sekPeopleCount: guideAction.sekPeopleCount,
+          goldCount: guideAction.goldCount,
+          goldPeopleCount: guideAction.goldPeopleCount,
           supabase,
           replyToken: postbackEvent.replyToken,
           channelAccessToken,
@@ -576,38 +620,247 @@ async function handleGuideSelectStaffResponse(params: {
   }
 
   await sendReply(params.replyToken, params.channelAccessToken, [
-    buildGuideCountSelectMessage(params.staffName),
+    buildGuideEntryModeMessage(params.staffName),
   ]);
 }
 
-async function handleGuideSubmitCountResponse(params: {
+async function handleGuideStartEntryResponse(params: {
   userId: string;
   storeId: string | null;
   staffName: string;
-  guideCount: number;
-  peopleCount: number;
+  mode: "sek_first" | "gold_only";
   supabase: ReturnType<typeof createSupabaseClient>;
   replyToken?: string;
   channelAccessToken?: string;
 }): Promise<void> {
-  if (!params.storeId) return;
-  if (!Number.isInteger(params.guideCount) || params.guideCount < 0) return;
-  if (!Number.isInteger(params.peopleCount) || params.peopleCount < 0) return;
+  if (!params.storeId || !params.replyToken || !params.channelAccessToken) return;
   const isReporter = await validateGuideReporter({
     userId: params.userId,
     storeId: params.storeId,
     supabase: params.supabase,
   });
-  if (!isReporter) {
-    return;
-  }
+  if (!isReporter) return;
 
   const targets = await fetchGuideTargetsForStore({
     storeId: params.storeId,
     supabase: params.supabase,
   });
   if (!targets.includes(params.staffName)) {
-    console.error("[GuideWebhook] submit target invalid:", params.staffName);
+    console.error("[GuideWebhook] start_entry target invalid:", params.staffName);
+    await sendReply(params.replyToken, params.channelAccessToken, [
+      { type: "text", text: "対象スタッフが見つかりません。もう一度選択してください。" },
+    ]);
+    return;
+  }
+
+  if (params.mode === "gold_only") {
+    await sendReply(params.replyToken, params.channelAccessToken, [
+      buildGuideGoldCountSelectMessage({
+        staffName: params.staffName,
+        sekCount: 0,
+        sekPeopleCount: 0,
+      }),
+    ]);
+    return;
+  }
+
+  await sendReply(params.replyToken, params.channelAccessToken, [
+    buildGuideSekCountSelectMessage(params.staffName),
+  ]);
+}
+
+async function handleGuideSekCountResponse(params: {
+  userId: string;
+  storeId: string | null;
+  staffName: string;
+  sekCount: number;
+  supabase: ReturnType<typeof createSupabaseClient>;
+  replyToken?: string;
+  channelAccessToken?: string;
+}): Promise<void> {
+  if (!params.storeId || !params.replyToken || !params.channelAccessToken) return;
+  const isReporter = await validateGuideReporter({
+    userId: params.userId,
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!isReporter) return;
+
+  const targets = await fetchGuideTargetsForStore({
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!targets.includes(params.staffName)) {
+    await sendReply(params.replyToken, params.channelAccessToken, [
+      { type: "text", text: "対象スタッフが見つかりません。もう一度選択してください。" },
+    ]);
+    return;
+  }
+
+  if (params.sekCount === 0) {
+    await sendReply(params.replyToken, params.channelAccessToken, [
+      buildGuideGoldCountSelectMessage({
+        staffName: params.staffName,
+        sekCount: 0,
+        sekPeopleCount: 0,
+      }),
+    ]);
+    return;
+  }
+
+  await sendReply(params.replyToken, params.channelAccessToken, [
+    buildGuideSekPeopleSelectMessage(params.staffName, params.sekCount),
+  ]);
+}
+
+async function handleGuideSekPeopleResponse(params: {
+  userId: string;
+  storeId: string | null;
+  staffName: string;
+  sekCount: number;
+  sekPeopleCount: number;
+  supabase: ReturnType<typeof createSupabaseClient>;
+  replyToken?: string;
+  channelAccessToken?: string;
+}): Promise<void> {
+  if (!params.storeId || !params.replyToken || !params.channelAccessToken) return;
+  const isReporter = await validateGuideReporter({
+    userId: params.userId,
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!isReporter) return;
+
+  const targets = await fetchGuideTargetsForStore({
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!targets.includes(params.staffName)) {
+    await sendReply(params.replyToken, params.channelAccessToken, [
+      { type: "text", text: "対象スタッフが見つかりません。もう一度選択してください。" },
+    ]);
+    return;
+  }
+
+  await sendReply(params.replyToken, params.channelAccessToken, [
+    buildGuideGoldCountSelectMessage({
+      staffName: params.staffName,
+      sekCount: params.sekCount,
+      sekPeopleCount: params.sekPeopleCount,
+    }),
+  ]);
+}
+
+async function handleGuideGoldCountResponse(params: {
+  userId: string;
+  storeId: string | null;
+  staffName: string;
+  sekCount: number;
+  sekPeopleCount: number;
+  goldCount: number;
+  supabase: ReturnType<typeof createSupabaseClient>;
+  replyToken?: string;
+  channelAccessToken?: string;
+}): Promise<void> {
+  if (!params.storeId) return;
+  const isReporter = await validateGuideReporter({
+    userId: params.userId,
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!isReporter) return;
+
+  const targets = await fetchGuideTargetsForStore({
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!targets.includes(params.staffName)) {
+    if (params.replyToken && params.channelAccessToken) {
+      await sendReply(params.replyToken, params.channelAccessToken, [
+        { type: "text", text: "対象スタッフが見つかりません。もう一度選択してください。" },
+      ]);
+    }
+    return;
+  }
+
+  if (params.goldCount === 0) {
+    await finalizeGuideHearingEntry({
+      userId: params.userId,
+      storeId: params.storeId,
+      staffName: params.staffName,
+      sekCount: params.sekCount,
+      sekPeopleCount: params.sekPeopleCount,
+      goldCount: 0,
+      goldPeopleCount: 0,
+      supabase: params.supabase,
+      replyToken: params.replyToken,
+      channelAccessToken: params.channelAccessToken,
+    });
+    return;
+  }
+
+  if (!params.replyToken || !params.channelAccessToken) return;
+  await sendReply(params.replyToken, params.channelAccessToken, [
+    buildGuideGoldPeopleSelectMessage({
+      staffName: params.staffName,
+      sekCount: params.sekCount,
+      sekPeopleCount: params.sekPeopleCount,
+      goldCount: params.goldCount,
+    }),
+  ]);
+}
+
+async function handleGuideGoldPeopleResponse(params: {
+  userId: string;
+  storeId: string | null;
+  staffName: string;
+  sekCount: number;
+  sekPeopleCount: number;
+  goldCount: number;
+  goldPeopleCount: number;
+  supabase: ReturnType<typeof createSupabaseClient>;
+  replyToken?: string;
+  channelAccessToken?: string;
+}): Promise<void> {
+  if (!params.storeId) return;
+  await finalizeGuideHearingEntry({
+    userId: params.userId,
+    storeId: params.storeId,
+    staffName: params.staffName,
+    sekCount: params.sekCount,
+    sekPeopleCount: params.sekPeopleCount,
+    goldCount: params.goldCount,
+    goldPeopleCount: params.goldPeopleCount,
+    supabase: params.supabase,
+    replyToken: params.replyToken,
+    channelAccessToken: params.channelAccessToken,
+  });
+}
+
+async function finalizeGuideHearingEntry(params: {
+  userId: string;
+  storeId: string;
+  staffName: string;
+  sekCount: number;
+  sekPeopleCount: number;
+  goldCount: number;
+  goldPeopleCount: number;
+  supabase: ReturnType<typeof createSupabaseClient>;
+  replyToken?: string;
+  channelAccessToken?: string;
+}): Promise<void> {
+  const isReporter = await validateGuideReporter({
+    userId: params.userId,
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!isReporter) return;
+
+  const targets = await fetchGuideTargetsForStore({
+    storeId: params.storeId,
+    supabase: params.supabase,
+  });
+  if (!targets.includes(params.staffName)) {
     if (params.replyToken && params.channelAccessToken) {
       await sendReply(params.replyToken, params.channelAccessToken, [
         { type: "text", text: "対象スタッフが見つかりません。もう一度選択してください。" },
@@ -621,8 +874,10 @@ async function handleGuideSubmitCountResponse(params: {
       supabase: params.supabase,
       storeId: params.storeId,
       staffName: params.staffName,
-      guideCount: params.guideCount,
-      peopleCount: params.peopleCount,
+      sekGuideCount: params.sekCount,
+      sekPeopleCount: params.sekPeopleCount,
+      goldGuideCount: params.goldCount,
+      goldPeopleCount: params.goldPeopleCount,
     });
   } catch (err) {
     console.error("[GuideWebhook] upsert failed:", err);
@@ -634,10 +889,8 @@ async function handleGuideSubmitCountResponse(params: {
     return;
   }
 
-  const nextTargets = await fetchGuideTargetsForStore({
-    storeId: params.storeId,
-    supabase: params.supabase,
-  });
+  const totalGroups = params.sekCount + params.goldCount;
+  const totalPeople = params.sekPeopleCount + params.goldPeopleCount;
   const targetName = params.staffName;
 
   if (params.replyToken && params.channelAccessToken) {
@@ -645,51 +898,16 @@ async function handleGuideSubmitCountResponse(params: {
       {
         type: "text",
         text:
-          `${targetName}さんの案内数を${params.guideCount}組・${params.peopleCount}人で登録しました。` +
-          "続けて入力する場合は以下のボタンから選んでください。",
+          `${targetName}さんの案内を登録しました。\n` +
+          `セク ${params.sekCount}組・${params.sekPeopleCount}人 / GOLD ${params.goldCount}組・${params.goldPeopleCount}人\n` +
+          `合計 ${totalGroups}組・${totalPeople}人\n` +
+          "続けて入力する場合は以下から選んでください。",
       },
-      {
-        ...buildGuideTargetSelectMessage({
-          staffNames: nextTargets,
-        }),
-      },
+      buildGuideTargetSelectMessage({
+        staffNames: targets,
+      }),
     ]);
   }
-}
-
-async function handleGuideSelectPeopleResponse(params: {
-  userId: string;
-  storeId: string | null;
-  staffName: string;
-  guideCount: number;
-  supabase: ReturnType<typeof createSupabaseClient>;
-  replyToken?: string;
-  channelAccessToken?: string;
-}): Promise<void> {
-  if (!params.storeId || !params.replyToken || !params.channelAccessToken) return;
-  if (!Number.isInteger(params.guideCount) || params.guideCount < 0) return;
-  const isReporter = await validateGuideReporter({
-    userId: params.userId,
-    storeId: params.storeId,
-    supabase: params.supabase,
-  });
-  if (!isReporter) return;
-
-  const targets = await fetchGuideTargetsForStore({
-    storeId: params.storeId,
-    supabase: params.supabase,
-  });
-  if (!targets.includes(params.staffName)) {
-    console.error("[GuideWebhook] select people target invalid:", params.staffName);
-    await sendReply(params.replyToken, params.channelAccessToken, [
-      { type: "text", text: "対象スタッフが見つかりません。もう一度選択してください。" },
-    ]);
-    return;
-  }
-
-  await sendReply(params.replyToken, params.channelAccessToken, [
-    buildGuidePeopleSelectMessage(params.staffName, params.guideCount),
-  ]);
 }
 
 const DEFAULT_ADMIN_NOTIFY_NEW_CAST = "新しく {name} さんが登録されました！";

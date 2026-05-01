@@ -101,7 +101,7 @@ export async function GET(request: Request) {
 
     const targetStores = stores.filter(
       (store) =>
-        store.guide_hearing_time &&
+        !!store.guide_hearing_time &&
         store.guide_hearing_time.startsWith(currentHour + ":") &&
         (!storesHasLastSentDate || store.last_guide_hearing_sent_date !== businessDate)
     );

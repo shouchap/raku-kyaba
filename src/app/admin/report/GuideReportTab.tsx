@@ -54,8 +54,10 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
   const [editingRow, setEditingRow] = useState<DailyGuideResult | null>(null);
   const [formDate, setFormDate] = useState("");
   const [formStaff, setFormStaff] = useState("");
-  const [formCount, setFormCount] = useState(0);
-  const [formPeopleCount, setFormPeopleCount] = useState(0);
+  const [formSekGuideCount, setFormSekGuideCount] = useState(0);
+  const [formSekPeopleCount, setFormSekPeopleCount] = useState(0);
+  const [formGoldGuideCount, setFormGoldGuideCount] = useState(0);
+  const [formGoldPeopleCount, setFormGoldPeopleCount] = useState(0);
   const [modalSaving, setModalSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
@@ -130,8 +132,10 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
     setEditingRow(null);
     setFormDate(defaultTargetDate);
     setFormStaff(guideStaffNames[0] ?? "");
-    setFormCount(0);
-    setFormPeopleCount(0);
+    setFormSekGuideCount(0);
+    setFormSekPeopleCount(0);
+    setFormGoldGuideCount(0);
+    setFormGoldPeopleCount(0);
     setModalError(null);
     setModalOpen(true);
   };
@@ -141,8 +145,10 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
     setEditingRow(r);
     setFormDate(r.target_date);
     setFormStaff(r.staff_name);
-    setFormCount(r.guide_count);
-    setFormPeopleCount(typeof r.people_count === "number" ? r.people_count : 0);
+    setFormSekGuideCount(typeof r.sek_guide_count === "number" ? r.sek_guide_count : 0);
+    setFormSekPeopleCount(typeof r.sek_people_count === "number" ? r.sek_people_count : 0);
+    setFormGoldGuideCount(typeof r.gold_guide_count === "number" ? r.gold_guide_count : 0);
+    setFormGoldPeopleCount(typeof r.gold_people_count === "number" ? r.gold_people_count : 0);
     setModalError(null);
     setModalOpen(true);
   };
@@ -164,12 +170,14 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
       setModalError("スタッフ名を選択してください。");
       return;
     }
-    if (!Number.isInteger(formCount) || formCount < 0 || formCount > 9999) {
-      setModalError("組数は 0〜9999 の整数で入力してください。");
-      return;
-    }
-    if (!Number.isInteger(formPeopleCount) || formPeopleCount < 0 || formPeopleCount > 9999) {
-      setModalError("人数は 0〜9999 の整数で入力してください。");
+    const fields = [
+      formSekGuideCount,
+      formSekPeopleCount,
+      formGoldGuideCount,
+      formGoldPeopleCount,
+    ];
+    if (fields.some((n) => !Number.isInteger(n) || n < 0 || n > 9999)) {
+      setModalError("セク/GOLD の組数・人数はそれぞれ 0〜9999 の整数で入力してください。");
       return;
     }
 
@@ -185,8 +193,10 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
             id: editingRow.id,
             staffName: staff,
             targetDate: formDate,
-            guideCount: formCount,
-            peopleCount: formPeopleCount,
+            sekGuideCount: formSekGuideCount,
+            sekPeopleCount: formSekPeopleCount,
+            goldGuideCount: formGoldGuideCount,
+            goldPeopleCount: formGoldPeopleCount,
           }),
         });
         const patchPayload = (await patchRes.json().catch(() => ({}))) as {
@@ -207,8 +217,10 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
             storeId,
             staffName: staff,
             targetDate: formDate,
-            guideCount: formCount,
-            peopleCount: formPeopleCount,
+            sekGuideCount: formSekGuideCount,
+            sekPeopleCount: formSekPeopleCount,
+            goldGuideCount: formGoldGuideCount,
+            goldPeopleCount: formGoldPeopleCount,
           }),
         });
         const putPayload = (await putRes.json().catch(() => ({}))) as { error?: string };
@@ -231,7 +243,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
   const confirmDelete = async (r: DailyGuideResult) => {
     if (
       !window.confirm(
-        `${formatJaDateCell(r.target_date)} · ${r.staff_name}（${r.guide_count}組）を削除しますか？`
+        `${formatJaDateCell(r.target_date)} · ${r.staff_name}（合計${r.guide_count}組）を削除しますか？`
       )
     ) {
       return;
@@ -267,19 +279,57 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
       ),
     [rows]
   );
+  const totalSekGroups = useMemo(
+    () => rows.reduce((sum, r) => sum + (typeof r.sek_guide_count === "number" ? r.sek_guide_count : 0), 0),
+    [rows]
+  );
+  const totalSekPeople = useMemo(
+    () => rows.reduce((sum, r) => sum + (typeof r.sek_people_count === "number" ? r.sek_people_count : 0), 0),
+    [rows]
+  );
+  const totalGoldGroups = useMemo(
+    () => rows.reduce((sum, r) => sum + (typeof r.gold_guide_count === "number" ? r.gold_guide_count : 0), 0),
+    [rows]
+  );
+  const totalGoldPeople = useMemo(
+    () => rows.reduce((sum, r) => sum + (typeof r.gold_people_count === "number" ? r.gold_people_count : 0), 0),
+    [rows]
+  );
 
   const staffTotals = useMemo(() => {
-    const m = new Map<string, { guide: number; people: number }>();
+    const m = new Map<
+      string,
+      { sekG: number; sekP: number; goldG: number; goldP: number; guide: number; people: number }
+    >();
     for (const r of rows) {
       const name = String(r.staff_name ?? "").trim() || "（無名）";
-      const prev = m.get(name) ?? { guide: 0, people: 0 };
+      const prev =
+        m.get(name) ?? { sekG: 0, sekP: 0, goldG: 0, goldP: 0, guide: 0, people: 0 };
+      const sekG = typeof r.sek_guide_count === "number" ? r.sek_guide_count : 0;
+      const sekP = typeof r.sek_people_count === "number" ? r.sek_people_count : 0;
+      const goldG = typeof r.gold_guide_count === "number" ? r.gold_guide_count : 0;
+      const goldP = typeof r.gold_people_count === "number" ? r.gold_people_count : 0;
+      const g = typeof r.guide_count === "number" ? r.guide_count : 0;
+      const p = typeof r.people_count === "number" ? r.people_count : 0;
       m.set(name, {
-        guide: prev.guide + (typeof r.guide_count === "number" ? r.guide_count : 0),
-        people: prev.people + (typeof r.people_count === "number" ? r.people_count : 0),
+        sekG: prev.sekG + sekG,
+        sekP: prev.sekP + sekP,
+        goldG: prev.goldG + goldG,
+        goldP: prev.goldP + goldP,
+        guide: prev.guide + g,
+        people: prev.people + p,
       });
     }
     return [...m.entries()]
-      .map(([staff_name, totals]) => ({ staff_name, guideTotal: totals.guide, peopleTotal: totals.people }))
+      .map(([staff_name, t]) => ({
+        staff_name,
+        sekGroups: t.sekG,
+        sekPeople: t.sekP,
+        goldGroups: t.goldG,
+        goldPeople: t.goldP,
+        guideTotal: t.guide,
+        peopleTotal: t.people,
+      }))
       .sort((a, b) => b.guideTotal - a.guideTotal || a.staff_name.localeCompare(b.staff_name, "ja"));
   }, [rows]);
 
@@ -332,8 +382,18 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
           {totalGuides}
           <span className="ml-2 text-lg font-semibold text-emerald-800 sm:text-xl">組</span>
         </p>
-        <p className="mt-2 text-sm font-medium text-emerald-900/90">
-          合計人数: <span className="tabular-nums">{totalPeople}</span>人
+        <p className="mt-2 text-sm font-medium text-emerald-900/90 space-y-1">
+          <span className="block">
+            セク: <span className="tabular-nums">{totalSekGroups}</span>組・
+            <span className="tabular-nums">{totalSekPeople}</span>人
+          </span>
+          <span className="block">
+            GOLD: <span className="tabular-nums">{totalGoldGroups}</span>組・
+            <span className="tabular-nums">{totalGoldPeople}</span>人
+          </span>
+          <span className="block pt-1 border-t border-emerald-200/80">
+            合計人数: <span className="tabular-nums">{totalPeople}</span>人
+          </span>
         </p>
       </section>
 
@@ -345,18 +405,34 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
           スタッフ別集計
         </h2>
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
-          <table className="min-w-[360px] w-full text-left text-sm">
+          <table className="min-w-[640px] w-full text-left text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="px-4 py-3 font-semibold text-gray-900">スタッフ名</th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-900">合計（組）</th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-900">合計（人）</th>
+                <th className="px-3 py-3 font-semibold text-gray-900">スタッフ名</th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  セク（組）
+                </th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  セク（人）
+                </th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  GOLD（組）
+                </th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  GOLD（人）
+                </th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  計（組）
+                </th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  計（人）
+                </th>
               </tr>
             </thead>
             <tbody>
               {staffTotals.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="px-4 py-10 text-center text-gray-500">
+                  <td colSpan={7} className="px-4 py-10 text-center text-gray-500">
                     この月の案内実績データはありません。
                   </td>
                 </tr>
@@ -366,9 +442,13 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                     key={row.staff_name}
                     className="border-b border-gray-100 hover:bg-gray-50/80"
                   >
-                    <td className="px-4 py-3 font-medium text-gray-900">{row.staff_name}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-gray-900">{row.guideTotal}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-gray-900">{row.peopleTotal}</td>
+                    <td className="px-3 py-3 font-medium text-gray-900">{row.staff_name}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.sekGroups}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.sekPeople}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.goldGroups}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.goldPeople}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.guideTotal}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.peopleTotal}</td>
                   </tr>
                 ))
               )}
@@ -403,18 +483,30 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
           </p>
         )}
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
-          <table className="min-w-[560px] w-full text-left text-sm">
+          <table className="min-w-[880px] w-full text-left text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">日付</th>
-                <th className="px-4 py-3 font-semibold text-gray-900">スタッフ名</th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  組数
+                <th className="px-3 py-3 font-semibold text-gray-900 whitespace-nowrap">日付</th>
+                <th className="px-3 py-3 font-semibold text-gray-900">スタッフ名</th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  セク組
                 </th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  人数
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  セク人
                 </th>
-                <th className="print:hidden px-4 py-3 text-center font-semibold text-gray-900 whitespace-nowrap w-[7rem]">
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  GOLD組
+                </th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  GOLD人
+                </th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  計組
+                </th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  計人
+                </th>
+                <th className="print:hidden px-3 py-3 text-center font-semibold text-gray-900 whitespace-nowrap w-[7rem]">
                   アクション
                 </th>
               </tr>
@@ -422,7 +514,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
             <tbody>
               {detailRows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-gray-500">
+                  <td colSpan={9} className="px-4 py-10 text-center text-gray-500">
                     この月の案内実績データはありません。
                   </td>
                 </tr>
@@ -432,15 +524,27 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                     key={r.id}
                     className="border-b border-gray-100 hover:bg-gray-50/80"
                   >
-                    <td className="px-4 py-3 tabular-nums text-gray-800 whitespace-nowrap">
+                    <td className="px-3 py-3 tabular-nums text-gray-800 whitespace-nowrap">
                       {formatJaDateCell(r.target_date)}
                     </td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{r.staff_name}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-gray-900">{r.guide_count}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-gray-900">
+                    <td className="px-3 py-3 font-medium text-gray-900">{r.staff_name}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
+                      {typeof r.sek_guide_count === "number" ? r.sek_guide_count : 0}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
+                      {typeof r.sek_people_count === "number" ? r.sek_people_count : 0}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
+                      {typeof r.gold_guide_count === "number" ? r.gold_guide_count : 0}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
+                      {typeof r.gold_people_count === "number" ? r.gold_people_count : 0}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{r.guide_count}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
                       {typeof r.people_count === "number" ? r.people_count : 0}
                     </td>
-                    <td className="print:hidden px-4 py-2 text-center">
+                    <td className="print:hidden px-3 py-2 text-center">
                       <div className="inline-flex items-center justify-center gap-1">
                         <button
                           type="button"
@@ -519,52 +623,103 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                   ))}
                 </select>
               </div>
-              <div>
-                <label htmlFor="guide-form-count" className="block text-sm font-medium text-gray-700">
-                  組数
-                </label>
-                <input
-                  id="guide-form-count"
-                  type="number"
-                  min={0}
-                  max={9999}
-                  step={1}
-                  value={Number.isFinite(formCount) ? formCount : 0}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    if (raw === "") {
-                      setFormCount(0);
-                      return;
-                    }
-                    const n = parseInt(raw, 10);
-                    if (!Number.isNaN(n)) setFormCount(n);
-                  }}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="guide-form-sek-g" className="block text-sm font-medium text-gray-700">
+                    セク・組数
+                  </label>
+                  <input
+                    id="guide-form-sek-g"
+                    type="number"
+                    min={0}
+                    max={9999}
+                    step={1}
+                    value={Number.isFinite(formSekGuideCount) ? formSekGuideCount : 0}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === "") {
+                        setFormSekGuideCount(0);
+                        return;
+                      }
+                      const n = parseInt(raw, 10);
+                      if (!Number.isNaN(n)) setFormSekGuideCount(n);
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="guide-form-sek-p" className="block text-sm font-medium text-gray-700">
+                    セク・人数
+                  </label>
+                  <input
+                    id="guide-form-sek-p"
+                    type="number"
+                    min={0}
+                    max={9999}
+                    step={1}
+                    value={Number.isFinite(formSekPeopleCount) ? formSekPeopleCount : 0}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === "") {
+                        setFormSekPeopleCount(0);
+                        return;
+                      }
+                      const n = parseInt(raw, 10);
+                      if (!Number.isNaN(n)) setFormSekPeopleCount(n);
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="guide-form-gold-g" className="block text-sm font-medium text-gray-700">
+                    GOLD・組数
+                  </label>
+                  <input
+                    id="guide-form-gold-g"
+                    type="number"
+                    min={0}
+                    max={9999}
+                    step={1}
+                    value={Number.isFinite(formGoldGuideCount) ? formGoldGuideCount : 0}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === "") {
+                        setFormGoldGuideCount(0);
+                        return;
+                      }
+                      const n = parseInt(raw, 10);
+                      if (!Number.isNaN(n)) setFormGoldGuideCount(n);
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="guide-form-gold-p" className="block text-sm font-medium text-gray-700">
+                    GOLD・人数
+                  </label>
+                  <input
+                    id="guide-form-gold-p"
+                    type="number"
+                    min={0}
+                    max={9999}
+                    step={1}
+                    value={Number.isFinite(formGoldPeopleCount) ? formGoldPeopleCount : 0}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === "") {
+                        setFormGoldPeopleCount(0);
+                        return;
+                      }
+                      const n = parseInt(raw, 10);
+                      if (!Number.isNaN(n)) setFormGoldPeopleCount(n);
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
+                  />
+                </div>
               </div>
-              <div>
-                <label htmlFor="guide-form-people" className="block text-sm font-medium text-gray-700">
-                  人数
-                </label>
-                <input
-                  id="guide-form-people"
-                  type="number"
-                  min={0}
-                  max={9999}
-                  step={1}
-                  value={Number.isFinite(formPeopleCount) ? formPeopleCount : 0}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    if (raw === "") {
-                      setFormPeopleCount(0);
-                      return;
-                    }
-                    const n = parseInt(raw, 10);
-                    if (!Number.isNaN(n)) setFormPeopleCount(n);
-                  }}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
-                />
-              </div>
+              <p className="text-xs text-gray-500">
+                合計組・合計人は、セクと GOLD を足した値として保存されます（LINE ヒアリングと同じ集計です）。
+              </p>
               {modalError && (
                 <p className="text-sm text-red-700" role="alert">
                   {modalError}

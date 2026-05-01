@@ -18,12 +18,38 @@ export type GuideStaffRow = {
   is_guide_target: boolean;
 };
 
+/** @deprecated スタッフ選択フローへ移行済み。互換のため残す */
 export type GuidePostbackParseResult = { kind: "count"; count: number } | null;
+
 export type GuideActionParseResult =
   | { kind: "select_staff"; staffName: string }
-  | { kind: "submit_count"; staffName: string; count: number }
-  | { kind: "submit_people"; staffName: string; count: number; peopleCount: number }
+  | { kind: "start_entry"; staffName: string; mode: "sek_first" | "gold_only" }
+  | { kind: "submit_sek_count"; staffName: string; sekCount: number }
+  | {
+      kind: "submit_sek_people";
+      staffName: string;
+      sekCount: number;
+      sekPeopleCount: number;
+    }
+  | {
+      kind: "submit_gold_count";
+      staffName: string;
+      sekCount: number;
+      sekPeopleCount: number;
+      goldCount: number;
+    }
+  | {
+      kind: "submit_gold_people";
+      staffName: string;
+      sekCount: number;
+      sekPeopleCount: number;
+      goldCount: number;
+      goldPeopleCount: number;
+    }
   | null;
+
+const MAX_GROUP_QUICK = 10;
+const MAX_PEOPLE_QUICK = 12;
 
 function jstDateParts(base: Date): { yyyy: number; mm: number; dd: number; hour: number } {
   const fmt = new Intl.DateTimeFormat("en-CA", {
@@ -47,7 +73,6 @@ function jstDateParts(base: Date): { yyyy: number; mm: number; dd: number; hour:
 
 export function resolveBusinessDateFromJst(now: Date = new Date()): string {
   const p = jstDateParts(now);
-  // 深夜帯（0〜5時）の回答は前営業日に寄せる
   const d = new Date(Date.UTC(p.yyyy, p.mm - 1, p.dd));
   if (p.hour < 6) {
     d.setUTCDate(d.getUTCDate() - 1);
@@ -68,9 +93,10 @@ export function parseGuideHearingHour(time: string | null | undefined): number |
   return Number(m[1]);
 }
 
+/** @deprecated */
 export function buildGuideQuickReplyItems(): LineTextQuickReplyItem[] {
   const items: LineTextQuickReplyItem[] = [];
-  for (let i = 0; i <= 10; i++) {
+  for (let i = 0; i <= MAX_GROUP_QUICK; i++) {
     items.push({
       type: "action",
       action: {
@@ -84,6 +110,7 @@ export function buildGuideQuickReplyItems(): LineTextQuickReplyItem[] {
   return items;
 }
 
+/** @deprecated */
 export function buildGuideHearingMessage(storeName?: string | null): LineReplyMessage {
   const storeLabel = storeName?.trim() ? `（${storeName.trim()}）` : "";
   return {
@@ -123,72 +150,156 @@ export function buildGuideTargetSelectMessage(params: {
   };
 }
 
-export function buildGuideCountSelectItems(
-  staffName: string
-): LineTextQuickReplyItem[] {
+/** 従業員選択後: セクから入力するか、セク0で GOLD のみか */
+export function buildGuideEntryModeSelectItems(staffName: string): LineTextQuickReplyItem[] {
+  const enc = encodeURIComponent(staffName);
+  return [
+    {
+      type: "action",
+      action: {
+        type: "postback",
+        label: "セクから入力",
+        data: `action=start_guide_entry&staff_name=${enc}&mode=sek_first`,
+        displayText: "セクから入力",
+      },
+    },
+    {
+      type: "action",
+      action: {
+        type: "postback",
+        label: "GOLDのみ",
+        data: `action=start_guide_entry&staff_name=${enc}&mode=gold_only`,
+        displayText: "GOLDのみ",
+      },
+    },
+  ];
+}
+
+export function buildGuideEntryModeMessage(staffName: string): LineReplyMessage {
+  return {
+    type: "text",
+    text:
+      `【${staffName}さん】セクと GOLD の案内を入力します。\n` +
+      "まず、セクから組数・人数を入力するか、セクがない場合は「GOLDのみ」を選んでください。",
+    quickReply: {
+      items: buildGuideEntryModeSelectItems(staffName),
+    },
+  };
+}
+
+export function buildGuideSekCountSelectMessage(staffName: string): LineReplyMessage {
+  const enc = encodeURIComponent(staffName);
   const items: LineTextQuickReplyItem[] = [];
-  for (let i = 0; i <= 10; i++) {
+  for (let i = 0; i <= MAX_GROUP_QUICK; i++) {
     items.push({
       type: "action",
       action: {
         type: "postback",
         label: `${i}組`,
-        data: `action=submit_guide_count&staff_name=${encodeURIComponent(staffName)}&count=${i}`,
+        data: `action=submit_guide_sek_count&staff_name=${enc}&sek=${i}`,
         displayText: `${i}組`,
       },
     });
   }
-  return items;
-}
-
-export function buildGuideCountSelectMessage(staffName: string): LineReplyMessage {
   return {
     type: "text",
-    text: `【${staffName}さん】の案内組数を教えてください。`,
-    quickReply: {
-      items: buildGuideCountSelectItems(staffName),
-    },
+    text: `【${staffName}さん】セクの組数を選んでください。`,
+    quickReply: { items },
   };
 }
 
-export function buildGuidePeopleSelectItems(
-  staffName: string,
-  count: number
-): LineTextQuickReplyItem[] {
+export function buildGuideSekPeopleSelectMessage(staffName: string, sekCount: number): LineReplyMessage {
+  const enc = encodeURIComponent(staffName);
   const items: LineTextQuickReplyItem[] = [];
-  // LINE quick reply の上限（13個）を超えないよう 0〜12人に制限
-  for (let i = 0; i <= 12; i++) {
+  for (let i = 0; i <= MAX_PEOPLE_QUICK; i++) {
     items.push({
       type: "action",
       action: {
         type: "postback",
         label: `${i}人`,
         data:
-          `action=submit_guide_people&staff_name=${encodeURIComponent(staffName)}` +
-          `&count=${count}&people_count=${i}`,
+          `action=submit_guide_sek_people&staff_name=${enc}` +
+          `&sek=${sekCount}&sek_p=${i}`,
         displayText: `${i}人`,
       },
     });
   }
-  return items;
-}
-
-export function buildGuidePeopleSelectMessage(staffName: string, count: number): LineReplyMessage {
   return {
     type: "text",
-    text: `【${staffName}さん】の人数を選択してください（案内組数: ${count}組）。`,
-    quickReply: {
-      items: buildGuidePeopleSelectItems(staffName, count),
-    },
+    text: `【${staffName}さん】セクの人数を選んでください（セク ${sekCount}組）。`,
+    quickReply: { items },
   };
 }
 
+export function buildGuideGoldCountSelectMessage(params: {
+  staffName: string;
+  sekCount: number;
+  sekPeopleCount: number;
+}): LineReplyMessage {
+  const enc = encodeURIComponent(params.staffName);
+  const items: LineTextQuickReplyItem[] = [];
+  for (let i = 0; i <= MAX_GROUP_QUICK; i++) {
+    items.push({
+      type: "action",
+      action: {
+        type: "postback",
+        label: `${i}組`,
+        data:
+          `action=submit_guide_gold_count&staff_name=${enc}` +
+          `&sek=${params.sekCount}&sek_p=${params.sekPeopleCount}&gold=${i}`,
+        displayText: `${i}組`,
+      },
+    });
+  }
+  return {
+    type: "text",
+    text: `【${params.staffName}さん】GOLD の組数を選んでください。`,
+    quickReply: { items },
+  };
+}
+
+export function buildGuideGoldPeopleSelectMessage(params: {
+  staffName: string;
+  sekCount: number;
+  sekPeopleCount: number;
+  goldCount: number;
+}): LineReplyMessage {
+  const enc = encodeURIComponent(params.staffName);
+  const items: LineTextQuickReplyItem[] = [];
+  for (let i = 0; i <= MAX_PEOPLE_QUICK; i++) {
+    items.push({
+      type: "action",
+      action: {
+        type: "postback",
+        label: `${i}人`,
+        data:
+          `action=submit_guide_gold_people&staff_name=${enc}` +
+          `&sek=${params.sekCount}&sek_p=${params.sekPeopleCount}` +
+          `&gold=${params.goldCount}&gold_p=${i}`,
+        displayText: `${i}人`,
+      },
+    });
+  }
+  return {
+    type: "text",
+    text: `【${params.staffName}さん】GOLD の人数を選んでください（GOLD ${params.goldCount}組）。`,
+    quickReply: { items },
+  };
+}
+
+/** @deprecated Webhook は sek/gold フローを使用 */
 export function parseGuidePostbackData(rawData: string): GuidePostbackParseResult {
   const params = new URLSearchParams(rawData.trim());
   if (params.get("action") !== "guide_count") return null;
   const n = Number(params.get("count"));
-  if (!Number.isInteger(n) || n < 0 || n > 10) return null;
+  if (!Number.isInteger(n) || n < 0 || n > MAX_GROUP_QUICK) return null;
   return { kind: "count", count: n };
+}
+
+function parseNonNegInt(v: string | null, max: number): number | null {
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0 || n > max) return null;
+  return n;
 }
 
 export function parseGuideActionPostbackData(rawData: string): GuideActionParseResult {
@@ -200,18 +311,57 @@ export function parseGuideActionPostbackData(rawData: string): GuideActionParseR
   if (action === "select_guide_staff") {
     return { kind: "select_staff", staffName };
   }
-  if (action === "submit_guide_count") {
-    const count = Number(params.get("count"));
-    if (!Number.isInteger(count) || count < 0 || count > 10) return null;
-    return { kind: "submit_count", staffName, count };
+
+  if (action === "start_guide_entry") {
+    const mode = params.get("mode");
+    if (mode === "sek_first") return { kind: "start_entry", staffName, mode: "sek_first" };
+    if (mode === "gold_only") return { kind: "start_entry", staffName, mode: "gold_only" };
+    return null;
   }
-  if (action === "submit_guide_people") {
-    const count = Number(params.get("count"));
-    const peopleCount = Number(params.get("people_count"));
-    if (!Number.isInteger(count) || count < 0 || count > 10) return null;
-    if (!Number.isInteger(peopleCount) || peopleCount < 0 || peopleCount > 9999) return null;
-    return { kind: "submit_people", staffName, count, peopleCount };
+
+  if (action === "submit_guide_sek_count") {
+    const sek = parseNonNegInt(params.get("sek"), MAX_GROUP_QUICK);
+    if (sek === null) return null;
+    return { kind: "submit_sek_count", staffName, sekCount: sek };
   }
+
+  if (action === "submit_guide_sek_people") {
+    const sek = parseNonNegInt(params.get("sek"), MAX_GROUP_QUICK);
+    const sekP = parseNonNegInt(params.get("sek_p"), MAX_PEOPLE_QUICK);
+    if (sek === null || sekP === null) return null;
+    return { kind: "submit_sek_people", staffName, sekCount: sek, sekPeopleCount: sekP };
+  }
+
+  if (action === "submit_guide_gold_count") {
+    const sek = parseNonNegInt(params.get("sek"), MAX_GROUP_QUICK);
+    const sekP = parseNonNegInt(params.get("sek_p"), MAX_PEOPLE_QUICK);
+    const gold = parseNonNegInt(params.get("gold"), MAX_GROUP_QUICK);
+    if (sek === null || sekP === null || gold === null) return null;
+    return {
+      kind: "submit_gold_count",
+      staffName,
+      sekCount: sek,
+      sekPeopleCount: sekP,
+      goldCount: gold,
+    };
+  }
+
+  if (action === "submit_guide_gold_people") {
+    const sek = parseNonNegInt(params.get("sek"), MAX_GROUP_QUICK);
+    const sekP = parseNonNegInt(params.get("sek_p"), MAX_PEOPLE_QUICK);
+    const gold = parseNonNegInt(params.get("gold"), MAX_GROUP_QUICK);
+    const goldP = parseNonNegInt(params.get("gold_p"), MAX_PEOPLE_QUICK);
+    if (sek === null || sekP === null || gold === null || goldP === null) return null;
+    return {
+      kind: "submit_gold_people",
+      staffName,
+      sekCount: sek,
+      sekPeopleCount: sekP,
+      goldCount: gold,
+      goldPeopleCount: goldP,
+    };
+  }
+
   return null;
 }
 
@@ -219,20 +369,27 @@ export async function upsertGuideResult(params: {
   supabase: SupabaseClient;
   storeId: string;
   staffName: string;
-  guideCount: number;
-  peopleCount?: number;
+  sekGuideCount: number;
+  sekPeopleCount: number;
+  goldGuideCount: number;
+  goldPeopleCount: number;
   respondedAtIso?: string;
 }): Promise<void> {
   const respondedAtIso = params.respondedAtIso ?? new Date().toISOString();
   const targetDate = resolveBusinessDateFromJst(new Date(respondedAtIso));
-  // 同一スタッフ名・同一営業日の重複回答は、最新ボタン入力で上書きする（押し直し対応）。
+  const guideCount = params.sekGuideCount + params.goldGuideCount;
+  const peopleCount = params.sekPeopleCount + params.goldPeopleCount;
   const { error } = await params.supabase.from("daily_guide_results").upsert(
     {
       store_id: params.storeId,
       staff_name: params.staffName,
       target_date: targetDate,
-      guide_count: params.guideCount,
-      people_count: Number.isInteger(params.peopleCount) ? params.peopleCount : null,
+      sek_guide_count: params.sekGuideCount,
+      sek_people_count: params.sekPeopleCount,
+      gold_guide_count: params.goldGuideCount,
+      gold_people_count: params.goldPeopleCount,
+      guide_count: guideCount,
+      people_count: peopleCount,
       responded_at: respondedAtIso,
     },
     {
