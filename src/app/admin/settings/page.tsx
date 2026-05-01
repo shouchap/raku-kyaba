@@ -529,7 +529,7 @@ export default function AdminSettingsPage() {
           className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
         />
         <span className="text-sm text-gray-700 leading-snug">
-          営業終了時に担当者へ LINE で案内実績をヒアリングする（セク・GOLD の組数・人数を順に入力）
+          営業終了時に担当者へ LINE で案内実績をヒアリングする（セクキャバ・GOLD の組数・人数を順に入力）
         </span>
       </label>
 

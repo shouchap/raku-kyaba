@@ -151,7 +151,7 @@ export function buildGuideTargetSelectMessage(params: {
   };
 }
 
-/** 従業員選択後: セクから入力するか、セク0で GOLD のみか */
+/** 従業員選択後: セクキャバから入力するか、セクキャバ0で GOLD のみか */
 export function buildGuideEntryModeSelectItems(staffName: string): LineTextQuickReplyItem[] {
   const enc = encodeURIComponent(staffName);
   return [
@@ -159,9 +159,9 @@ export function buildGuideEntryModeSelectItems(staffName: string): LineTextQuick
       type: "action",
       action: {
         type: "postback",
-        label: "セクから入力",
+        label: "セクキャバから入力",
         data: `action=start_guide_entry&staff_name=${enc}&mode=sek_first`,
-        displayText: "セクから入力",
+        displayText: "セクキャバから入力",
       },
     },
     {
@@ -180,8 +180,8 @@ export function buildGuideEntryModeMessage(staffName: string): LineReplyMessage 
   return {
     type: "text",
     text:
-      `【${staffName}さん】セクと GOLD の案内を入力します。\n` +
-      "まず、セクから組数・人数を入力するか、セクがない場合は「GOLDのみ」を選んでください。",
+      `【${staffName}さん】セクキャバと GOLD の案内を入力します。\n` +
+      "まず、セクキャバから組数・人数を入力するか、セクキャバがない場合は「GOLDのみ」を選んでください。",
     quickReply: {
       items: buildGuideEntryModeSelectItems(staffName),
     },
@@ -196,15 +196,15 @@ export function buildGuideSekCountSelectMessage(staffName: string): LineReplyMes
       type: "action",
       action: {
         type: "postback",
-        label: `${i}組`,
+        label: `${i}組数`,
         data: `action=submit_guide_sek_count&staff_name=${enc}&sek=${i}`,
-        displayText: `${i}組`,
+        displayText: `${i}組数`,
       },
     });
   }
   return {
     type: "text",
-    text: `【${staffName}さん】セクの組数を選んでください。`,
+    text: `【${staffName}さん】セクキャバの組数を選んでください。`,
     quickReply: { items },
   };
 }
@@ -217,17 +217,17 @@ export function buildGuideSekPeopleSelectMessage(staffName: string, sekCount: nu
       type: "action",
       action: {
         type: "postback",
-        label: `${i}人`,
+        label: `${i}人数`,
         data:
           `action=submit_guide_sek_people&staff_name=${enc}` +
           `&sek=${sekCount}&sek_p=${i}`,
-        displayText: `${i}人`,
+        displayText: `${i}人数`,
       },
     });
   }
   return {
     type: "text",
-    text: `【${staffName}さん】セクの人数を選んでください（セク ${sekCount}組）。`,
+    text: `【${staffName}さん】セクキャバの人数を選んでください（セクキャバ ${sekCount}組数）。`,
     quickReply: { items },
   };
 }
@@ -244,11 +244,11 @@ export function buildGuideGoldCountSelectMessage(params: {
       type: "action",
       action: {
         type: "postback",
-        label: `${i}組`,
+        label: `${i}組数`,
         data:
           `action=submit_guide_gold_count&staff_name=${enc}` +
           `&sek=${params.sekCount}&sek_p=${params.sekPeopleCount}&gold=${i}`,
-        displayText: `${i}組`,
+        displayText: `${i}組数`,
       },
     });
   }
@@ -272,18 +272,18 @@ export function buildGuideGoldPeopleSelectMessage(params: {
       type: "action",
       action: {
         type: "postback",
-        label: `${i}人`,
+        label: `${i}人数`,
         data:
           `action=submit_guide_gold_people&staff_name=${enc}` +
           `&sek=${params.sekCount}&sek_p=${params.sekPeopleCount}` +
           `&gold=${params.goldCount}&gold_p=${i}`,
-        displayText: `${i}人`,
+        displayText: `${i}人数`,
       },
     });
   }
   return {
     type: "text",
-    text: `【${params.staffName}さん】GOLD の人数を選んでください（GOLD ${params.goldCount}組）。`,
+    text: `【${params.staffName}さん】GOLD の人数を選んでください（GOLD ${params.goldCount}組数）。`,
     quickReply: { items },
   };
 }

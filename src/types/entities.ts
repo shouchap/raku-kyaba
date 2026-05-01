@@ -46,9 +46,9 @@ export type DailyGuideResult = {
   sek_people_count: number;
   gold_guide_count: number;
   gold_people_count: number;
-  /** セク + GOLD の合計組数 */
+  /** セクキャバ + GOLD の合計組数 */
   guide_count: number;
-  /** セク + GOLD の合計人数 */
+  /** セクキャバ + GOLD の合計人数 */
   people_count: number | null;
   responded_at: string;
 };

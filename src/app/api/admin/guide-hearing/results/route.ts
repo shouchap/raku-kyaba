@@ -51,7 +51,7 @@ function floorInt(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? Math.floor(v) : NaN;
 }
 
-/** セク/GOLD 4項目、または従来の guideCount/peopleCount（セクのみとして保存） */
+/** セクキャバ/GOLD 4項目、または従来の guideCount/peopleCount（セクキャバのみとして保存） */
 function parseGuideSplitCounts(body: Record<string, unknown>): NextResponse | {
   sekGuideCount: number;
   sekPeopleCount: number;

@@ -49,7 +49,7 @@ const GUIDE_REPORT_SELECT_WITH_SEK_GOLD =
 const GUIDE_REPORT_SELECT_LEGACY =
   "id, store_id, staff_name, target_date, guide_count, people_count, responded_at";
 
-/** DB がマイグレーション040より前でも動くよう、合計をセク側へ寄せた行を返す */
+/** DB がマイグレーション040より前でも動くよう、合計をセクキャバ側へ寄せた行を返す */
 function coerceLegacyGuideRows(
   rows: Array<{
     id: string;

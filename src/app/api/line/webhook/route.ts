@@ -899,8 +899,8 @@ async function finalizeGuideHearingEntry(params: {
         type: "text",
         text:
           `${targetName}さんの案内を登録しました。\n` +
-          `セク ${params.sekCount}組・${params.sekPeopleCount}人 / GOLD ${params.goldCount}組・${params.goldPeopleCount}人\n` +
-          `合計 ${totalGroups}組・${totalPeople}人\n` +
+          `セクキャバ ${params.sekCount}組数・${params.sekPeopleCount}人数 / GOLD ${params.goldCount}組数・${params.goldPeopleCount}人数\n` +
+          `合計 ${totalGroups}組数・${totalPeople}人数\n` +
           "続けて入力する場合は以下から選んでください。",
       },
       buildGuideTargetSelectMessage({

@@ -177,7 +177,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
       formGoldPeopleCount,
     ];
     if (fields.some((n) => !Number.isInteger(n) || n < 0 || n > 9999)) {
-      setModalError("セク/GOLD の組数・人数はそれぞれ 0〜9999 の整数で入力してください。");
+      setModalError("セクキャバ/GOLD の組数・人数はそれぞれ 0〜9999 の整数で入力してください。");
       return;
     }
 
@@ -243,7 +243,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
   const confirmDelete = async (r: DailyGuideResult) => {
     if (
       !window.confirm(
-        `${formatJaDateCell(r.target_date)} · ${r.staff_name}（合計${r.guide_count}組）を削除しますか？`
+        `${formatJaDateCell(r.target_date)} · ${r.staff_name}（合計${r.guide_count}組数）を削除しますか？`
       )
     ) {
       return;
@@ -380,19 +380,19 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
         </h2>
         <p className="mt-3 text-4xl font-bold tabular-nums tracking-tight text-emerald-950 sm:text-5xl">
           {totalGuides}
-          <span className="ml-2 text-lg font-semibold text-emerald-800 sm:text-xl">組</span>
+          <span className="ml-2 text-lg font-semibold text-emerald-800 sm:text-xl">組数</span>
         </p>
         <p className="mt-2 text-sm font-medium text-emerald-900/90 space-y-1">
           <span className="block">
-            セク: <span className="tabular-nums">{totalSekGroups}</span>組・
-            <span className="tabular-nums">{totalSekPeople}</span>人
+            セクキャバ: <span className="tabular-nums">{totalSekGroups}</span>組数・
+            <span className="tabular-nums">{totalSekPeople}</span>人数
           </span>
           <span className="block">
-            GOLD: <span className="tabular-nums">{totalGoldGroups}</span>組・
-            <span className="tabular-nums">{totalGoldPeople}</span>人
+            GOLD: <span className="tabular-nums">{totalGoldGroups}</span>組数・
+            <span className="tabular-nums">{totalGoldPeople}</span>人数
           </span>
           <span className="block pt-1 border-t border-emerald-200/80">
-            合計人数: <span className="tabular-nums">{totalPeople}</span>人
+            合計人数: <span className="tabular-nums">{totalPeople}</span>人数
           </span>
         </p>
       </section>
@@ -410,22 +410,22 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="px-3 py-3 font-semibold text-gray-900">スタッフ名</th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  セク（組）
+                  セクキャバ（組数）
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  セク（人）
+                  セクキャバ（人数）
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  GOLD（組）
+                  GOLD（組数）
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  GOLD（人）
+                  GOLD（人数）
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  計（組）
+                  計（組数）
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  計（人）
+                  計（人数）
                 </th>
               </tr>
             </thead>
@@ -489,22 +489,22 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                 <th className="px-3 py-3 font-semibold text-gray-900 whitespace-nowrap">日付</th>
                 <th className="px-3 py-3 font-semibold text-gray-900">スタッフ名</th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  セク組
+                  セクキャバ組数
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  セク人
+                  セクキャバ人数
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  GOLD組
+                  GOLD組数
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  GOLD人
+                  GOLD人数
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  計組
+                  計組数
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  計人
+                  計人数
                 </th>
                 <th className="print:hidden px-3 py-3 text-center font-semibold text-gray-900 whitespace-nowrap w-[7rem]">
                   アクション
@@ -626,7 +626,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="guide-form-sek-g" className="block text-sm font-medium text-gray-700">
-                    セク・組数
+                    セクキャバ・組数
                   </label>
                   <input
                     id="guide-form-sek-g"
@@ -649,7 +649,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                 </div>
                 <div>
                   <label htmlFor="guide-form-sek-p" className="block text-sm font-medium text-gray-700">
-                    セク・人数
+                    セクキャバ・人数
                   </label>
                   <input
                     id="guide-form-sek-p"
@@ -718,7 +718,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                 </div>
               </div>
               <p className="text-xs text-gray-500">
-                合計組・合計人は、セクと GOLD を足した値として保存されます（LINE ヒアリングと同じ集計です）。
+                合計組数・合計人数は、セクキャバと GOLD を足した値として保存されます（LINE ヒアリングと同じ集計です）。
               </p>
               {modalError && (
                 <p className="text-sm text-red-700" role="alert">
