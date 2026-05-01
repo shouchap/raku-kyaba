@@ -177,7 +177,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
       formGoldPeopleCount,
     ];
     if (fields.some((n) => !Number.isInteger(n) || n < 0 || n > 9999)) {
-      setModalError("セクキャバ/GOLD の組数・人数はそれぞれ 0〜9999 の整数で入力してください。");
+      setModalError("GOLD／セクキャバの組数・人数はそれぞれ 0〜9999 の整数で入力してください。");
       return;
     }
 
@@ -384,12 +384,12 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
         </p>
         <p className="mt-2 text-sm font-medium text-emerald-900/90 space-y-1">
           <span className="block">
-            セクキャバ: <span className="tabular-nums">{totalSekGroups}</span>組数・
-            <span className="tabular-nums">{totalSekPeople}</span>人数
-          </span>
-          <span className="block">
             GOLD: <span className="tabular-nums">{totalGoldGroups}</span>組数・
             <span className="tabular-nums">{totalGoldPeople}</span>人数
+          </span>
+          <span className="block">
+            セクキャバ: <span className="tabular-nums">{totalSekGroups}</span>組数・
+            <span className="tabular-nums">{totalSekPeople}</span>人数
           </span>
           <span className="block pt-1 border-t border-emerald-200/80">
             合計人数: <span className="tabular-nums">{totalPeople}</span>人数
@@ -410,16 +410,16 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="px-3 py-3 font-semibold text-gray-900">スタッフ名</th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  セクキャバ（組数）
-                </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  セクキャバ（人数）
-                </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
                   GOLD（組数）
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
                   GOLD（人数）
+                </th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  セクキャバ（組数）
+                </th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  セクキャバ（人数）
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
                   計（組数）
@@ -443,10 +443,10 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                     className="border-b border-gray-100 hover:bg-gray-50/80"
                   >
                     <td className="px-3 py-3 font-medium text-gray-900">{row.staff_name}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.sekGroups}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.sekPeople}</td>
                     <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.goldGroups}</td>
                     <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.goldPeople}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.sekGroups}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.sekPeople}</td>
                     <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.guideTotal}</td>
                     <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.peopleTotal}</td>
                   </tr>
@@ -489,16 +489,16 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                 <th className="px-3 py-3 font-semibold text-gray-900 whitespace-nowrap">日付</th>
                 <th className="px-3 py-3 font-semibold text-gray-900">スタッフ名</th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  セクキャバ組数
-                </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  セクキャバ人数
-                </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
                   GOLD組数
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
                   GOLD人数
+                </th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  セクキャバ組数
+                </th>
+                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  セクキャバ人数
                 </th>
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
                   計組数
@@ -529,16 +529,16 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                     </td>
                     <td className="px-3 py-3 font-medium text-gray-900">{r.staff_name}</td>
                     <td className="px-3 py-3 text-right tabular-nums text-gray-900">
-                      {typeof r.sek_guide_count === "number" ? r.sek_guide_count : 0}
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
-                      {typeof r.sek_people_count === "number" ? r.sek_people_count : 0}
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
                       {typeof r.gold_guide_count === "number" ? r.gold_guide_count : 0}
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums text-gray-900">
                       {typeof r.gold_people_count === "number" ? r.gold_people_count : 0}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
+                      {typeof r.sek_guide_count === "number" ? r.sek_guide_count : 0}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
+                      {typeof r.sek_people_count === "number" ? r.sek_people_count : 0}
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums text-gray-900">{r.guide_count}</td>
                     <td className="px-3 py-3 text-right tabular-nums text-gray-900">
@@ -625,52 +625,6 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="guide-form-sek-g" className="block text-sm font-medium text-gray-700">
-                    セクキャバ・組数
-                  </label>
-                  <input
-                    id="guide-form-sek-g"
-                    type="number"
-                    min={0}
-                    max={9999}
-                    step={1}
-                    value={Number.isFinite(formSekGuideCount) ? formSekGuideCount : 0}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      if (raw === "") {
-                        setFormSekGuideCount(0);
-                        return;
-                      }
-                      const n = parseInt(raw, 10);
-                      if (!Number.isNaN(n)) setFormSekGuideCount(n);
-                    }}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="guide-form-sek-p" className="block text-sm font-medium text-gray-700">
-                    セクキャバ・人数
-                  </label>
-                  <input
-                    id="guide-form-sek-p"
-                    type="number"
-                    min={0}
-                    max={9999}
-                    step={1}
-                    value={Number.isFinite(formSekPeopleCount) ? formSekPeopleCount : 0}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      if (raw === "") {
-                        setFormSekPeopleCount(0);
-                        return;
-                      }
-                      const n = parseInt(raw, 10);
-                      if (!Number.isNaN(n)) setFormSekPeopleCount(n);
-                    }}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
-                  />
-                </div>
-                <div>
                   <label htmlFor="guide-form-gold-g" className="block text-sm font-medium text-gray-700">
                     GOLD・組数
                   </label>
@@ -716,9 +670,55 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
                     className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
                   />
                 </div>
+                <div>
+                  <label htmlFor="guide-form-sek-g" className="block text-sm font-medium text-gray-700">
+                    セクキャバ・組数
+                  </label>
+                  <input
+                    id="guide-form-sek-g"
+                    type="number"
+                    min={0}
+                    max={9999}
+                    step={1}
+                    value={Number.isFinite(formSekGuideCount) ? formSekGuideCount : 0}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === "") {
+                        setFormSekGuideCount(0);
+                        return;
+                      }
+                      const n = parseInt(raw, 10);
+                      if (!Number.isNaN(n)) setFormSekGuideCount(n);
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="guide-form-sek-p" className="block text-sm font-medium text-gray-700">
+                    セクキャバ・人数
+                  </label>
+                  <input
+                    id="guide-form-sek-p"
+                    type="number"
+                    min={0}
+                    max={9999}
+                    step={1}
+                    value={Number.isFinite(formSekPeopleCount) ? formSekPeopleCount : 0}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === "") {
+                        setFormSekPeopleCount(0);
+                        return;
+                      }
+                      const n = parseInt(raw, 10);
+                      if (!Number.isNaN(n)) setFormSekPeopleCount(n);
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
+                  />
+                </div>
               </div>
               <p className="text-xs text-gray-500">
-                合計組数・合計人数は、セクキャバと GOLD を足した値として保存されます（LINE ヒアリングと同じ集計です）。
+                合計組数・合計人数は、GOLD とセクキャバを足した値として保存されます（LINE ヒアリングと同じ集計です）。
               </p>
               {modalError && (
                 <p className="text-sm text-red-700" role="alert">
