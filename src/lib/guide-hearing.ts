@@ -88,10 +88,27 @@ export function getCurrentHourJst(now: Date = new Date()): number {
   return jstDateParts(now).hour;
 }
 
-export function parseGuideHearingHour(time: string | null | undefined): number | null {
-  const m = String(time ?? "").trim().match(/^([01]\d|2[0-3]):00$/);
+/**
+ * 案内ヒアリング時刻を `HH:00`（00:00〜23:00・正時）へ正規化。
+ * `14:00` / `14:00:00`（DBの time 文字列）/ `9:00` / 前後の空白を許容。解釈不能なら null。
+ */
+export function canonicalGuideHearingTime(value: string | null | undefined): string | null {
+  const s = String(value ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/^([01]?\d|2[0-3]):([0-5]\d)/);
   if (!m) return null;
-  return Number(m[1]);
+  const h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (!Number.isFinite(h) || h < 0 || h > 23 || !Number.isFinite(min) || min < 0 || min > 59) {
+    return null;
+  }
+  return `${String(h).padStart(2, "0")}:00`;
+}
+
+export function parseGuideHearingHour(time: string | null | undefined): number | null {
+  const c = canonicalGuideHearingTime(time);
+  if (!c) return null;
+  return Number(c.slice(0, 2));
 }
 
 /** @deprecated */

@@ -7,11 +7,9 @@ import { isSuperAdminUser } from "@/lib/super-admin";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import { sendPushMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
-import { buildGuideTargetSelectMessage } from "@/lib/guide-hearing";
+import { buildGuideTargetSelectMessage, canonicalGuideHearingTime } from "@/lib/guide-hearing";
 
 export const dynamic = "force-dynamic";
-
-const TIME_RE = /^([01][0-9]|2[0-3]):00$/;
 
 function badRequest(reason: string): NextResponse {
   console.error("[api/admin/guide-hearing] 400:", reason);
@@ -81,12 +79,14 @@ export async function GET(request: Request) {
     console.error("[api/admin/guide-hearing] reporter candidates fetch failed:", candidateErr.message);
   }
 
+  const sendTime =
+    canonicalGuideHearingTime(
+      typeof storeRes.data?.guide_hearing_time === "string" ? storeRes.data.guide_hearing_time : null
+    ) ?? "02:00";
+
   return NextResponse.json({
     enabled: storeRes.data?.guide_hearing_enabled === true,
-    sendTime:
-      typeof storeRes.data?.guide_hearing_time === "string" && TIME_RE.test(storeRes.data.guide_hearing_time)
-        ? storeRes.data.guide_hearing_time
-        : "02:00",
+    sendTime,
     reporterCastId:
       typeof storeRes.data?.guide_hearing_reporter_id === "string"
         ? storeRes.data.guide_hearing_reporter_id
@@ -131,7 +131,10 @@ export async function PATCH(request: Request) {
   if (typeof body.enabled !== "boolean") {
     return NextResponse.json({ error: "enabled must be boolean" }, { status: 400 });
   }
-  if (typeof body.sendTime !== "string" || !TIME_RE.test(body.sendTime)) {
+  const sendTimeCanonical = canonicalGuideHearingTime(
+    typeof body.sendTime === "string" ? body.sendTime : null
+  );
+  if (!sendTimeCanonical) {
     return NextResponse.json({ error: "sendTime must be HH:00 (00-23)" }, { status: 400 });
   }
   if (!Array.isArray(body.guideStaffNames)) {
@@ -176,7 +179,7 @@ export async function PATCH(request: Request) {
     .from("stores")
     .update({
       guide_hearing_enabled: body.enabled,
-      guide_hearing_time: body.sendTime,
+      guide_hearing_time: sendTimeCanonical,
       guide_hearing_reporter_id: reporterCastId,
       guide_staff_names: guideStaffNames,
       updated_at: nowIso,

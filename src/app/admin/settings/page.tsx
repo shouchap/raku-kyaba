@@ -10,6 +10,7 @@ import {
   DEFAULT_WELFARE_WORK_ITEMS_CSV,
 } from "@/lib/welfare-line-flex";
 import { TIME_OPTIONS } from "@/lib/time-options";
+import { canonicalGuideHearingTime } from "@/lib/guide-hearing";
 
 /** 00:00〜23:00（1時間刻み） */
 const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => {
@@ -59,12 +60,6 @@ const DEFAULT_CONFIG: ReminderConfig = {
     "{name}さん、はじめまして。出勤・退勤の連絡はこのLINEから行えます。よろしくお願いいたします。",
 };
 
-function normalizeGuideHearingTime(value: string): string {
-  const m = value.trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/);
-  if (!m) return "02:00";
-  return `${m[1]}:00`;
-}
-
 export default function AdminSettingsPage() {
   const activeStoreId = useActiveStoreId();
   const [businessType, setBusinessType] = useState<"cabaret" | "welfare_b" | "bar">("cabaret");
@@ -112,8 +107,9 @@ export default function AdminSettingsPage() {
   const [guideStaffInput, setGuideStaffInput] = useState("");
   const [guideStaffNames, setGuideStaffNames] = useState<string[]>([]);
 
-  const fetchConfig = useCallback(async () => {
-    setLoading(true);
+  const fetchConfig = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     const storeId = activeStoreId;
     try {
       const res = await fetch(
@@ -270,11 +266,11 @@ export default function AdminSettingsPage() {
           guideStaffNames?: string[];
         };
         setGuideHearingEnabled(guideData.enabled === true);
-        if (
-          typeof guideData.sendTime === "string" &&
-          REMIND_TIME_OPTIONS.includes(guideData.sendTime)
-        ) {
-          setGuideHearingTime(guideData.sendTime);
+        const st = canonicalGuideHearingTime(
+          typeof guideData.sendTime === "string" ? guideData.sendTime : null
+        );
+        if (st && REMIND_TIME_OPTIONS.includes(st)) {
+          setGuideHearingTime(st);
         }
         setGuideHearingReporterId(
           typeof guideData.reporterCastId === "string" ? guideData.reporterCastId : ""
@@ -291,7 +287,7 @@ export default function AdminSettingsPage() {
     } catch (err) {
       console.error("[Settings] Error:", err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [activeStoreId]);
 
@@ -306,7 +302,7 @@ export default function AdminSettingsPage() {
       body: JSON.stringify({
         storeId: activeStoreId,
         enabled: guideHearingEnabled,
-        sendTime: normalizeGuideHearingTime(guideHearingTime),
+        sendTime: canonicalGuideHearingTime(guideHearingTime) ?? "02:00",
         reporterCastId: guideHearingReporterId === "" ? null : guideHearingReporterId,
         guideStaffNames,
       }),
@@ -364,6 +360,7 @@ export default function AdminSettingsPage() {
           );
         }
         await saveGuideHearing();
+        await fetchConfig({ silent: true });
         setMessage("success");
         return;
       }
@@ -437,6 +434,7 @@ export default function AdminSettingsPage() {
         setSaveWarning(payload.warning.trim());
       }
       await saveGuideHearing();
+      await fetchConfig({ silent: true });
       setMessage("success");
     } catch (err) {
       console.error("[Settings] Save error:", err);
