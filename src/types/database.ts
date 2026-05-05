@@ -225,6 +225,7 @@ export interface Database {
           has_reservation: boolean | null;
           reservation_details: string | null;
           planned_groups: number | null;
+          tentative_groups: number | null;
           action_type: string | null;
           action_detail: string | null;
           responded_at: string;

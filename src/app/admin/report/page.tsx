@@ -1315,10 +1315,21 @@ function AdminReportContent() {
                               })}
                               {r.actionDetails.map((detail, idx) => (
                                 <li key={`action-${detail.dateStr}-${idx}`}>
-                                  {formatJaMonthDay(detail.dateStr)} [BAR詳細]：
-                                  予定組数 {detail.plannedGroups ?? "—"} / 行動{" "}
-                                  {detail.actionType ?? "—"}
-                                  {detail.actionDetail ? `（${detail.actionDetail}）` : ""}
+                                  {/** BAR月次レポートは確定組数（plannedGroups）のみ表示 */}
+                                  {(() => {
+                                    const confirmedGroups =
+                                      typeof detail.plannedGroups === "number"
+                                        ? Math.trunc(detail.plannedGroups)
+                                        : null;
+                                    return (
+                                      <>
+                                        {formatJaMonthDay(detail.dateStr)} [BAR詳細]：
+                                        予定組数 {confirmedGroups ?? "—"} / 行動{" "}
+                                        {detail.actionType ?? "—"}
+                                        {detail.actionDetail ? `（${detail.actionDetail}）` : ""}
+                                      </>
+                                    );
+                                  })()}
                                 </li>
                               ))}
                             </ul>
