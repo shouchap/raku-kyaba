@@ -151,60 +151,76 @@ export type AttendanceRemindFlexInput = {
   showSabakiTimePicker?: boolean;
 };
 
-function buildFooterButtons(flexOptions?: AttendanceRemindFlexOptions): object[] {
+/** 横並びでセルを均等割り（2列グリッド用） */
+function flexGridBtn(
+  label: string,
+  data: string,
+  displayText: string,
+  color: string
+): object {
+  return {
+    type: "button",
+    style: "primary" as const,
+    color,
+    height: "sm" as const,
+    flex: 1,
+    action: {
+      type: "postback" as const,
+      label,
+      data,
+      displayText,
+    },
+  };
+}
+
+function flexGridMutedBtn(label: string, data: string, displayText: string): object {
+  return flexGridBtn(label, data, displayText, COLOR_MUTED_GRAY_BTN);
+}
+
+/** 出勤確認フッター: 横2列 × 最大3行（同伴・半休・公休は店舗設定で非表示可） */
+function buildFooterButtonRows(flexOptions?: AttendanceRemindFlexOptions): object[] {
   const showHalf = flexOptions?.enableHalfHoliday === true;
   const showPublic = flexOptions?.enablePublicHoliday === true;
   const showDohan = flexOptions?.enableDohan === true;
 
-  const primaryBtn = (
-    label: string,
-    data: string,
-    displayText: string,
-    color: string
-  ): object => ({
-    type: "button",
-    style: "primary" as const,
-    color,
-    height: "md" as const,
-    flex: 0,
-    action: {
-      type: "postback" as const,
-      label,
-      data,
-      displayText,
-    },
+  const filler = (): object => ({ type: "filler" });
+
+  const row2col = (left: object, right: object): object => ({
+    type: "box",
+    layout: "horizontal" as const,
+    spacing: "sm" as const,
+    contents: [left, right],
   });
 
-  /** お休み系：落ち着いたグレー（secondary + トーンを揃える） */
-  const mutedBtn = (label: string, data: string, displayText: string): object => ({
-    type: "button",
-    style: "primary" as const,
-    color: COLOR_MUTED_GRAY_BTN,
-    height: "md" as const,
-    flex: 0,
-    action: {
-      type: "postback" as const,
-      label,
-      data,
-      displayText,
-    },
-  });
+  const rows: object[] = [];
 
-  const out: object[] = [
-    primaryBtn("出勤", "attending", "出勤", COLOR_ATTEND_PRIMARY),
-    ...(showDohan ? [primaryBtn("同伴", "dohan", "同伴", COLOR_ATTEND_PRIMARY)] : []),
-    primaryBtn("遅刻", "late", "遅刻", COLOR_LATE_ORANGE),
-    mutedBtn("お休み（欠勤）", "absent", "欠勤"),
-  ];
+  // 1行目: 出勤 / 同伴（または空き）
+  rows.push(
+    row2col(
+      flexGridBtn("出勤", "attending", "出勤", COLOR_ATTEND_PRIMARY),
+      showDohan ? flexGridBtn("同伴", "dohan", "同伴", COLOR_ATTEND_PRIMARY) : filler()
+    )
+  );
 
-  if (showHalf) {
-    out.push(mutedBtn("半休", "half_holiday", "半休"));
+  // 2行目: 遅刻 / お休み（欠勤）
+  rows.push(
+    row2col(
+      flexGridBtn("遅刻", "late", "遅刻", COLOR_LATE_ORANGE),
+      flexGridMutedBtn("お休み（欠勤）", "absent", "欠勤")
+    )
+  );
+
+  // 3行目: 半休 / 公休（どちらも無ければ行ごと省略）
+  if (showHalf || showPublic) {
+    rows.push(
+      row2col(
+        showHalf ? flexGridMutedBtn("半休", "half_holiday", "半休") : filler(),
+        showPublic ? flexGridMutedBtn("公休", "public_holiday", "公休") : filler()
+      )
+    );
   }
-  if (showPublic) {
-    out.push(mutedBtn("公休", "public_holiday", "公休"));
-  }
 
-  return out;
+  return rows;
 }
 
 /** 捌き出勤専用フッター: Datetimepicker と「まだ未定」のみ（出勤／遅刻等は含めない） */
@@ -212,15 +228,15 @@ function buildSabakiOnlyFooterContents(): object[] {
   return [
     {
       type: "box",
-      layout: "vertical" as const,
+      layout: "horizontal" as const,
       spacing: "sm" as const,
       contents: [
         {
           type: "button",
           style: "primary" as const,
           color: COLOR_SABAKI_TIME_BTN,
-          height: "md" as const,
-          flex: 0,
+          height: "sm" as const,
+          flex: 1,
           action: {
             type: "datetimepicker" as const,
             label: "入店時間を選択する",
@@ -233,8 +249,8 @@ function buildSabakiOnlyFooterContents(): object[] {
           type: "button",
           style: "primary" as const,
           color: COLOR_MUTED_GRAY_BTN,
-          height: "md" as const,
-          flex: 0,
+          height: "sm" as const,
+          flex: 1,
           action: {
             type: "postback" as const,
             label: "まだ未定",
@@ -277,7 +293,7 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
     },
     {
       type: "separator",
-      margin: "lg" as const,
+      margin: "md" as const,
       color: COLOR_SEPARATOR,
     },
     {
@@ -292,7 +308,7 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
       text: "本日の出勤予定時刻",
       size: "sm" as const,
       color: COLOR_SCHEDULE_LABEL,
-      margin: "md" as const,
+      margin: "sm" as const,
       wrap: true,
     },
     {
@@ -332,7 +348,7 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
     weight: "bold" as const,
     color: COLOR_NAVY,
     wrap: true,
-    margin: "xl" as const,
+    margin: "md" as const,
   });
 
   const altBase = `${input.castName}さん ${input.scheduledTimeDisplay} ${input.todayJst} 出勤確認`;
@@ -342,25 +358,26 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
   const footerContents: object[] =
     input.showSabakiTimePicker === true
       ? buildSabakiOnlyFooterContents()
-      : buildFooterButtons(input.flexOptions);
+      : buildFooterButtonRows(input.flexOptions);
 
   return {
     type: "flex",
     altText,
     contents: {
       type: "bubble",
-      size: "mega" as const,
+      size: "kilo" as const,
       header: {
         type: "box",
         layout: "vertical" as const,
-        paddingAll: "20px",
+        paddingAll: "12px",
+        paddingBottom: "10px",
         backgroundColor: COLOR_HEADER_BG,
         contents: [
           {
             type: "text",
             text: headerMain,
             color: headerColor,
-            size: "xl" as const,
+            size: "lg" as const,
             weight: "bold" as const,
             wrap: true,
           },
@@ -369,26 +386,26 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
             text: "出勤確認",
             color: COLOR_MUTED_TEXT,
             size: "xs" as const,
-            margin: "sm" as const,
+            margin: "xs" as const,
           },
         ],
       },
       body: {
         type: "box",
         layout: "vertical" as const,
-        paddingTop: "20px",
-        paddingBottom: "20px",
-        paddingStart: "12px",
-        paddingEnd: "12px",
-        spacing: "md" as const,
+        paddingTop: "12px",
+        paddingBottom: "14px",
+        paddingStart: "10px",
+        paddingEnd: "10px",
+        spacing: "sm" as const,
         contents: bodyContents,
       },
       footer: {
         type: "box",
         layout: "vertical" as const,
-        paddingAll: "20px",
-        paddingTop: "12px",
-        spacing: "md" as const,
+        paddingAll: "10px",
+        paddingTop: "8px",
+        spacing: "sm" as const,
         contents: footerContents,
       },
     },
