@@ -21,7 +21,7 @@ import {
   handleReservationPostback,
   handleReservationFollowupPostback,
   handleSabakiTimePostback,
-  handleBarActionPostback,
+  handleBarExtendedPostback,
   tryHandleLateAbsentReasonText,
   tryHandleBarExtendedText,
   tryHandleReservationDetailText,
@@ -358,14 +358,14 @@ async function processWebhookEvent(
         break;
       }
 
-      const barActionHandled = await handleBarActionPostback(
+      const barExtendedHandled = await handleBarExtendedPostback(
         userId,
         rawData,
         supabase,
         postbackEvent.replyToken,
         channelAccessToken
       );
-      if (barActionHandled) break;
+      if (barExtendedHandled) break;
 
       const guideAction = parseGuideActionPostbackData(rawData);
       if (guideAction?.kind === "select_staff") {

@@ -143,7 +143,15 @@ const BAR_DETAIL_KIND_SNS = "SNS" as const;
 const BAR_DETAIL_KIND_DIST_START = "配信_start" as const;
 const BAR_DETAIL_KIND_DIST_END = "配信_end" as const;
 
-const BAR_REPORT_DONE_POSTBACK = "__report_done__";
+/** 報告完了のみ管理者通知（Messaging API postback.data と完全一致で判定） */
+export const BAR_REPORT_DONE_POSTBACK = "__report_done__";
+
+/** BAR 拡張フロー postback（action=...）。チャット欄は displayText で従来どおり表示 */
+const BAR_PB_SET_PLANNED = "set_planned_groups";
+const BAR_PB_SET_TENTATIVE = "set_tentative_groups";
+const BAR_PB_SET_DIST_HOUR = "set_distribution_hour";
+const BAR_PB_SET_CONTACT_COUNT = "set_contact_count";
+const BAR_PB_PICK_ACTION = "pick_bar_action";
 
 /** Quick Reply は最大 13 項目 */
 const BAR_PLANNED_GROUP_LABELS = [
@@ -268,17 +276,35 @@ function parseBarPlannedGroupsInput(raw: string): number | null {
   return n;
 }
 
-function messageQuickReplyItem(label: string, text: string): LineTextQuickReplyItem {
+function barQuickReplyPostback(label: string, data: string): LineTextQuickReplyItem {
   return {
     type: "action",
-    action: { type: "message", label, text },
+    action: {
+      type: "postback",
+      label,
+      data,
+      displayText: label,
+    },
   };
 }
 
+function barPlannedGroupValueFromLabel(label: string): number | null {
+  const compact = String(label ?? "").trim().replace(/\s+/g, "").replace(/組$/, "");
+  if (!/^\d+$/.test(compact)) return null;
+  const n = Number.parseInt(compact, 10);
+  if (!Number.isInteger(n) || n < 0 || n > 10) return null;
+  return n;
+}
+
 function buildBarPlannedGroupsPromptMessage(): LineReplyMessage {
-  const items: LineTextQuickReplyItem[] = BAR_PLANNED_GROUP_LABELS.map((label) =>
-    messageQuickReplyItem(label, label)
-  );
+  const items: LineTextQuickReplyItem[] = BAR_PLANNED_GROUP_LABELS.map((label) => {
+    const v = barPlannedGroupValueFromLabel(label);
+    const data =
+      v !== null
+        ? `action=${BAR_PB_SET_PLANNED}&value=${encodeURIComponent(String(v))}`
+        : `action=${BAR_PB_SET_PLANNED}&value=0`;
+    return barQuickReplyPostback(label, data);
+  });
   return {
     type: "text",
     text: "本日の【確定組数】を選んでください。",
@@ -287,9 +313,14 @@ function buildBarPlannedGroupsPromptMessage(): LineReplyMessage {
 }
 
 function buildBarTentativeGroupsPromptMessage(): LineReplyMessage {
-  const items: LineTextQuickReplyItem[] = BAR_PLANNED_GROUP_LABELS.map((label) =>
-    messageQuickReplyItem(label, label)
-  );
+  const items: LineTextQuickReplyItem[] = BAR_PLANNED_GROUP_LABELS.map((label) => {
+    const v = barPlannedGroupValueFromLabel(label);
+    const data =
+      v !== null
+        ? `action=${BAR_PB_SET_TENTATIVE}&value=${encodeURIComponent(String(v))}`
+        : `action=${BAR_PB_SET_TENTATIVE}&value=0`;
+    return barQuickReplyPostback(label, data);
+  });
   return {
     type: "text",
     text: "【仮予定組数】を選んでください。（無い場合は0組）",
@@ -327,7 +358,10 @@ function parseBarDistributionHourMessage(raw: string): string | null {
 
 function buildBarDistributionStartPromptMessage(): LineReplyMessage {
   const items: LineTextQuickReplyItem[] = BAR_DISTRIBUTION_HOUR_LABELS.map((label) =>
-    messageQuickReplyItem(label, label)
+    barQuickReplyPostback(
+      label,
+      `action=${BAR_PB_SET_DIST_HOUR}&phase=start&hour=${encodeURIComponent(label)}`
+    )
   );
   return {
     type: "text",
@@ -338,7 +372,10 @@ function buildBarDistributionStartPromptMessage(): LineReplyMessage {
 
 function buildBarDistributionEndPromptMessage(): LineReplyMessage {
   const items: LineTextQuickReplyItem[] = BAR_DISTRIBUTION_HOUR_LABELS.map((label) =>
-    messageQuickReplyItem(label, label)
+    barQuickReplyPostback(
+      label,
+      `action=${BAR_PB_SET_DIST_HOUR}&phase=end&hour=${encodeURIComponent(label)}`
+    )
   );
   return {
     type: "text",
@@ -349,7 +386,10 @@ function buildBarDistributionEndPromptMessage(): LineReplyMessage {
 
 function buildBarContactExchangePromptMessage(actionKind: typeof BAR_DETAIL_KIND_VOICE | typeof BAR_DETAIL_KIND_SNS): LineReplyMessage {
   const items: LineTextQuickReplyItem[] = BAR_CONTACT_EXCHANGE_LABELS.map((label) =>
-    messageQuickReplyItem(label, label)
+    barQuickReplyPostback(
+      label,
+      `action=${BAR_PB_SET_CONTACT_COUNT}&kind=${encodeURIComponent(actionKind)}&detail=${encodeURIComponent(label)}`
+    )
   );
   return {
     type: "text",
@@ -359,21 +399,25 @@ function buildBarContactExchangePromptMessage(actionKind: typeof BAR_DETAIL_KIND
 }
 
 function getBarActionQuickReplyItems(): LineTextQuickReplyItem[] {
-  const post = (label: string, value: string): LineTextQuickReplyItem => ({
-    type: "action",
-    action: {
-      type: "postback",
+  const pick = (label: string, choice: string): LineTextQuickReplyItem =>
+    barQuickReplyPostback(
       label,
-      data: `bar_action:${value}`,
-      displayText: label,
-    },
-  });
+      `action=${BAR_PB_PICK_ACTION}&choice=${encodeURIComponent(choice)}`
+    );
   return [
-    post("配信", "配信"),
-    post("声かけ", "声かけ"),
-    post("SNS", "SNS"),
-    post("できていない", "できていない"),
-    post("✅ 報告完了", BAR_REPORT_DONE_POSTBACK),
+    pick("配信", "配信"),
+    pick("声かけ", "声かけ"),
+    pick("SNS", "SNS"),
+    pick("できていない", "できていない"),
+    {
+      type: "action",
+      action: {
+        type: "postback",
+        label: "✅ 報告完了",
+        data: BAR_REPORT_DONE_POSTBACK,
+        displayText: "✅ 報告完了",
+      },
+    },
   ];
 }
 
@@ -1480,47 +1524,25 @@ export async function tryHandleBarExtendedText(
   return false;
 }
 
-export async function handleBarActionPostback(
-  lineUserId: string,
-  rawData: string,
+/**
+ * BAR 行動確認（pending_line_flow === bar_action）での選択のみ。
+ * 管理者通知は行わない（報告完了は postback.data === __report_done__ の別経路のみ）。
+ */
+async function processBarActionPickChoice(
+  cast: { id: string; store_id: string; name: string | null },
+  schedule: { id: string; response_status: string | null; reservation_details: string | null },
+  today: string,
+  actionType: string,
   supabase: ReturnType<typeof createSupabaseClient>,
-  replyToken: string | undefined,
-  channelAccessToken: string | undefined
-): Promise<boolean> {
-  const payload = String(rawData ?? "").trim();
-  if (!payload.startsWith("bar_action:")) return false;
-  if (!replyToken || !channelAccessToken) return false;
-
-  const actionType = payload.replace("bar_action:", "");
-  const tenantStoreId = getDefaultStoreIdOrNull();
-  if (!tenantStoreId) return true;
-
-  const { data: cast } = await supabase
-    .from("casts")
-    .select("id, store_id, name")
-    .eq("line_user_id", lineUserId)
-    .eq("store_id", tenantStoreId)
-    .eq("is_active", true)
-    .maybeSingle();
-  if (!cast) return true;
-
-  const today = getTodayJst();
-  const { data: schedule } = await supabase
-    .from("attendance_schedules")
-    .select("id, pending_line_flow, response_status, reservation_details")
-    .eq("store_id", cast.store_id)
-    .eq("cast_id", cast.id)
-    .eq("scheduled_date", today)
-    .maybeSingle();
-  if (!schedule?.id || schedule.pending_line_flow !== PENDING_BAR_ACTION) return true;
-
+  replyToken: string,
+  channelAccessToken: string
+): Promise<void> {
   const logBasics = await fetchTodayAttendanceLogBasics(
     supabase,
     cast.store_id,
     cast.id,
     today
   );
-  const draft = parseBarExtDraft(schedule.reservation_details) ?? emptyBarExtDraft();
 
   const attendanceStatus =
     schedule.response_status === "late"
@@ -1543,7 +1565,162 @@ export async function handleBarActionPostback(
       .eq("id", schedule.id);
   };
 
-  if (actionType === BAR_REPORT_DONE_POSTBACK) {
+  if (actionType === "できていない") {
+    await supabase.from("attendance_logs").upsert(
+      {
+        store_id: cast.store_id,
+        cast_id: cast.id,
+        attendance_schedule_id: schedule.id,
+        attended_date: today,
+        status: logBasics?.status ?? attendanceStatus,
+        planned_groups: logBasics?.planned_groups ?? null,
+        tentative_groups: logBasics?.tentative_groups ?? null,
+        action_type: "できていない",
+        action_detail: null,
+        responded_at: nowIso,
+        updated_at: nowIso,
+      } as Record<string, unknown>,
+      { onConflict: "store_id,cast_id,attended_date", ignoreDuplicates: false }
+    );
+    await finalizeSchedule();
+    await sendReply(replyToken, channelAccessToken, [
+      { type: "text", text: "報告ありがとうございます。" },
+    ]);
+    return;
+  }
+
+  const needsDetail =
+    actionType === "配信" ||
+    actionType === BAR_DETAIL_KIND_VOICE ||
+    actionType === BAR_DETAIL_KIND_SNS;
+  if (!needsDetail) {
+    await sendReply(replyToken, channelAccessToken, [buildBarActionPromptMessage({ followUp: true })]);
+    return;
+  }
+
+  const barDraftBase = parseBarExtDraft(schedule.reservation_details) ?? emptyBarExtDraft();
+
+  let nextReservationDetails: string;
+  let replyMsgs: LineReplyMessage[];
+
+  if (actionType === "配信") {
+    nextReservationDetails = serializeBarExtReservationDetails({
+      v: 1,
+      entries: barDraftBase.entries,
+      confirmed_groups: barDraftBase.confirmed_groups,
+      tentative_groups: barDraftBase.tentative_groups,
+      pending_detail_kind: BAR_DETAIL_KIND_DIST_START,
+    });
+    replyMsgs = [buildBarDistributionStartPromptMessage()];
+  } else if (actionType === BAR_DETAIL_KIND_VOICE) {
+    nextReservationDetails = serializeBarExtReservationDetails({
+      v: 1,
+      entries: barDraftBase.entries,
+      confirmed_groups: barDraftBase.confirmed_groups,
+      tentative_groups: barDraftBase.tentative_groups,
+      pending_detail_kind: BAR_DETAIL_KIND_VOICE,
+    });
+    replyMsgs = [buildBarContactExchangePromptMessage(BAR_DETAIL_KIND_VOICE)];
+  } else {
+    nextReservationDetails = serializeBarExtReservationDetails({
+      v: 1,
+      entries: barDraftBase.entries,
+      confirmed_groups: barDraftBase.confirmed_groups,
+      tentative_groups: barDraftBase.tentative_groups,
+      pending_detail_kind: BAR_DETAIL_KIND_SNS,
+    });
+    replyMsgs = [buildBarContactExchangePromptMessage(BAR_DETAIL_KIND_SNS)];
+  }
+
+  await supabase
+    .from("attendance_schedules")
+    .update({
+      pending_line_flow: PENDING_BAR_ACTION_DETAIL,
+      reservation_details: nextReservationDetails,
+      pending_line_updated_at: nowIso,
+    })
+    .eq("id", schedule.id);
+
+  await sendReply(replyToken, channelAccessToken, replyMsgs);
+}
+
+/**
+ * bar_extended の Quick Reply はすべて postback。
+ * テキスト入力ハンドラ（tryHandleBarExtendedText）と同じ状態遷移になるようブリッジする。
+ */
+export async function handleBarExtendedPostback(
+  lineUserId: string,
+  rawData: string,
+  supabase: ReturnType<typeof createSupabaseClient>,
+  replyToken: string | undefined,
+  channelAccessToken: string | undefined
+): Promise<boolean> {
+  const trimmed = String(rawData ?? "").trim();
+  if (!replyToken || !channelAccessToken) return false;
+
+  const tenantStoreId = getDefaultStoreIdOrNull();
+  if (!tenantStoreId) return false;
+
+  const looksLikeBarPostback =
+    trimmed === BAR_REPORT_DONE_POSTBACK || trimmed.startsWith("action=");
+  if (!looksLikeBarPostback) return false;
+
+  const { data: cast } = await supabase
+    .from("casts")
+    .select("id, store_id, name")
+    .eq("line_user_id", lineUserId)
+    .eq("store_id", tenantStoreId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (!cast) return false;
+
+  const flowType = await fetchAttendanceFlowType(supabase, cast.store_id);
+  if (flowType !== "bar_extended") return false;
+
+  const today = getTodayJst();
+  const { data: schedule } = await supabase
+    .from("attendance_schedules")
+    .select("id, pending_line_flow, response_status, reservation_details")
+    .eq("store_id", cast.store_id)
+    .eq("cast_id", cast.id)
+    .eq("scheduled_date", today)
+    .maybeSingle();
+
+  if (!schedule?.id) return false;
+
+  /** 報告完了: postback.data が __report_done__ のときのみ管理者通知 */
+  if (trimmed === BAR_REPORT_DONE_POSTBACK) {
+    if (schedule.pending_line_flow !== PENDING_BAR_ACTION) return false;
+
+    const logBasics = await fetchTodayAttendanceLogBasics(
+      supabase,
+      cast.store_id,
+      cast.id,
+      today
+    );
+    const draft = parseBarExtDraft(schedule.reservation_details) ?? emptyBarExtDraft();
+
+    const attendanceStatus =
+      schedule.response_status === "late"
+        ? "late"
+        : schedule.response_status === "absent"
+          ? "absent"
+          : "attending";
+
+    const nowIso = new Date().toISOString();
+
+    const finalizeSchedule = async () => {
+      await supabase
+        .from("attendance_schedules")
+        .update({
+          pending_line_flow: null,
+          is_action_completed: true,
+          pending_line_updated_at: null,
+          reservation_details: null,
+        })
+        .eq("id", schedule.id);
+    };
+
     if (draft.entries.length === 0) {
       await sendReply(replyToken, channelAccessToken, [
         {
@@ -1591,91 +1768,113 @@ export async function handleBarActionPostback(
     return true;
   }
 
-  if (actionType === "できていない") {
-    await supabase.from("attendance_logs").upsert(
-      {
-        store_id: cast.store_id,
-        cast_id: cast.id,
-        attendance_schedule_id: schedule.id,
-        attended_date: today,
-        status: logBasics?.status ?? attendanceStatus,
-        planned_groups: logBasics?.planned_groups ?? null,
-        tentative_groups: logBasics?.tentative_groups ?? null,
-        action_type: "できていない",
-        action_detail: null,
-        responded_at: nowIso,
-        updated_at: nowIso,
-      } as Record<string, unknown>,
-      { onConflict: "store_id,cast_id,attended_date", ignoreDuplicates: false }
-    );
-    await finalizeSchedule();
-    await notifyAdminsBarAttendanceCompleted({
+  if (!trimmed.startsWith("action=")) return false;
+
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(trimmed);
+  } catch {
+    return false;
+  }
+  const pbAction = params.get("action");
+
+  if (schedule.pending_line_flow === PENDING_BAR_REASON) {
+    return false;
+  }
+
+  if (schedule.pending_line_flow === PENDING_BAR_PLANNED_GROUPS) {
+    if (pbAction !== BAR_PB_SET_PLANNED) return false;
+    const v = Number.parseInt(params.get("value") ?? "", 10);
+    if (!Number.isInteger(v) || v < 0 || v > 10) return false;
+    return tryHandleBarExtendedText(lineUserId, `${v}組`, supabase, replyToken, channelAccessToken);
+  }
+
+  if (schedule.pending_line_flow === PENDING_BAR_TENTATIVE_GROUPS) {
+    if (pbAction !== BAR_PB_SET_TENTATIVE) return false;
+    const v = Number.parseInt(params.get("value") ?? "", 10);
+    if (!Number.isInteger(v) || v < 0 || v > 10) return false;
+    return tryHandleBarExtendedText(lineUserId, `${v}組`, supabase, replyToken, channelAccessToken);
+  }
+
+  if (schedule.pending_line_flow === PENDING_BAR_ACTION_DETAIL) {
+    const draft = parseBarExtDraft(schedule.reservation_details) ?? emptyBarExtDraft();
+    const pk = draft.pending_detail_kind;
+
+    if (pbAction === BAR_PB_SET_DIST_HOUR) {
+      const phase = params.get("phase");
+      const hourRaw = params.get("hour")?.trim() ?? "";
+      if (!hourRaw || (phase !== "start" && phase !== "end")) return false;
+      if (pk === BAR_DETAIL_KIND_DIST_START && phase === "start") {
+        return tryHandleBarExtendedText(lineUserId, hourRaw, supabase, replyToken, channelAccessToken);
+      }
+      if (pk === BAR_DETAIL_KIND_DIST_END && phase === "end") {
+        return tryHandleBarExtendedText(lineUserId, hourRaw, supabase, replyToken, channelAccessToken);
+      }
+      await sendReply(replyToken, channelAccessToken, [
+        {
+          type: "text",
+          text: "いまお選びいただける時間帯とボタンが一致していません。表示されている時間ボタンから選び直してください。",
+        },
+        pk === BAR_DETAIL_KIND_DIST_START
+          ? buildBarDistributionStartPromptMessage()
+          : pk === BAR_DETAIL_KIND_DIST_END
+            ? buildBarDistributionEndPromptMessage()
+            : buildBarActionPromptMessage(),
+      ]);
+      return true;
+    }
+
+    if (pbAction === BAR_PB_SET_CONTACT_COUNT) {
+      const kind = params.get("kind")?.trim() ?? "";
+      const detail = params.get("detail")?.trim() ?? "";
+      if (!detail) return false;
+      if (
+        (pk === BAR_DETAIL_KIND_VOICE && kind === BAR_DETAIL_KIND_VOICE) ||
+        (pk === BAR_DETAIL_KIND_SNS && kind === BAR_DETAIL_KIND_SNS)
+      ) {
+        return tryHandleBarExtendedText(lineUserId, detail, supabase, replyToken, channelAccessToken);
+      }
+      await sendReply(replyToken, channelAccessToken, [
+        {
+          type: "text",
+          text: "いまお選びいただける人数とボタンが一致していません。表示されている人数ボタンから選び直してください。",
+        },
+        pk === BAR_DETAIL_KIND_VOICE
+          ? buildBarContactExchangePromptMessage(BAR_DETAIL_KIND_VOICE)
+          : pk === BAR_DETAIL_KIND_SNS
+            ? buildBarContactExchangePromptMessage(BAR_DETAIL_KIND_SNS)
+            : buildBarActionPromptMessage(),
+      ]);
+      return true;
+    }
+
+    return false;
+  }
+
+  if (schedule.pending_line_flow === PENDING_BAR_ACTION) {
+    if (pbAction !== BAR_PB_PICK_ACTION) return false;
+    const choice = params.get("choice")?.trim() ?? "";
+    if (
+      choice !== "配信" &&
+      choice !== BAR_DETAIL_KIND_VOICE &&
+      choice !== BAR_DETAIL_KIND_SNS &&
+      choice !== "できていない"
+    ) {
+      return false;
+    }
+    await processBarActionPickChoice(
+      cast,
+      schedule,
+      today,
+      choice,
       supabase,
-      storeId: cast.store_id,
-      castName: cast.name ?? null,
-      channelAccessToken,
-      plannedGroups: logBasics?.planned_groups ?? null,
-      tentativeGroups: logBasics?.tentative_groups ?? null,
-      attendanceScheduleId: schedule.id,
-    });
-    await sendReply(replyToken, channelAccessToken, [
-      { type: "text", text: "報告ありがとうございます。" },
-    ]);
+      replyToken,
+      channelAccessToken
+    );
     return true;
   }
 
-  const needsDetail =
-    actionType === "配信" || actionType === BAR_DETAIL_KIND_VOICE || actionType === BAR_DETAIL_KIND_SNS;
-  if (!needsDetail) {
-    await sendReply(replyToken, channelAccessToken, [buildBarActionPromptMessage({ followUp: true })]);
-    return true;
-  }
-
-  const barDraftBase = parseBarExtDraft(schedule.reservation_details) ?? emptyBarExtDraft();
-
-  let nextReservationDetails: string;
-  let replyMsgs: LineReplyMessage[];
-
-  if (actionType === "配信") {
-    nextReservationDetails = serializeBarExtReservationDetails({
-      v: 1,
-      entries: barDraftBase.entries,
-      confirmed_groups: barDraftBase.confirmed_groups,
-      tentative_groups: barDraftBase.tentative_groups,
-      pending_detail_kind: BAR_DETAIL_KIND_DIST_START,
-    });
-    replyMsgs = [buildBarDistributionStartPromptMessage()];
-  } else if (actionType === BAR_DETAIL_KIND_VOICE) {
-    nextReservationDetails = serializeBarExtReservationDetails({
-      v: 1,
-      entries: barDraftBase.entries,
-      confirmed_groups: barDraftBase.confirmed_groups,
-      tentative_groups: barDraftBase.tentative_groups,
-      pending_detail_kind: BAR_DETAIL_KIND_VOICE,
-    });
-    replyMsgs = [buildBarContactExchangePromptMessage(BAR_DETAIL_KIND_VOICE)];
-  } else {
-    nextReservationDetails = serializeBarExtReservationDetails({
-      v: 1,
-      entries: barDraftBase.entries,
-      confirmed_groups: barDraftBase.confirmed_groups,
-      tentative_groups: barDraftBase.tentative_groups,
-      pending_detail_kind: BAR_DETAIL_KIND_SNS,
-    });
-    replyMsgs = [buildBarContactExchangePromptMessage(BAR_DETAIL_KIND_SNS)];
-  }
-
-  await supabase
-    .from("attendance_schedules")
-    .update({
-      pending_line_flow: PENDING_BAR_ACTION_DETAIL,
-      reservation_details: nextReservationDetails,
-      pending_line_updated_at: nowIso,
-    })
-    .eq("id", schedule.id);
-
-  await sendReply(replyToken, channelAccessToken, replyMsgs);
-  return true;
+  return false;
 }
 
 /**
