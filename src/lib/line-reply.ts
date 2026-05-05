@@ -131,16 +131,25 @@ export async function sendMulticastMessage(
   }
 }
 
-/** テキスト＋クイックリプライ（出勤時の来客予定ヒアリング等） */
-export type LineTextQuickReplyItem = {
-  type: "action";
-  action: {
-    type: "postback";
-    label: string;
-    data: string;
-    displayText?: string;
-  };
-};
+/** テキスト＋クイックリプライ（出勤時の来客予定ヒアリング・BAR行動確認等） */
+export type LineTextQuickReplyItem =
+  | {
+      type: "action";
+      action: {
+        type: "postback";
+        label: string;
+        data: string;
+        displayText?: string;
+      };
+    }
+  | {
+      type: "action";
+      action: {
+        type: "message";
+        label: string;
+        text: string;
+      };
+    };
 
 export type LineReplyMessage =
   | { type: "text"; text: string; quickReply?: { items: LineTextQuickReplyItem[] } }
