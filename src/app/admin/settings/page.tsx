@@ -118,6 +118,8 @@ export default function AdminSettingsPage() {
   const [guideReporterCandidates, setGuideReporterCandidates] = useState<GuideReporterCandidate[]>([]);
   const [guideStaffInput, setGuideStaffInput] = useState("");
   const [guideStaffNames, setGuideStaffNames] = useState<string[]>([]);
+  /** 案内数ヒアリング・レポート機能の店舗マスター（cron・レポートタブと連動） */
+  const [isGuideMasterEnabled, setIsGuideMasterEnabled] = useState(true);
 
   const fetchConfig = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
@@ -147,6 +149,7 @@ export default function AdminSettingsPage() {
         ask_guest_name?: boolean;
         ask_guest_time?: boolean;
         attendance_flow_type?: "default" | "bar_extended";
+        is_guide_enabled?: boolean;
         regular_holidays?: number[];
         regular_remind_message?: string;
         regular_start_time?: string | null;
@@ -165,6 +168,7 @@ export default function AdminSettingsPage() {
       setAttendanceFlowType(
         data.attendance_flow_type === "bar_extended" ? "bar_extended" : "default"
       );
+      setIsGuideMasterEnabled(data.is_guide_enabled !== false);
       setWelfareMorning(
         typeof data.welfare_message_morning === "string" ? data.welfare_message_morning : ""
       );
@@ -357,6 +361,7 @@ export default function AdminSettingsPage() {
             welfare_work_items: welfareWorkItemRows.map((s) => s.trim()).filter(Boolean).join(","),
             regular_holidays: regularHolidays,
             regular_start_time: regularStartTime.trim() === "" ? null : regularStartTime.trim(),
+            is_guide_enabled: isGuideMasterEnabled,
           }),
         });
 
@@ -422,6 +427,7 @@ export default function AdminSettingsPage() {
           ask_guest_name: askGuestName,
           ask_guest_time: askGuestTime,
           attendance_flow_type: attendanceFlowType,
+          is_guide_enabled: isGuideMasterEnabled,
         }),
       });
 
@@ -527,6 +533,13 @@ export default function AdminSettingsPage() {
   };
 
   const handleGuideHearingTestSend = async () => {
+    if (!isGuideMasterEnabled) {
+      setGuideTestErrorDetail(
+        "案内数ヒアリング機能がOFFのためテスト送信できません。上部のマスタースイッチをONにしてください。"
+      );
+      setMessage("guide_test_error");
+      return;
+    }
     setTestingGuide(true);
     setGuideTestComplete(false);
     setGuideTestErrorDetail(null);
@@ -575,7 +588,30 @@ export default function AdminSettingsPage() {
 
   const guideHearingSection = (
     <div className="mb-8 rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-4">
-      <h3 className="text-sm font-medium text-gray-900 mb-3">案内数ヒアリング設定</h3>
+      <h3 className="text-sm font-medium text-gray-900 mb-3">案内数ヒアリング・レポート</h3>
+      <label className="flex items-start gap-3 cursor-pointer mb-3">
+        <input
+          type="checkbox"
+          checked={isGuideMasterEnabled}
+          onChange={(e) => setIsGuideMasterEnabled(e.target.checked)}
+          className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-emerald-700 focus:ring-emerald-500"
+        />
+        <span className="text-sm text-gray-800 leading-snug font-medium">
+          案内数ヒアリング・レポート機能を利用する（キャバクラ業態向け）
+        </span>
+      </label>
+      <p className="text-xs text-gray-600 mb-4 pl-8 sm:pl-0">
+        OFFにすると、毎日の案内数自動ヒアリングの送信対象外となり、管理画面の「案内数レポート」タブも表示されません。
+      </p>
+
+      <fieldset
+        disabled={!isGuideMasterEnabled}
+        className={`min-w-0 border-0 p-0 m-0 ${!isGuideMasterEnabled ? "opacity-55" : ""}`}
+      >
+      <legend className="sr-only">案内数ヒアリングの詳細設定</legend>
+      <h4 className="text-xs font-semibold text-emerald-900 uppercase tracking-wide mb-3">
+        案内数ヒアリング設定
+      </h4>
       <label className="flex items-start gap-3 cursor-pointer mb-4">
         <input
           type="checkbox"
@@ -677,6 +713,7 @@ export default function AdminSettingsPage() {
           ))
         )}
       </div>
+      </fieldset>
     </div>
   );
 
@@ -948,7 +985,13 @@ export default function AdminSettingsPage() {
                 <button
                   type="button"
                   onClick={handleGuideHearingTestSend}
-                  disabled={saving || testing || testingGuide || testingIndividual}
+                  disabled={
+                    saving ||
+                    testing ||
+                    testingGuide ||
+                    testingIndividual ||
+                    !isGuideMasterEnabled
+                  }
                   className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-emerald-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
                 >
                   {testingGuide ? (guideTestComplete ? "送信完了" : "送信中…") : "ヒアリングテスト送信"}
@@ -1466,7 +1509,13 @@ export default function AdminSettingsPage() {
             <button
               type="button"
               onClick={handleGuideHearingTestSend}
-                  disabled={saving || testing || testingGuide || testingIndividual}
+              disabled={
+                saving ||
+                testing ||
+                testingGuide ||
+                testingIndividual ||
+                !isGuideMasterEnabled
+              }
               className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-emerald-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
             >
               {testingGuide ? (guideTestComplete ? "送信完了" : "送信中…") : "ヒアリングテスト送信"}

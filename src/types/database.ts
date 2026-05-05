@@ -69,6 +69,8 @@ export interface Database {
           guide_hearing_reporter_id: string | null;
           /** 案内数入力対象スタッフ名（文字列） */
           guide_staff_names: string[];
+          /** 案内数ヒアリング・案内数レポートを店舗で利用するか（043） */
+          is_guide_enabled: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -97,6 +99,7 @@ export interface Database {
           | "last_guide_hearing_sent_date"
           | "guide_hearing_reporter_id"
           | "guide_staff_names"
+          | "is_guide_enabled"
           | "ask_guest_name"
           | "ask_guest_time"
           | "attendance_flow_type"
@@ -124,6 +127,7 @@ export interface Database {
           last_guide_hearing_sent_date?: string | null;
           guide_hearing_reporter_id?: string | null;
           guide_staff_names?: string[];
+          is_guide_enabled?: boolean;
           ask_guest_name?: boolean;
           ask_guest_time?: boolean;
           attendance_flow_type?: string;

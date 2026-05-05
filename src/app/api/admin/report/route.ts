@@ -4,7 +4,7 @@ import { createServiceRoleClient } from "@/lib/supabase-service";
 import { isValidStoreId, parseActiveStoreIdFromCookieHeader } from "@/lib/current-store";
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { isSuperAdminUser } from "@/lib/super-admin";
-import { logPostgrestError } from "@/lib/postgrest-error";
+import { isUndefinedColumnError, logPostgrestError } from "@/lib/postgrest-error";
 import { getTodayJst } from "@/lib/date-utils";
 import {
   buildAdminReportCastRows,
@@ -103,30 +103,61 @@ export async function GET(request: Request) {
     );
   }
 
-  const { data: storeRow, error: storeErr } = await admin
+  type ReportStoreRow = {
+    id: string;
+    name?: string | null;
+    business_type?: string | null;
+    regular_holidays?: unknown;
+    is_guide_enabled?: boolean | null;
+    attendance_flow_type?: string | null;
+  };
+
+  let storeRow: ReportStoreRow | null = null;
+
+  const fullStoreRes = await admin
     .from("stores")
-    .select("id, name, business_type, regular_holidays")
+    .select("id, name, business_type, regular_holidays, is_guide_enabled, attendance_flow_type")
     .eq("id", storeId)
     .maybeSingle();
 
-  if (storeErr) {
-    logPostgrestError("GET /api/admin/report stores", storeErr);
+  if (fullStoreRes.error && isUndefinedColumnError(fullStoreRes.error, "is_guide_enabled")) {
+    const legacy = await admin
+      .from("stores")
+      .select("id, name, business_type, regular_holidays, attendance_flow_type")
+      .eq("id", storeId)
+      .maybeSingle();
+    if (legacy.error || !legacy.data) {
+      logPostgrestError("GET /api/admin/report stores (legacy)", legacy.error ?? new Error("no row"));
+      return NextResponse.json(
+        { error: "Failed to load store", details: legacy.error?.message ?? "unknown" },
+        { status: 500 }
+      );
+    }
+    storeRow = {
+      ...(legacy.data as ReportStoreRow),
+      is_guide_enabled: true,
+    };
+  } else if (fullStoreRes.error || !fullStoreRes.data) {
+    logPostgrestError("GET /api/admin/report stores", fullStoreRes.error ?? new Error("no row"));
     return NextResponse.json(
-      { error: "Failed to load store", details: storeErr.message },
+      { error: "Failed to load store", details: fullStoreRes.error?.message ?? "unknown" },
       { status: 500 }
     );
+  } else {
+    storeRow = fullStoreRes.data as ReportStoreRow;
   }
+
   if (!storeRow?.id) {
     return NextResponse.json({ error: "Store not found" }, { status: 404 });
   }
 
-  const businessType = String(
-    (storeRow as { business_type?: string | null }).business_type ?? "cabaret"
-  );
+  const businessType = String(storeRow.business_type ?? "cabaret");
 
   const storePayload = {
     id: storeRow.id,
-    name: String((storeRow as { name?: string }).name ?? ""),
+    name: String(storeRow.name ?? ""),
+    is_guide_enabled: storeRow.is_guide_enabled !== false,
+    attendance_flow_type: String(storeRow.attendance_flow_type ?? "default"),
   };
 
   if (businessType !== "welfare_b") {

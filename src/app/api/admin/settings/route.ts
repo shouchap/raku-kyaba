@@ -502,18 +502,43 @@ export async function GET(request: Request) {
 
     let askGuestName = true;
     let askGuestTime = false;
+    let isGuideEnabled = true;
     const barFlagsRes = await admin
       .from("stores")
-      .select("ask_guest_name, ask_guest_time")
+      .select("ask_guest_name, ask_guest_time, is_guide_enabled")
       .eq("id", storeId)
       .maybeSingle();
     if (!barFlagsRes.error && barFlagsRes.data) {
       const bf = barFlagsRes.data as {
         ask_guest_name?: boolean | null;
         ask_guest_time?: boolean | null;
+        is_guide_enabled?: boolean | null;
       };
       askGuestName = bf.ask_guest_name !== false;
       askGuestTime = bf.ask_guest_time === true;
+      isGuideEnabled = bf.is_guide_enabled !== false;
+    } else if (
+      barFlagsRes.error &&
+      isUndefinedColumnError(barFlagsRes.error, "is_guide_enabled")
+    ) {
+      const bfOnly = await admin
+        .from("stores")
+        .select("ask_guest_name, ask_guest_time")
+        .eq("id", storeId)
+        .maybeSingle();
+      if (!bfOnly.error && bfOnly.data) {
+        const bf = bfOnly.data as {
+          ask_guest_name?: boolean | null;
+          ask_guest_time?: boolean | null;
+        };
+        askGuestName = bf.ask_guest_name !== false;
+        askGuestTime = bf.ask_guest_time === true;
+      } else if (bfOnly.error && !isUndefinedColumnError(bfOnly.error, "ask_guest_name")) {
+        logPostgrestError("GET stores ask_guest_name / ask_guest_time (fallback)", bfOnly.error);
+      }
+      console.warn(
+        "[api/admin/settings] GET: stores.is_guide_enabled 未適用。マイグレーション 043 を適用してください。"
+      );
     } else if (barFlagsRes.error && !isUndefinedColumnError(barFlagsRes.error, "ask_guest_name")) {
       logPostgrestError("GET stores ask_guest_name / ask_guest_time", barFlagsRes.error);
     }
@@ -532,6 +557,7 @@ export async function GET(request: Request) {
       enable_reservation_check: enableReservationCheck,
       ask_guest_name: askGuestName,
       ask_guest_time: askGuestTime,
+      is_guide_enabled: isGuideEnabled,
       enable_public_holiday: settingsRow?.enable_public_holiday === true,
       enable_half_holiday: settingsRow?.enable_half_holiday === true,
       regular_holidays: regularHolidays,
@@ -586,6 +612,8 @@ type PatchBody = {
   ask_guest_name?: boolean;
   ask_guest_time?: boolean;
   attendance_flow_type?: "default" | "bar_extended";
+  /** 案内数ヒアリング・レポートの店舗マスターON/OFF（043） */
+  is_guide_enabled?: boolean;
 };
 
 /**
@@ -763,6 +791,9 @@ export async function PATCH(request: Request) {
         payload.regular_start_time = t === "" ? null : `${t}:00`;
       }
     }
+    if (typeof body.is_guide_enabled === "boolean") {
+      payload.is_guide_enabled = body.is_guide_enabled;
+    }
 
     const updRes = await adminWelfare.from("stores").update(payload).eq("id", storeId);
     if (updRes.error) {
@@ -803,6 +834,15 @@ export async function PATCH(request: Request) {
           { status: 500 }
         );
       }
+      if (isUndefinedColumnError(updRes.error, "is_guide_enabled")) {
+        return NextResponse.json(
+          {
+            error: "is_guide_enabled column is missing",
+            details: "Apply supabase/migrations/043_stores_is_guide_enabled.sql",
+          },
+          { status: 500 }
+        );
+      }
       return NextResponse.json(
         { error: "Failed to save welfare messages", details: updRes.error.message, code: updRes.error.code },
         { status: 500 }
@@ -831,6 +871,7 @@ export async function PATCH(request: Request) {
   const askGuestTimeProvided = typeof body.ask_guest_time === "boolean";
   const attendanceFlowTypeProvided =
     body.attendance_flow_type === "default" || body.attendance_flow_type === "bar_extended";
+  const isGuideEnabledProvided = typeof body.is_guide_enabled === "boolean";
 
   if (preOpenReportHourProvided) {
     const v = body.pre_open_report_hour_jst;
@@ -1079,6 +1120,9 @@ export async function PATCH(request: Request) {
     }
     if (attendanceFlowTypeProvided) {
       storePayload.attendance_flow_type = body.attendance_flow_type as "default" | "bar_extended";
+    }
+    if (isGuideEnabledProvided) {
+      storePayload.is_guide_enabled = body.is_guide_enabled as boolean;
     }
 
     const storeRes = await admin.from("stores").update(storePayload).eq("id", storeId);

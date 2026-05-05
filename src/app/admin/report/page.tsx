@@ -25,6 +25,9 @@ type Store = {
   id: string;
   name: string;
   business_type?: string | null;
+  /** stores.is_guide_enabled（undefined は既定で ON とみなす） */
+  is_guide_enabled?: boolean | null;
+  attendance_flow_type?: string | null;
 };
 
 /** GET /api/admin/report の welfare 行（B型） */
@@ -91,6 +94,7 @@ type ViewMode = "month" | "week" | "day";
 
 type ReportMainTab = "cast" | "guide";
 type SortPreset = "attendance" | "absent" | "late" | "dohan";
+type CastAttendanceSubTab = "basic" | "bar_actions";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -122,6 +126,57 @@ function formatYm(year: number, month: number): string {
 function formatJaMonthDay(dateStr: string): string {
   const [, m, d] = dateStr.split("-").map(Number);
   return `${m}月${d}日`;
+}
+
+/** BAR の action_detail（例: 配信(18:00-20:00), 声かけ(3人)）をセグメント化 */
+function parseBarActionSegments(raw: string | null): { kind: string; detail: string }[] {
+  if (!raw?.trim()) return [];
+  const s = raw.trim();
+  const chunks: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "(") depth++;
+    else if (c === ")") depth = Math.max(0, depth - 1);
+    else if (c === "," && depth === 0) {
+      chunks.push(s.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  chunks.push(s.slice(start).trim());
+  return chunks.filter(Boolean).map((chunk) => {
+    const m = /^(.+?)\(([^)]*)\)$/.exec(chunk);
+    if (m) return { kind: m[1].trim(), detail: m[2].trim() };
+    return { kind: chunk, detail: "" };
+  });
+}
+
+function barSegmentColumns(segments: { kind: string; detail: string }[]): {
+  broadcast: string;
+  voice: string;
+  sns: string;
+  other: string;
+} {
+  const broadcast: string[] = [];
+  const voice: string[] = [];
+  const sns: string[] = [];
+  const other: string[] = [];
+  for (const seg of segments) {
+    const cell = seg.detail ? `${seg.kind}(${seg.detail})` : seg.kind;
+    if (seg.kind === "配信") broadcast.push(seg.detail || "—");
+    else if (seg.kind === "声かけ") voice.push(seg.detail || "—");
+    else if (seg.kind === "SNS") sns.push(seg.detail || "—");
+    else other.push(cell);
+  }
+  const join = (parts: string[]) =>
+    parts.length > 0 ? parts.join(" / ") : "—";
+  return {
+    broadcast: join(broadcast),
+    voice: join(voice),
+    sns: join(sns),
+    other: other.length > 0 ? other.join(" / ") : "—",
+  };
 }
 
 /** 日別タブ用: 2026年4月3日 */
@@ -207,6 +262,9 @@ function AdminReportContent() {
 
   const reportTab: ReportMainTab =
     searchParams.get("tab") === "guide" ? "guide" : "cast";
+
+  const castSubTab: CastAttendanceSubTab =
+    searchParams.get("castView") === "bar" ? "bar_actions" : "basic";
 
   const ymFromUrl = parseYmParam(searchParams.get("ym"));
   const [year, setYear] = useState(ymFromUrl?.year ?? defaultYm.year);
@@ -381,6 +439,16 @@ function AdminReportContent() {
     [searchParams, router, viewMode, dayDate, weekMonday, year, month]
   );
 
+  const setCastAttendanceSubTab = useCallback(
+    (next: CastAttendanceSubTab) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "bar_actions") params.set("castView", "bar");
+      else params.delete("castView");
+      router.push(`/admin/report?${params.toString()}`);
+    },
+    [router, searchParams]
+  );
+
   const goPrevDay = useCallback(() => {
     setDayParams(addCalendarDaysJst(dayDate, -1));
   }, [dayDate, setDayParams]);
@@ -402,6 +470,26 @@ function AdminReportContent() {
   /** 空文字 = 全員表示 */
   const [filterCastId, setFilterCastId] = useState("");
 
+  /** 案内数レポート無効店舗で tab=guide のときキャスト側へ戻す */
+  useEffect(() => {
+    if (loading) return;
+    if (!store || store.is_guide_enabled !== false) return;
+    if (reportTab !== "guide") return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("tab");
+    router.replace(`/admin/report?${params.toString()}`);
+  }, [loading, store, reportTab, router, searchParams]);
+
+  /** BAR 拡張でない店舗では castView=bar を付けられないようにする */
+  useEffect(() => {
+    if (loading) return;
+    if (!store || store.attendance_flow_type === "bar_extended") return;
+    if (searchParams.get("castView") !== "bar") return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("castView");
+    router.replace(`/admin/report?${params.toString()}`);
+  }, [loading, store, router, searchParams]);
+
   /** 日別は B型のみ。キャバクラ・BAR で view=day の URL なら月表示へ戻す（業態確定後） */
   useEffect(() => {
     if (loading || viewMode !== "day") return;
@@ -420,20 +508,35 @@ function AdminReportContent() {
     try {
       const storesRes = await supabase
         .from("stores")
-        .select("id, name, business_type")
+        .select("id, name, business_type, is_guide_enabled, attendance_flow_type")
         .eq("id", tenantId)
         .single();
 
-      if (storesRes.error) throw storesRes.error;
-      if (!storesRes.data) {
+      let st: Store | null = null;
+      if (
+        storesRes.error?.code === "42703" &&
+        typeof storesRes.error.message === "string" &&
+        storesRes.error.message.includes("is_guide_enabled")
+      ) {
+        const fb = await supabase
+          .from("stores")
+          .select("id, name, business_type, attendance_flow_type")
+          .eq("id", tenantId)
+          .single();
+        if (fb.error) throw fb.error;
+        st = fb.data ? { ...(fb.data as Store), is_guide_enabled: true } : null;
+      } else {
+        if (storesRes.error) throw storesRes.error;
+        st = (storesRes.data as Store | null) ?? null;
+      }
+
+      if (!st) {
         setStore(null);
         setWelfareRows([]);
         setCabaretReports([]);
         setBusinessType("cabaret");
         return;
       }
-
-      const st = storesRes.data as Store;
       setStore(st);
       const bt =
         st.business_type === "welfare_b"
@@ -647,8 +750,12 @@ function AdminReportContent() {
 
   const filterEmptyMessage = "この条件では表示するデータがありません。";
 
-  const hasDetails = (r: CastReport) =>
-    r.incidents.length > 0 || r.sabakiDates.length > 0 || r.actionDetails.length > 0;
+  /** 展開行: 遅刻・休み・捌きのみ（BAR 行動は castView=bar の専用表へ） */
+  const hasAccordionDetail = (r: CastReport) =>
+    r.incidents.length > 0 || r.sabakiDates.length > 0;
+
+  const guideTabVisible = store == null || store.is_guide_enabled !== false;
+  const attendanceFlowBarExtended = store?.attendance_flow_type === "bar_extended";
 
   const guideMonthRange = useMemo(() => getMonthRangeIso(year, month), [year, month]);
 
@@ -668,7 +775,9 @@ function AdminReportContent() {
             ? " · LINEで記録した案内組数を月別に集計します。"
             : businessType === "welfare_b"
               ? " · 就労継続支援B型の日次記録（作業・体調）を一覧表示します。"
-              : " · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。"}
+              : castSubTab === "bar_actions" && attendanceFlowBarExtended
+                ? " · 上部は勤怠サマリー、下部は BAR 拡張フローの行動入力（確定組数・配信・声かけ・SNS 等）のみを表形式で表示します。"
+                : " · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。"}
         </p>
       </div>
 
@@ -687,19 +796,21 @@ function AdminReportContent() {
           >
             キャスト出勤レポート
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={reportTab === "guide"}
-            onClick={() => setReportTab("guide")}
-            className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition-all ${
-              reportTab === "guide"
-                ? "bg-white text-gray-900 shadow-sm ring-1 ring-emerald-200/90"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            案内数レポート
-          </button>
+          {guideTabVisible && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={reportTab === "guide"}
+              onClick={() => setReportTab("guide")}
+              className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition-all ${
+                reportTab === "guide"
+                  ? "bg-white text-gray-900 shadow-sm ring-1 ring-emerald-200/90"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              案内数レポート
+            </button>
+          )}
         </div>
       </div>
 
@@ -802,6 +913,47 @@ function AdminReportContent() {
           )}
         </div>
       )}
+
+      {reportTab === "cast" &&
+        !loading &&
+        businessType !== "welfare_b" &&
+        attendanceFlowBarExtended && (
+          <div
+            className="mb-4 print:hidden"
+            role="tablist"
+            aria-label="キャスト出勤レポートの表示切替"
+          >
+            <p className="text-xs font-medium text-gray-500 mb-2">出勤レポートの見え方</p>
+            <div className="inline-flex rounded-xl border border-slate-200/90 bg-slate-100/70 p-1 shadow-inner">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={castSubTab === "basic"}
+                onClick={() => setCastAttendanceSubTab("basic")}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
+                  castSubTab === "basic"
+                    ? "bg-white text-gray-900 shadow-sm ring-1 ring-slate-200/90"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                基本勤怠
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={castSubTab === "bar_actions"}
+                onClick={() => setCastAttendanceSubTab("bar_actions")}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
+                  castSubTab === "bar_actions"
+                    ? "bg-white text-gray-900 shadow-sm ring-1 ring-teal-200/90"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                行動履歴（BAR）
+              </button>
+            </div>
+          </div>
+        )}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 print:hidden">
@@ -1055,6 +1207,7 @@ function AdminReportContent() {
           </table>
         </div>
       ) : (
+        <>
         <div className="report-table-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
           <table className="report-table min-w-[880px] w-full text-left text-sm">
             <thead>
@@ -1206,7 +1359,7 @@ function AdminReportContent() {
               ) : (
                 filteredSortedReports.map((r) => {
                   const open = expanded.has(r.castId);
-                  const showToggle = hasDetails(r);
+                  const showToggle = hasAccordionDetail(r);
                   return (
                     <Fragment key={r.castId}>
                       <tr className="border-b border-gray-100 hover:bg-gray-50/80">
@@ -1217,7 +1370,7 @@ function AdminReportContent() {
                               onClick={() => toggleExpand(r.castId)}
                               className="p-1 rounded-md text-gray-600 hover:bg-gray-200"
                               aria-expanded={open}
-                              aria-label="遅刻・休みの詳細を表示"
+                              aria-label="遅刻・休み・捌きの詳細を表示"
                             >
                               {open ? (
                                 <ChevronDown className="h-5 w-5" />
@@ -1313,25 +1466,6 @@ function AdminReportContent() {
                                   </li>
                                 );
                               })}
-                              {r.actionDetails.map((detail, idx) => (
-                                <li key={`action-${detail.dateStr}-${idx}`}>
-                                  {/** BAR月次レポートは確定組数（plannedGroups）のみ表示 */}
-                                  {(() => {
-                                    const confirmedGroups =
-                                      typeof detail.plannedGroups === "number"
-                                        ? Math.trunc(detail.plannedGroups)
-                                        : null;
-                                    return (
-                                      <>
-                                        {formatJaMonthDay(detail.dateStr)} [BAR詳細]：
-                                        予定組数 {confirmedGroups ?? "—"} / 行動{" "}
-                                        {detail.actionType ?? "—"}
-                                        {detail.actionDetail ? `（${detail.actionDetail}）` : ""}
-                                      </>
-                                    );
-                                  })()}
-                                </li>
-                              ))}
                             </ul>
                           </td>
                         </tr>
@@ -1343,6 +1477,112 @@ function AdminReportContent() {
             </tbody>
           </table>
         </div>
+
+        {castSubTab === "bar_actions" && attendanceFlowBarExtended && (
+          <div className="mt-8 space-y-8 print:mt-6">
+            <div className="border-b border-gray-200 pb-2">
+              <h2 className="text-lg font-bold text-gray-900">行動履歴（BAR）</h2>
+              <p className="mt-1 text-xs text-gray-600">
+                {formatJaMonthDay(start)}〜{formatJaMonthDay(end)} の範囲で、LINE の BAR 拡張フローから記録された行動のみを表示します。
+              </p>
+            </div>
+            {filteredSortedReports.map((r) => {
+              const sortedActions = [...r.actionDetails].sort((a, b) =>
+                a.dateStr.localeCompare(b.dateStr)
+              );
+              const rowsWithData = sortedActions.filter(
+                (d) =>
+                  (typeof d.plannedGroups === "number" && !Number.isNaN(d.plannedGroups)) ||
+                  (d.actionType && d.actionType.trim() !== "") ||
+                  (d.actionDetail && d.actionDetail.trim() !== "")
+              );
+              if (rowsWithData.length === 0) return null;
+              return (
+                <section
+                  key={`bar-actions-${r.castId}`}
+                  className="rounded-xl border border-teal-100 bg-white shadow-sm overflow-hidden print:shadow-none print:border print:rounded-none"
+                >
+                  <h3 className="px-4 py-3 text-sm font-semibold text-teal-950 bg-teal-50/80 border-b border-teal-100">
+                    {r.name}
+                  </h3>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-[920px] w-full text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200 bg-gray-50 text-xs font-semibold text-gray-700">
+                          <th className="px-3 py-2 whitespace-nowrap">日付</th>
+                          <th className="px-3 py-2 whitespace-nowrap text-right">確定組数</th>
+                          <th className="px-3 py-2 min-w-[6rem]">配信</th>
+                          <th className="px-3 py-2 min-w-[5rem]">声かけ</th>
+                          <th className="px-3 py-2 min-w-[4rem]">SNS</th>
+                          <th className="px-3 py-2 whitespace-nowrap">行動種別</th>
+                          <th className="px-3 py-2 min-w-[12rem]">詳細（原文）</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rowsWithData.map((detail, idx) => {
+                          const segs = parseBarActionSegments(detail.actionDetail);
+                          const cols = barSegmentColumns(segs);
+                          const confirmed =
+                            typeof detail.plannedGroups === "number"
+                              ? Math.trunc(detail.plannedGroups)
+                              : null;
+                          return (
+                            <tr
+                              key={`${r.castId}-${detail.dateStr}-${idx}`}
+                              className="border-b border-gray-100 hover:bg-gray-50/80 align-top"
+                            >
+                              <td className="px-3 py-2 tabular-nums whitespace-nowrap text-gray-900">
+                                {formatJaMonthDay(detail.dateStr)}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums text-gray-900">
+                                {confirmed !== null ? confirmed : "—"}
+                              </td>
+                              <td className="px-3 py-2 text-gray-800 text-xs sm:text-sm">
+                                {cols.broadcast}
+                              </td>
+                              <td className="px-3 py-2 text-gray-800 text-xs sm:text-sm">
+                                {cols.voice}
+                              </td>
+                              <td className="px-3 py-2 text-gray-800 text-xs sm:text-sm">
+                                {cols.sns}
+                              </td>
+                              <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
+                                {detail.actionType?.trim() || "—"}
+                              </td>
+                              <td className="px-3 py-2 text-gray-700 text-xs sm:text-sm break-words">
+                                {detail.actionDetail?.trim() || "—"}
+                                {cols.other !== "—" && cols.other ? (
+                                  <span className="block mt-1 text-gray-500">
+                                    その他: {cols.other}
+                                  </span>
+                                ) : null}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              );
+            })}
+            {filteredSortedReports.length > 0 &&
+              filteredSortedReports.every(
+                (r) =>
+                  !r.actionDetails.some(
+                    (d) =>
+                      (typeof d.plannedGroups === "number" && !Number.isNaN(d.plannedGroups)) ||
+                      (d.actionType && d.actionType.trim() !== "") ||
+                      (d.actionDetail && d.actionDetail.trim() !== "")
+                  )
+              ) && (
+              <p className="text-sm text-gray-500 px-1">
+                この期間・条件では BAR 行動履歴の記録がありません。
+              </p>
+            )}
+          </div>
+        )}
+        </>
       )}
     </div>
   );

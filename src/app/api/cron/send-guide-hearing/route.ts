@@ -15,6 +15,7 @@ type StoreBaseRow = {
   name: string | null;
   guide_hearing_time: string | null;
   last_guide_hearing_sent_date?: string | null;
+  is_guide_enabled?: boolean;
 };
 
 export async function GET(request: Request) {
@@ -49,61 +50,53 @@ export async function GET(request: Request) {
 
     let stores: StoreBaseRow[] = [];
     let storesHasLastSentDate = true;
+    let storesHasIsGuideEnabled = true;
 
-    const withLastSent = await supabase
-      .from("stores")
-      .select("id, name, guide_hearing_time, last_guide_hearing_sent_date");
+    const trySelect = async (cols: string) =>
+      supabase.from("stores").select(cols);
 
-    if (withLastSent.error?.code === "42703") {
+    let sel =
+      "id, name, guide_hearing_time, last_guide_hearing_sent_date, is_guide_enabled";
+    let storeFetch = await trySelect(sel);
+
+    if (storeFetch.error?.code === "42703") {
+      storesHasIsGuideEnabled = false;
+      sel = "id, name, guide_hearing_time, last_guide_hearing_sent_date";
+      storeFetch = await trySelect(sel);
+    }
+
+    if (storeFetch.error?.code === "42703") {
       storesHasLastSentDate = false;
-      const fallback = await supabase
-        .from("stores")
-        .select("id, name, guide_hearing_time");
-      if (fallback.error || !fallback.data) {
-        console.error("[CRON] stores fetch failed (fallback):", {
-          message: fallback.error?.message,
-          details: fallback.error?.details,
-          hint: fallback.error?.hint,
-          code: fallback.error?.code,
-        });
-        return NextResponse.json(
-          {
-            error: "DB Error",
-            message: fallback.error?.message,
-            details: fallback.error?.details,
-            hint: fallback.error?.hint,
-            code: fallback.error?.code,
-          },
-          { status: 500 }
-        );
-      }
-      stores = fallback.data as StoreBaseRow[];
-    } else if (withLastSent.error || !withLastSent.data) {
+      sel = "id, name, guide_hearing_time";
+      storeFetch = await trySelect(sel);
+    }
+
+    if (storeFetch.error || !storeFetch.data) {
       console.error("[CRON] stores fetch failed:", {
-        message: withLastSent.error?.message,
-        details: withLastSent.error?.details,
-        hint: withLastSent.error?.hint,
-        code: withLastSent.error?.code,
+        message: storeFetch.error?.message,
+        details: storeFetch.error?.details,
+        hint: storeFetch.error?.hint,
+        code: storeFetch.error?.code,
       });
       return NextResponse.json(
         {
           error: "DB Error",
-          message: withLastSent.error?.message,
-          details: withLastSent.error?.details,
-          hint: withLastSent.error?.hint,
-          code: withLastSent.error?.code,
+          message: storeFetch.error?.message,
+          details: storeFetch.error?.details,
+          hint: storeFetch.error?.hint,
+          code: storeFetch.error?.code,
         },
         { status: 500 }
       );
-    } else {
-      stores = withLastSent.data as StoreBaseRow[];
     }
+    stores = storeFetch.data as unknown as StoreBaseRow[];
 
     const targetStores = stores.filter(
       (store) =>
         !!store.guide_hearing_time &&
         store.guide_hearing_time.startsWith(currentHour + ":") &&
-        (!storesHasLastSentDate || store.last_guide_hearing_sent_date !== businessDate)
+        (!storesHasLastSentDate || store.last_guide_hearing_sent_date !== businessDate) &&
+        (!storesHasIsGuideEnabled || store.is_guide_enabled !== false)
     );
 
     if (targetStores.length === 0) {
