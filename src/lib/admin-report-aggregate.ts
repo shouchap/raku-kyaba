@@ -13,6 +13,9 @@ export type AdminReportScheduleRow = {
   absent_reason: string | null;
   public_holiday_reason: string | null;
   half_holiday_reason: string | null;
+  planned_groups?: number | null;
+  action_type?: string | null;
+  action_detail?: string | null;
   response_status:
     | "attending"
     | "absent"
@@ -45,6 +48,12 @@ export type AdminReportCastRow = {
   /** 定休を除く月初〜min(期末, 今日) の範囲で、回答済み日を除いた日数 */
   unfilledDays: number;
   incidents: AdminReportIncident[];
+  actionDetails: Array<{
+    dateStr: string;
+    plannedGroups: number | null;
+    actionType: string | null;
+    actionDetail: string | null;
+  }>;
 };
 
 type UnfilledCountMode = "calendar_excluding_regular_holidays" | "sent_confirmation_only";
@@ -179,6 +188,12 @@ export function buildAdminReportCastRows(
     let halfHolidayCount = 0;
     let publicHolidayCount = 0;
     const incidents: AdminReportIncident[] = [];
+    const actionDetails: Array<{
+      dateStr: string;
+      plannedGroups: number | null;
+      actionType: string | null;
+      actionDetail: string | null;
+    }> = [];
 
     const answeredDatesInWindow = new Set<string>();
 
@@ -250,6 +265,18 @@ export function buildAdminReportCastRows(
           reason: row.public_holiday_reason,
         });
       }
+      if (
+        row.planned_groups != null ||
+        (row.action_type && row.action_type.trim() !== "") ||
+        (row.action_detail && row.action_detail.trim() !== "")
+      ) {
+        actionDetails.push({
+          dateStr,
+          plannedGroups: row.planned_groups ?? null,
+          actionType: row.action_type ?? null,
+          actionDetail: row.action_detail ?? null,
+        });
+      }
     }
 
     incidents.sort((a, b) => a.dateStr.localeCompare(b.dateStr));
@@ -285,6 +312,7 @@ export function buildAdminReportCastRows(
       publicHolidayCount,
       unfilledDays,
       incidents,
+      actionDetails,
     };
   });
 }

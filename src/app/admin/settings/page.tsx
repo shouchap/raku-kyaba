@@ -66,6 +66,7 @@ export default function AdminSettingsPage() {
   /** BAR（ELINE）向け LINE 来客ヒアリング */
   const [askGuestName, setAskGuestName] = useState(true);
   const [askGuestTime, setAskGuestTime] = useState(false);
+  const [attendanceFlowType, setAttendanceFlowType] = useState<"default" | "bar_extended">("default");
   const [welfareMorning, setWelfareMorning] = useState("");
   const [welfareMidday, setWelfareMidday] = useState("");
   const [welfareEvening, setWelfareEvening] = useState("");
@@ -77,13 +78,24 @@ export default function AdminSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testingGuide, setTestingGuide] = useState(false);
+  const [testingIndividual, setTestingIndividual] = useState(false);
   const [testComplete, setTestComplete] = useState(false);
   const [guideTestComplete, setGuideTestComplete] = useState(false);
   const [testErrorDetail, setTestErrorDetail] = useState<string | null>(null);
   const [guideTestErrorDetail, setGuideTestErrorDetail] = useState<string | null>(null);
   const [guideTestResultDetail, setGuideTestResultDetail] = useState<string | null>(null);
+  const [individualTestCastId, setIndividualTestCastId] = useState("");
+  const [individualTestDetail, setIndividualTestDetail] = useState<string | null>(null);
   const [message, setMessage] = useState<
-    "success" | "error" | "test_success" | "test_error" | "guide_test_success" | "guide_test_error" | null
+    | "success"
+    | "error"
+    | "test_success"
+    | "test_error"
+    | "guide_test_success"
+    | "guide_test_error"
+    | "individual_test_success"
+    | "individual_test_error"
+    | null
   >(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [config, setConfig] = useState<ReminderConfig>(DEFAULT_CONFIG);
@@ -134,6 +146,7 @@ export default function AdminSettingsPage() {
         enable_reservation_check?: boolean;
         ask_guest_name?: boolean;
         ask_guest_time?: boolean;
+        attendance_flow_type?: "default" | "bar_extended";
         regular_holidays?: number[];
         regular_remind_message?: string;
         regular_start_time?: string | null;
@@ -149,6 +162,9 @@ export default function AdminSettingsPage() {
       );
       setAskGuestName(data.ask_guest_name !== false);
       setAskGuestTime(data.ask_guest_time === true);
+      setAttendanceFlowType(
+        data.attendance_flow_type === "bar_extended" ? "bar_extended" : "default"
+      );
       setWelfareMorning(
         typeof data.welfare_message_morning === "string" ? data.welfare_message_morning : ""
       );
@@ -278,6 +294,13 @@ export default function AdminSettingsPage() {
         setGuideReporterCandidates(
           Array.isArray(guideData.reporterCandidates) ? guideData.reporterCandidates : []
         );
+        setIndividualTestCastId((prev) => {
+          if (prev && guideData.reporterCandidates?.some((c) => c.id === prev && c.line_user_id)) {
+            return prev;
+          }
+          const firstLinked = (guideData.reporterCandidates ?? []).find((c) => c.line_user_id)?.id;
+          return firstLinked ?? "";
+        });
         setGuideStaffNames(
           Array.isArray(guideData.guideStaffNames)
             ? guideData.guideStaffNames.map((v) => String(v ?? "").trim()).filter(Boolean)
@@ -398,6 +421,7 @@ export default function AdminSettingsPage() {
           business_type: businessType,
           ask_guest_name: askGuestName,
           ask_guest_time: askGuestTime,
+          attendance_flow_type: attendanceFlowType,
         }),
       });
 
@@ -441,6 +465,39 @@ export default function AdminSettingsPage() {
       setMessage("error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleIndividualGuideTestSend = async () => {
+    if (!individualTestCastId) {
+      setIndividualTestDetail("送信先キャストを選択してください");
+      setMessage("individual_test_error");
+      return;
+    }
+    setTestingIndividual(true);
+    setIndividualTestDetail(null);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/guide-hearing/individual-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId: activeStoreId, castId: individualTestCastId }),
+      });
+      const data = (await res.json()) as { error?: string; castName?: string; tokenSource?: string };
+      if (!res.ok) {
+        throw new Error(data.error ?? "個別テスト送信に失敗しました");
+      }
+      setIndividualTestDetail(
+        `${data.castName ?? "キャスト"} のLINEに送信しました（token: ${data.tokenSource ?? "unknown"}）`
+      );
+      setMessage("individual_test_success");
+    } catch (err) {
+      setIndividualTestDetail(
+        err instanceof Error ? err.message : "個別テスト送信に失敗しました"
+      );
+      setMessage("individual_test_error");
+    } finally {
+      setTestingIndividual(false);
     }
   };
 
@@ -875,7 +932,7 @@ export default function AdminSettingsPage() {
               <div className="flex flex-col sm:flex-row flex-wrap gap-2">
                 <button
                   type="submit"
-                  disabled={saving || testing || testingGuide}
+                  disabled={saving || testing || testingGuide || testingIndividual}
                   className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-blue-600 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
                 >
                   {saving ? "保存中..." : "設定を保存"}
@@ -883,7 +940,7 @@ export default function AdminSettingsPage() {
                 <button
                   type="button"
                   onClick={handleRemindTestSend}
-                  disabled={saving || testing || testingGuide}
+                  disabled={saving || testing || testingGuide || testingIndividual}
                   className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-gray-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
                 >
                   {testing ? (testComplete ? "送信完了" : "送信中…") : "キャスト本日テスト送信"}
@@ -891,7 +948,7 @@ export default function AdminSettingsPage() {
                 <button
                   type="button"
                   onClick={handleGuideHearingTestSend}
-                  disabled={saving || testing || testingGuide}
+                  disabled={saving || testing || testingGuide || testingIndividual}
                   className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-emerald-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
                 >
                   {testingGuide ? (guideTestComplete ? "送信完了" : "送信中…") : "ヒアリングテスト送信"}
@@ -1085,6 +1142,25 @@ export default function AdminSettingsPage() {
               ON のときのみ、出勤ボタン押下後に同伴・来客予定の Flex ヒアリングを送ります。OFF
               のときは「出勤を記録しました」の完了メッセージのみです。
             </p>
+          </div>
+
+          <div className="mb-8 rounded-lg border border-indigo-200 bg-indigo-50/70 px-4 py-4">
+            <h3 className="text-sm font-medium text-gray-900 mb-2">出勤確認フロー種別</h3>
+            <p className="text-xs text-gray-600 mb-3">
+              店舗ごとに従来フローとBAR詳細フローを切り替えます。既存店舗は標準のまま動作します。
+            </p>
+            <select
+              value={attendanceFlowType}
+              onChange={(e) =>
+                setAttendanceFlowType(
+                  e.target.value === "bar_extended" ? "bar_extended" : "default"
+                )
+              }
+              className="w-full max-w-md min-h-[48px] px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+            >
+              <option value="default">標準</option>
+              <option value="bar_extended">BAR詳細（行動確認あり）</option>
+            </select>
           </div>
 
           {businessType === "bar" && (
@@ -1332,10 +1408,49 @@ export default function AdminSettingsPage() {
           </div>
           {guideHearingSection}
 
+          <div className="mb-8 rounded-lg border border-purple-200 bg-purple-50/60 px-4 py-4">
+            <h3 className="text-sm font-medium text-gray-900 mb-3">出勤確認の個別テスト送信</h3>
+            <p className="text-xs text-gray-600 mb-3">
+              選択したキャスト1名にのみ、出勤確認メッセージ（LINE）を送信します。
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select
+                value={individualTestCastId}
+                onChange={(e) => setIndividualTestCastId(e.target.value)}
+                className="w-full max-w-md min-h-[48px] px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
+              >
+                <option value="">送信先を選択</option>
+                {guideReporterCandidates.map((c) => (
+                  <option key={c.id} value={c.id} disabled={!c.line_user_id}>
+                    {c.name}
+                    {c.line_user_id ? "" : "（LINE未連携）"}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleIndividualGuideTestSend}
+                disabled={saving || testing || testingGuide || testingIndividual}
+                className="min-h-[48px] px-4 py-2 rounded-lg bg-purple-700 text-white text-sm font-medium hover:bg-purple-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {testingIndividual ? "送信中…" : "個別テスト送信"}
+              </button>
+            </div>
+            {individualTestDetail && (
+              <p
+                className={`mt-2 text-xs ${
+                  message === "individual_test_error" ? "text-red-600" : "text-gray-600"
+                }`}
+              >
+                {individualTestDetail}
+              </p>
+            )}
+          </div>
+
           <div className="flex flex-col sm:flex-row flex-wrap gap-2">
             <button
               type="submit"
-              disabled={saving || testing || testingGuide}
+                  disabled={saving || testing || testingGuide || testingIndividual}
               className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-blue-600 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
             >
               {saving ? "保存中..." : "設定を保存"}
@@ -1343,7 +1458,7 @@ export default function AdminSettingsPage() {
             <button
               type="button"
               onClick={handleRemindTestSend}
-              disabled={saving || testing || testingGuide}
+                  disabled={saving || testing || testingGuide || testingIndividual}
               className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-gray-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
             >
               {testing ? (testComplete ? "送信完了" : "送信中…") : "キャスト本日テスト送信"}
@@ -1351,7 +1466,7 @@ export default function AdminSettingsPage() {
             <button
               type="button"
               onClick={handleGuideHearingTestSend}
-              disabled={saving || testing || testingGuide}
+                  disabled={saving || testing || testingGuide || testingIndividual}
               className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-emerald-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
             >
               {testingGuide ? (guideTestComplete ? "送信完了" : "送信中…") : "ヒアリングテスト送信"}
@@ -1401,6 +1516,12 @@ export default function AdminSettingsPage() {
             {guideTestErrorDetail ??
               "案内数ヒアリングのテスト送信に失敗しました。再度お試しください。"}
           </p>
+        )}
+        {message === "individual_test_success" && individualTestDetail && (
+          <p className="mt-4 text-green-600 text-sm font-medium">{individualTestDetail}</p>
+        )}
+        {message === "individual_test_error" && individualTestDetail && (
+          <p className="mt-4 text-red-600 text-sm">{individualTestDetail}</p>
         )}
       </div>
     </div>

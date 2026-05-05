@@ -21,7 +21,9 @@ import {
   handleReservationPostback,
   handleReservationFollowupPostback,
   handleSabakiTimePostback,
+  handleBarActionPostback,
   tryHandleLateAbsentReasonText,
+  tryHandleBarExtendedText,
   tryHandleReservationDetailText,
   tryHandleReservationGuestNameText,
   tryHandleCompletedFollowupText,
@@ -47,6 +49,7 @@ const ERROR_REPLY = "申し訳ございません。エラーが発生しまし�
 function textToAttendanceData(text: string): AttendancePostbackData | null {
   const t = String(text ?? "").trim();
   if (t === "出勤") return "attending";
+  if (t === "同伴") return "dohan";
   if (t === "欠勤") return "absent";
   if (t === "遅刻") return "late";
   if (t === "半休") return "half_holiday";
@@ -61,6 +64,7 @@ function parsePostbackData(
   const s = typeof data === "string" ? data.trim() : "";
   if (
     s === "attending" ||
+    s === "dohan" ||
     s === "absent" ||
     s === "late" ||
     s === "half_holiday" ||
@@ -354,6 +358,15 @@ async function processWebhookEvent(
         break;
       }
 
+      const barActionHandled = await handleBarActionPostback(
+        userId,
+        rawData,
+        supabase,
+        postbackEvent.replyToken,
+        channelAccessToken
+      );
+      if (barActionHandled) break;
+
       const guideAction = parseGuideActionPostbackData(rawData);
       if (guideAction?.kind === "select_staff") {
         await handleGuideSelectStaffResponse({
@@ -494,6 +507,15 @@ async function processWebhookEvent(
         if (consumedAsReason) {
           break;
         }
+
+        const consumedBarExtended = await tryHandleBarExtendedText(
+          userId,
+          text,
+          supabase,
+          messageEvent.replyToken,
+          channelAccessToken
+        );
+        if (consumedBarExtended) break;
 
         const consumedCompletedFollowup = await tryHandleCompletedFollowupText(
           userId,

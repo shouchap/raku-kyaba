@@ -198,7 +198,17 @@ async function loadReminderConfig(
   const holidayFlex: HolidayFlexFlags = {
     enablePublicHoliday: settingsRow?.enable_public_holiday === true,
     enableHalfHoliday: settingsRow?.enable_half_holiday === true,
+    attendanceFlowType: "default",
   };
+
+  const flowTypeRes = await supabase
+    .from("stores")
+    .select("attendance_flow_type")
+    .eq("id", storeId)
+    .maybeSingle();
+  if (!flowTypeRes.error && flowTypeRes.data?.attendance_flow_type === "bar_extended") {
+    holidayFlex.attendanceFlowType = "bar_extended";
+  }
 
   const rawConfig = (settingsRow?.value ?? {}) as Record<string, unknown>;
   const sanitized = sanitizeReminderConfig(rawConfig);
@@ -478,6 +488,7 @@ async function runRemindForStore(
           flexOptions: {
             enablePublicHoliday: holidayFlex.enablePublicHoliday,
             enableHalfHoliday: holidayFlex.enableHalfHoliday,
+            enableDohan: holidayFlex.attendanceFlowType === "bar_extended",
           },
           reminderMessageLine,
           showSabakiTimePicker: schedule.is_sabaki === true,
@@ -498,6 +509,7 @@ async function runRemindForStore(
           flexOptions: {
             enablePublicHoliday: holidayFlex.enablePublicHoliday,
             enableHalfHoliday: holidayFlex.enableHalfHoliday,
+            enableDohan: holidayFlex.attendanceFlowType === "bar_extended",
           },
           reminderMessageLine,
         });
@@ -624,6 +636,7 @@ async function runRemindForStore(
         flexOptions: {
           enablePublicHoliday: holidayFlex.enablePublicHoliday,
           enableHalfHoliday: holidayFlex.enableHalfHoliday,
+          enableDohan: holidayFlex.attendanceFlowType === "bar_extended",
         },
         reminderMessageLine,
         showSabakiTimePicker: schedule.is_sabaki === true,
@@ -677,6 +690,7 @@ async function runRemindForStore(
         flexOptions: {
           enablePublicHoliday: holidayFlex.enablePublicHoliday,
           enableHalfHoliday: holidayFlex.enableHalfHoliday,
+          enableDohan: holidayFlex.attendanceFlowType === "bar_extended",
         },
         reminderMessageLine,
       });

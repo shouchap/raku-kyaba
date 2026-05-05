@@ -175,6 +175,32 @@ export async function GET(request: Request) {
       }
 
       schedules = (schedRows ?? []) as AdminReportScheduleRow[];
+
+      const { data: attendanceLogs } = await admin
+        .from("attendance_logs")
+        .select("cast_id, attended_date, planned_groups, action_type, action_detail")
+        .eq("store_id", storeId)
+        .in("cast_id", castIds)
+        .gte("attended_date", start)
+        .lte("attended_date", end);
+      const logMap = new Map<string, { planned_groups: number | null; action_type: string | null; action_detail: string | null }>();
+      for (const row of attendanceLogs ?? []) {
+        const castId = String((row as { cast_id?: string }).cast_id ?? "");
+        const date = String((row as { attended_date?: string }).attended_date ?? "");
+        logMap.set(`${castId}:${date}`, {
+          planned_groups:
+            typeof (row as { planned_groups?: number | null }).planned_groups === "number"
+              ? (row as { planned_groups?: number | null }).planned_groups ?? null
+              : null,
+          action_type: ((row as { action_type?: string | null }).action_type ?? null) as string | null,
+          action_detail: ((row as { action_detail?: string | null }).action_detail ?? null) as string | null,
+        });
+      }
+      schedules = schedules.map((s) => {
+        const key = `${s.cast_id}:${s.scheduled_date}`;
+        const found = logMap.get(key);
+        return found ? { ...s, ...found } : s;
+      });
     }
 
     const cast_reports = buildAdminReportCastRows(casts, schedules, {

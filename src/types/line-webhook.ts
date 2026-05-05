@@ -97,6 +97,7 @@ export type LineMessage =
 /** 出勤確認のPostback data値（Flex Messageボタンで設定する値と一致させる） */
 export type AttendancePostbackData =
   | "attending"
+  | "dohan"
   | "absent"
   | "late"
   | "public_holiday"

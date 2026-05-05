@@ -99,7 +99,7 @@ async function ensureTodayAttendanceSchedule(
 /** 出勤コマンド等はフォールバックで消費せず後段の Postback 相当処理へ */
 function isAttendanceCommandText(text: string): boolean {
   const t = String(text ?? "").trim();
-  return t === "出勤" || t === "欠勤" || t === "遅刻" || t === "半休" || t === "公休";
+  return t === "出勤" || t === "同伴" || t === "欠勤" || t === "遅刻" || t === "半休" || t === "公休";
 }
 
 export const PENDING_RESERVATION_ASK = "reservation_ask";
@@ -113,6 +113,10 @@ export const PENDING_RESERVATION_GUESTS = "reservation_guests";
 export const PENDING_RESERVATION_GROUP_COUNT = "reservation_group_count";
 /** BAR: 組ごとのお客様名をテキストで聞く段階 */
 export const PENDING_RESERVATION_GUEST_NAMES = "reservation_guest_names";
+export const PENDING_BAR_PLANNED_GROUPS = "bar_planned_groups";
+export const PENDING_BAR_REASON = "bar_reason";
+export const PENDING_BAR_ACTION = "bar_action";
+export const PENDING_BAR_ACTION_DETAIL = "bar_action_detail";
 
 async function loadStoreBarReservationFlags(
   supabase: ReturnType<typeof createSupabaseClient>,
@@ -141,12 +145,25 @@ async function loadStoreBarReservationFlags(
   };
 }
 
+async function fetchAttendanceFlowType(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  storeId: string
+): Promise<"default" | "bar_extended"> {
+  const { data } = await supabase
+    .from("stores")
+    .select("attendance_flow_type")
+    .eq("id", storeId)
+    .maybeSingle();
+  return data?.attendance_flow_type === "bar_extended" ? "bar_extended" : "default";
+}
+
 function buildBarGuestNamePrompt(groupIndex: number, totalGroups: number): string {
   return `${groupIndex}組目のお客様のお名前を教えてください`;
 }
 
 const DEFAULT_REPLY_MESSAGES: Record<AttendancePostbackData, string> = {
   attending: "出勤を記録しました。本日もよろしくお願い致します。",
+  dohan: "同伴での出勤連絡を受け付けました。",
   late: "遅刻の連絡を受け付けました。差し支えなければ、このチャットで『理由』と『到着予定時刻』を教えていただけますか？",
   absent: "欠勤の連絡を受け付けました。この後、管理者から直接ご連絡させていただきます。",
   public_holiday: "公休の連絡を受け付けました。理由を入力してください。",
@@ -196,6 +213,7 @@ async function getReminderReplyConfig(
   return {
     replyMessages: {
       attending: config.reply_present?.trim() || DEFAULT_REPLY_MESSAGES.attending,
+      dohan: config.reply_present?.trim() || DEFAULT_REPLY_MESSAGES.dohan,
       late: config.reply_late?.trim() || DEFAULT_REPLY_MESSAGES.late,
       absent: config.reply_absent?.trim() || DEFAULT_REPLY_MESSAGES.absent,
       public_holiday:
@@ -205,6 +223,7 @@ async function getReminderReplyConfig(
     },
     adminNotifyTemplates: {
       attending: config.admin_notify_present?.trim() || DEFAULT_ADMIN_NOTIFY_PRESENT,
+      dohan: config.admin_notify_present?.trim() || DEFAULT_ADMIN_NOTIFY_PRESENT,
       late: config.admin_notify_late?.trim() || DEFAULT_ADMIN_NOTIFY_LATE,
       absent: config.admin_notify_absent?.trim() || DEFAULT_ADMIN_NOTIFY_ABSENT,
       public_holiday:
@@ -796,6 +815,216 @@ export async function tryHandleReservationDetailText(
   return false;
 }
 
+function buildBarActionQuickReply(): LineReplyMessage {
+  const action = (label: string, value: string) => ({
+    type: "action" as const,
+    action: {
+      type: "postback" as const,
+      label,
+      data: `bar_action:${value}`,
+      displayText: label,
+    },
+  });
+  return {
+    type: "text",
+    text: "行動確認を選択してください。",
+    quickReply: {
+      items: [
+        action("配信", "配信"),
+        action("声かけ", "声かけ"),
+        action("SNS", "SNS"),
+        action("できていない", "できていない"),
+      ],
+    },
+  };
+}
+
+export async function tryHandleBarExtendedText(
+  lineUserId: string,
+  rawText: string,
+  supabase: ReturnType<typeof createSupabaseClient>,
+  replyToken: string | undefined,
+  channelAccessToken: string | undefined
+): Promise<boolean> {
+  const tenantStoreId = getDefaultStoreIdOrNull();
+  if (!tenantStoreId || !replyToken || !channelAccessToken) return false;
+  const text = String(rawText ?? "").trim();
+  if (!text) return false;
+
+  const { data: cast } = await supabase
+    .from("casts")
+    .select("id, store_id")
+    .eq("line_user_id", lineUserId)
+    .eq("store_id", tenantStoreId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (!cast) return false;
+
+  const flowType = await fetchAttendanceFlowType(supabase, cast.store_id);
+  if (flowType !== "bar_extended") return false;
+
+  const today = getTodayJst();
+  const { data: schedule } = await supabase
+    .from("attendance_schedules")
+    .select("id, pending_line_flow, response_status, is_dohan")
+    .eq("store_id", cast.store_id)
+    .eq("cast_id", cast.id)
+    .eq("scheduled_date", today)
+    .maybeSingle();
+  if (!schedule?.id) return false;
+
+  if (schedule.pending_line_flow === PENDING_BAR_PLANNED_GROUPS) {
+    const n = Number(text);
+    if (!Number.isFinite(n) || n < 0) {
+      await sendReply(replyToken, channelAccessToken, [
+        { type: "text", text: "予定組数は数値で入力してください（例: 1 / 0.1）" },
+      ]);
+      return true;
+    }
+    await supabase.from("attendance_logs").upsert(
+      {
+        store_id: cast.store_id,
+        cast_id: cast.id,
+        attendance_schedule_id: schedule.id,
+        attended_date: today,
+        status: "attending",
+        planned_groups: n,
+        is_sabaki: false,
+        responded_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as Record<string, unknown>,
+      { onConflict: "store_id,cast_id,attended_date", ignoreDuplicates: false }
+    );
+    await supabase
+      .from("attendance_schedules")
+      .update({ pending_line_flow: PENDING_BAR_ACTION, pending_line_updated_at: new Date().toISOString() })
+      .eq("id", schedule.id);
+    await sendReply(replyToken, channelAccessToken, [buildBarActionQuickReply()]);
+    return true;
+  }
+
+  if (schedule.pending_line_flow === PENDING_BAR_REASON) {
+    const reasonKind =
+      schedule.response_status === "late"
+        ? "late_reason"
+        : schedule.response_status === "half_holiday"
+          ? "half_holiday_reason"
+          : schedule.response_status === "public_holiday"
+            ? "public_holiday_reason"
+            : "absent_reason";
+    await supabase
+      .from("attendance_schedules")
+      .update({
+        [reasonKind]: text,
+        pending_line_flow: PENDING_BAR_ACTION,
+        pending_line_updated_at: new Date().toISOString(),
+      })
+      .eq("id", schedule.id);
+    await sendReply(replyToken, channelAccessToken, [buildBarActionQuickReply()]);
+    return true;
+  }
+
+  if (schedule.pending_line_flow === PENDING_BAR_ACTION_DETAIL) {
+    const { data: log } = await supabase
+      .from("attendance_logs")
+      .select("action_type")
+      .eq("store_id", cast.store_id)
+      .eq("cast_id", cast.id)
+      .eq("attended_date", today)
+      .maybeSingle();
+    await supabase
+      .from("attendance_logs")
+      .update({ action_detail: text, updated_at: new Date().toISOString() })
+      .eq("store_id", cast.store_id)
+      .eq("cast_id", cast.id)
+      .eq("attended_date", today);
+    await supabase
+      .from("attendance_schedules")
+      .update({ pending_line_flow: null, is_action_completed: true, pending_line_updated_at: null })
+      .eq("id", schedule.id);
+    const msg =
+      log?.action_type === "配信" ? "行動確認を保存しました（配信時間帯）。" : "行動確認を保存しました。";
+    await sendReply(replyToken, channelAccessToken, [{ type: "text", text: msg }]);
+    return true;
+  }
+
+  return false;
+}
+
+export async function handleBarActionPostback(
+  lineUserId: string,
+  rawData: string,
+  supabase: ReturnType<typeof createSupabaseClient>,
+  replyToken: string | undefined,
+  channelAccessToken: string | undefined
+): Promise<boolean> {
+  const payload = String(rawData ?? "").trim();
+  if (!payload.startsWith("bar_action:")) return false;
+  if (!replyToken || !channelAccessToken) return false;
+
+  const actionType = payload.replace("bar_action:", "");
+  const tenantStoreId = getDefaultStoreIdOrNull();
+  if (!tenantStoreId) return true;
+
+  const { data: cast } = await supabase
+    .from("casts")
+    .select("id, store_id")
+    .eq("line_user_id", lineUserId)
+    .eq("store_id", tenantStoreId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (!cast) return true;
+
+  const today = getTodayJst();
+  const { data: schedule } = await supabase
+    .from("attendance_schedules")
+    .select("id, pending_line_flow, response_status")
+    .eq("store_id", cast.store_id)
+    .eq("cast_id", cast.id)
+    .eq("scheduled_date", today)
+    .maybeSingle();
+  if (!schedule?.id || schedule.pending_line_flow !== PENDING_BAR_ACTION) return true;
+
+  await supabase
+    .from("attendance_logs")
+    .upsert(
+      {
+        store_id: cast.store_id,
+        cast_id: cast.id,
+        attendance_schedule_id: schedule.id,
+        attended_date: today,
+        status: schedule.response_status === "late" ? "late" : schedule.response_status === "absent" ? "absent" : "attending",
+        action_type: actionType,
+        responded_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as Record<string, unknown>,
+      { onConflict: "store_id,cast_id,attended_date", ignoreDuplicates: false }
+    );
+
+  if (actionType === "できていない") {
+    await supabase
+      .from("attendance_schedules")
+      .update({ pending_line_flow: null, is_action_completed: true, pending_line_updated_at: null })
+      .eq("id", schedule.id);
+    await sendReply(replyToken, channelAccessToken, [
+      { type: "text", text: "出勤確認を保存しました。ありがとうございました。" },
+    ]);
+    return true;
+  }
+
+  await supabase
+    .from("attendance_schedules")
+    .update({ pending_line_flow: PENDING_BAR_ACTION_DETAIL, pending_line_updated_at: new Date().toISOString() })
+    .eq("id", schedule.id);
+
+  const askText =
+    actionType === "配信"
+      ? "配信の時間帯を入力してください（例: 10:00-12:00）"
+      : `${actionType}の人数を入力してください`;
+  await sendReply(replyToken, channelAccessToken, [{ type: "text", text: askText }]);
+  return true;
+}
+
 /**
  * 来客の有無を聞く段階で自由テキストが来た場合、クイックリプライを再提示する。
  */
@@ -1319,7 +1548,40 @@ export async function handleAttendanceResponse(
     const scheduleId = schedule.id;
     const isSabaki = schedule.is_sabaki === true;
 
-    if (statusData === "attending") {
+    if (statusData === "attending" || statusData === "dohan") {
+      const flowType = await fetchAttendanceFlowType(supabase, cast.store_id);
+      if (flowType === "bar_extended") {
+        const nowIso = new Date().toISOString();
+        await supabase.from("attendance_logs").upsert(
+          {
+            store_id: cast.store_id,
+            cast_id: cast.id,
+            attendance_schedule_id: scheduleId,
+            attended_date: today,
+            status: "attending",
+            responded_at: nowIso,
+            updated_at: nowIso,
+          } as Record<string, unknown>,
+          { onConflict: "store_id,cast_id,attended_date", ignoreDuplicates: false }
+        );
+        await supabase
+          .from("attendance_schedules")
+          .update({
+            response_status: "attending",
+            is_dohan: statusData === "dohan",
+            is_absent: false,
+            is_late: false,
+            is_action_completed: false,
+            pending_line_flow: PENDING_BAR_PLANNED_GROUPS,
+            pending_line_updated_at: nowIso,
+            updated_at: nowIso,
+          })
+          .eq("id", scheduleId);
+        await safeReply(
+          "予定組数を教えてください（仮予定の場合は0.1、0.2のように入力してください）"
+        );
+        return;
+      }
       const pending = schedule.pending_line_flow ?? null;
       const rs = schedule.response_status ?? null;
       const done = schedule.is_action_completed === true;
@@ -1461,6 +1723,37 @@ export async function handleAttendanceResponse(
         );
         return;
       }
+    }
+
+    const flowType = await fetchAttendanceFlowType(supabase, cast.store_id);
+    if (flowType === "bar_extended") {
+      const nowIso = new Date().toISOString();
+      await supabase.from("attendance_logs").upsert(
+        {
+          store_id: cast.store_id,
+          cast_id: cast.id,
+          attendance_schedule_id: scheduleId,
+          attended_date: today,
+          status: statusData === "late" ? "late" : "absent",
+          responded_at: nowIso,
+          updated_at: nowIso,
+        } as Record<string, unknown>,
+        { onConflict: "store_id,cast_id,attended_date", ignoreDuplicates: false }
+      );
+      await supabase
+        .from("attendance_schedules")
+        .update({
+          is_action_completed: false,
+          response_status: statusData,
+          is_absent: statusData === "absent",
+          is_late: statusData === "late",
+          pending_line_flow: PENDING_BAR_REASON,
+          pending_line_updated_at: nowIso,
+          updated_at: nowIso,
+        })
+        .eq("id", scheduleId);
+      await safeReply("理由を入力してください。");
+      return;
     }
 
     const status = statusData;

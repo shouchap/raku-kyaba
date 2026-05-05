@@ -33,6 +33,8 @@ export type Store = {
   guide_hearing_reporter_id?: string | null;
   /** 案内数ヒアリングの入力対象スタッフ名配列 */
   guide_staff_names?: string[];
+  /** 出勤確認フロー種別（default / bar_extended） */
+  attendance_flow_type?: string;
 };
 
 /** LINE 案内数ヒアリングで記録された日次実績（`daily_guide_results`） */

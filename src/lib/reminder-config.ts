@@ -8,11 +8,13 @@ const DEFAULT_REMINDER_MESSAGE_TEMPLATE =
 export type HolidayFlexFlags = {
   enablePublicHoliday: boolean;
   enableHalfHoliday: boolean;
+  attendanceFlowType: "default" | "bar_extended";
 };
 
 const DEFAULT_HOLIDAY_FLAGS: HolidayFlexFlags = {
   enablePublicHoliday: false,
   enableHalfHoliday: false,
+  attendanceFlowType: "default",
 };
 
 /**
@@ -41,7 +43,21 @@ export async function fetchAttendanceFlexHolidayOptions(
   return {
     enablePublicHoliday: data?.enable_public_holiday === true,
     enableHalfHoliday: data?.enable_half_holiday === true,
+    attendanceFlowType: await fetchAttendanceFlowType(supabase, storeId),
   };
+}
+
+export async function fetchAttendanceFlowType(
+  supabase: SupabaseClient,
+  storeId: string
+): Promise<"default" | "bar_extended"> {
+  const { data, error } = await supabase
+    .from("stores")
+    .select("attendance_flow_type")
+    .eq("id", storeId)
+    .maybeSingle();
+  if (error) return "default";
+  return data?.attendance_flow_type === "bar_extended" ? "bar_extended" : "default";
 }
 
 /**

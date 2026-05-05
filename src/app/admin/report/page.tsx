@@ -68,6 +68,12 @@ type CastReport = {
   /** 定休を除く月初〜今日までの範囲で、回答のない日数（サーバー集計） */
   unfilledDays: number;
   incidents: Incident[];
+  actionDetails: Array<{
+    dateStr: string;
+    plannedGroups: number | null;
+    actionType: string | null;
+    actionDetail: string | null;
+  }>;
 };
 
 type SortKey =
@@ -496,6 +502,7 @@ function AdminReportContent() {
           publicHolidayCount: r.publicHolidayCount,
           unfilledDays: typeof r.unfilledDays === "number" ? r.unfilledDays : 0,
           incidents: Array.isArray(r.incidents) ? r.incidents : [],
+          actionDetails: Array.isArray(r.actionDetails) ? r.actionDetails : [],
         }))
       );
     } catch (e: unknown) {
@@ -641,7 +648,7 @@ function AdminReportContent() {
   const filterEmptyMessage = "この条件では表示するデータがありません。";
 
   const hasDetails = (r: CastReport) =>
-    r.incidents.length > 0 || r.sabakiDates.length > 0;
+    r.incidents.length > 0 || r.sabakiDates.length > 0 || r.actionDetails.length > 0;
 
   const guideMonthRange = useMemo(() => getMonthRangeIso(year, month), [year, month]);
 
@@ -1306,6 +1313,14 @@ function AdminReportContent() {
                                   </li>
                                 );
                               })}
+                              {r.actionDetails.map((detail, idx) => (
+                                <li key={`action-${detail.dateStr}-${idx}`}>
+                                  {formatJaMonthDay(detail.dateStr)} [BAR詳細]：
+                                  予定組数 {detail.plannedGroups ?? "—"} / 行動{" "}
+                                  {detail.actionType ?? "—"}
+                                  {detail.actionDetail ? `（${detail.actionDetail}）` : ""}
+                                </li>
+                              ))}
                             </ul>
                           </td>
                         </tr>

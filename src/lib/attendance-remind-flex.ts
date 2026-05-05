@@ -85,6 +85,7 @@ export function formatFlexHeaderStoreName(storeName: string | null | undefined):
 export type AttendanceRemindFlexOptions = {
   enablePublicHoliday?: boolean;
   enableHalfHoliday?: boolean;
+  enableDohan?: boolean;
 };
 
 /** ブランド・ボタン配色（夜の店舗向け：マゼンタ／アンバー／グレー） */
@@ -153,6 +154,7 @@ export type AttendanceRemindFlexInput = {
 function buildFooterButtons(flexOptions?: AttendanceRemindFlexOptions): object[] {
   const showHalf = flexOptions?.enableHalfHoliday === true;
   const showPublic = flexOptions?.enablePublicHoliday === true;
+  const showDohan = flexOptions?.enableDohan === true;
 
   const primaryBtn = (
     label: string,
@@ -190,6 +192,7 @@ function buildFooterButtons(flexOptions?: AttendanceRemindFlexOptions): object[]
 
   const out: object[] = [
     primaryBtn("出勤", "attending", "出勤", COLOR_ATTEND_PRIMARY),
+    ...(showDohan ? [primaryBtn("同伴", "dohan", "同伴", COLOR_ATTEND_PRIMARY)] : []),
     primaryBtn("遅刻", "late", "遅刻", COLOR_LATE_ORANGE),
     mutedBtn("お休み（欠勤）", "absent", "欠勤"),
   ];

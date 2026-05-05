@@ -26,6 +26,8 @@ export interface Database {
           ask_guest_name: boolean;
           /** BAR: 来客フローで来店時間を聞く（028） */
           ask_guest_time: boolean;
+          /** 出勤確認フロー種別（default / bar_extended） */
+          attendance_flow_type: string;
           line_channel_id: string | null;
           line_channel_secret: string;
           line_channel_access_token: string | null;
@@ -97,6 +99,7 @@ export interface Database {
           | "guide_staff_names"
           | "ask_guest_name"
           | "ask_guest_time"
+          | "attendance_flow_type"
         > & {
           id?: string;
           created_at?: string;
@@ -123,6 +126,7 @@ export interface Database {
           guide_staff_names?: string[];
           ask_guest_name?: boolean;
           ask_guest_time?: boolean;
+          attendance_flow_type?: string;
         };
         Update: Partial<Database["public"]["Tables"]["stores"]["Insert"]>;
       };
@@ -220,6 +224,9 @@ export interface Database {
           half_holiday_reason: string | null;
           has_reservation: boolean | null;
           reservation_details: string | null;
+          planned_groups: number | null;
+          action_type: string | null;
+          action_detail: string | null;
           responded_at: string;
           created_at: string;
           updated_at: string;

@@ -159,6 +159,7 @@ export async function GET(request: Request) {
     let remindTime = "07:00";
     let allowShiftSubmission = false;
     let preOpenReportHourJst: number | null = null;
+    let attendanceFlowType: "default" | "bar_extended" = "default";
 
     const storeRes = await admin
       .from("stores")
@@ -258,6 +259,15 @@ export async function GET(request: Request) {
       if (typeof rt === "string" && rt.trim()) remindTime = rt.trim();
       allowShiftSubmission = row?.allow_shift_submission === true;
       preOpenReportHourJst = parsePreOpenReportHourJst(row?.pre_open_report_hour_jst);
+    }
+    const flowTypeRes = await admin
+      .from("stores")
+      .select("attendance_flow_type")
+      .eq("id", storeId)
+      .maybeSingle();
+    if (!flowTypeRes.error && flowTypeRes.data) {
+      const ft = (flowTypeRes.data as { attendance_flow_type?: string | null }).attendance_flow_type;
+      attendanceFlowType = ft === "bar_extended" ? "bar_extended" : "default";
     }
 
     let enableReservationCheck = false;
@@ -518,6 +528,7 @@ export async function GET(request: Request) {
       remind_time: remindTime,
       allow_shift_submission: allowShiftSubmission,
       pre_open_report_hour_jst: preOpenReportHourJst,
+      attendance_flow_type: attendanceFlowType,
       enable_reservation_check: enableReservationCheck,
       ask_guest_name: askGuestName,
       ask_guest_time: askGuestTime,
@@ -574,6 +585,7 @@ type PatchBody = {
   business_type?: "cabaret" | "welfare_b" | "bar";
   ask_guest_name?: boolean;
   ask_guest_time?: boolean;
+  attendance_flow_type?: "default" | "bar_extended";
 };
 
 /**
@@ -817,6 +829,8 @@ export async function PATCH(request: Request) {
     body.business_type === "bar";
   const askGuestNameProvided = typeof body.ask_guest_name === "boolean";
   const askGuestTimeProvided = typeof body.ask_guest_time === "boolean";
+  const attendanceFlowTypeProvided =
+    body.attendance_flow_type === "default" || body.attendance_flow_type === "bar_extended";
 
   if (preOpenReportHourProvided) {
     const v = body.pre_open_report_hour_jst;
@@ -1062,6 +1076,9 @@ export async function PATCH(request: Request) {
     }
     if (askGuestTimeProvided) {
       storePayload.ask_guest_time = body.ask_guest_time as boolean;
+    }
+    if (attendanceFlowTypeProvided) {
+      storePayload.attendance_flow_type = body.attendance_flow_type as "default" | "bar_extended";
     }
 
     const storeRes = await admin.from("stores").update(storePayload).eq("id", storeId);
