@@ -132,8 +132,16 @@ type BarExtDraftState = {
   entries: { kind: string; detail: string }[];
   confirmed_groups?: number;
   tentative_groups?: number;
+  /** 配信: 開始時刻ヒアリングで選ばれた値（終了ヒアリング待ちで保持） */
+  distribution_pick_start?: string;
   pending_detail_kind?: string;
 };
+
+/** pending_detail_kind: 声かけ / SNS / 配信開始・終了 */
+const BAR_DETAIL_KIND_VOICE = "声かけ" as const;
+const BAR_DETAIL_KIND_SNS = "SNS" as const;
+const BAR_DETAIL_KIND_DIST_START = "配信_start" as const;
+const BAR_DETAIL_KIND_DIST_END = "配信_end" as const;
 
 const BAR_REPORT_DONE_POSTBACK = "__report_done__";
 
@@ -152,14 +160,34 @@ const BAR_PLANNED_GROUP_LABELS = [
   "10組",
 ] as const;
 
-const BAR_DISTRIBUTION_TIME_SLOTS = [
-  "10:00-12:00",
-  "12:00-14:00",
-  "14:00-16:00",
-  "16:00-18:00",
-  "18:00-20:00",
-  "20:00-22:00",
-  "22:00-24:00",
+/** Quick Reply は最大13項目（配信の開始・終了で共通利用） */
+const BAR_DISTRIBUTION_HOUR_LABELS = [
+  "18:00",
+  "19:00",
+  "20:00",
+  "21:00",
+  "22:00",
+  "23:00",
+  "0:00",
+  "1:00",
+  "2:00",
+  "3:00",
+  "4:00",
+  "5:00",
+] as const;
+
+const BAR_CONTACT_EXCHANGE_LABELS = [
+  "0人",
+  "1人",
+  "2人",
+  "3人",
+  "4人",
+  "5人",
+  "6人",
+  "7人",
+  "8人",
+  "9人",
+  "10人以上",
 ] as const;
 
 function emptyBarExtDraft(): BarExtDraftState {
@@ -194,7 +222,17 @@ function parseBarExtDraft(raw: string | null | undefined): BarExtDraftState | nu
       typeof cgRaw === "number" && Number.isInteger(cgRaw) && cgRaw >= 0 ? cgRaw : undefined;
     const tentative_groups =
       typeof tgRaw === "number" && Number.isInteger(tgRaw) && tgRaw >= 0 ? tgRaw : undefined;
-    return { v: 1, entries, pending_detail_kind, confirmed_groups, tentative_groups };
+    const dpsRaw = box.distribution_pick_start;
+    const distribution_pick_start =
+      typeof dpsRaw === "string" && dpsRaw.trim() ? dpsRaw.trim() : undefined;
+    return {
+      v: 1,
+      entries,
+      pending_detail_kind,
+      confirmed_groups,
+      tentative_groups,
+      distribution_pick_start,
+    };
   } catch {
     return null;
   }
@@ -208,30 +246,13 @@ function serializeBarExtReservationDetails(draft: BarExtDraftState): string {
   if (typeof draft.tentative_groups === "number") {
     payload.tentative_groups = draft.tentative_groups;
   }
+  if (draft.distribution_pick_start) {
+    payload.distribution_pick_start = draft.distribution_pick_start;
+  }
   if (draft.pending_detail_kind) {
     payload.pending_detail_kind = draft.pending_detail_kind;
   }
   return JSON.stringify({ [BAR_EXT_JSON_KEY]: payload });
-}
-
-function mergeBarDraftWithReservationDetails(
-  existing: string | null | undefined,
-  patch: Partial<BarExtDraftState>
-): string {
-  const cur = parseBarExtDraft(existing) ?? emptyBarExtDraft();
-  const next: BarExtDraftState = {
-    v: 1,
-    entries: patch.entries ?? cur.entries,
-    confirmed_groups:
-      patch.confirmed_groups !== undefined ? patch.confirmed_groups : cur.confirmed_groups,
-    tentative_groups:
-      patch.tentative_groups !== undefined ? patch.tentative_groups : cur.tentative_groups,
-    pending_detail_kind:
-      patch.pending_detail_kind !== undefined
-        ? patch.pending_detail_kind
-        : cur.pending_detail_kind,
-  };
-  return serializeBarExtReservationDetails(next);
 }
 
 function formatBarActionCombinedDetail(entries: { kind: string; detail: string }[]): string {
@@ -276,13 +297,63 @@ function buildBarTentativeGroupsPromptMessage(): LineReplyMessage {
   };
 }
 
-function buildBarDistributionTimePromptMessage(): LineReplyMessage {
-  const items: LineTextQuickReplyItem[] = [
-    ...BAR_DISTRIBUTION_TIME_SLOTS.map((slot) => messageQuickReplyItem(slot, slot)),
-  ];
+function padHm(h: number, min: number): string {
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+/** 配信開始・終了の Quick Reply と同一形式（例: 18:00 / 0:00）のみ受理 */
+function parseBarDistributionHourMessage(raw: string): string | null {
+  const t = String(raw ?? "").trim().replace(/\s+/g, "");
+  const allowed = new Set<string>(
+    BAR_DISTRIBUTION_HOUR_LABELS as unknown as readonly string[]
+  );
+  if (!allowed.has(t)) return null;
+  const m = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = Number.parseInt(m[1], 10);
+  const mm = Number.parseInt(m[2], 10);
+  if (
+    Number.isNaN(hh) ||
+    Number.isNaN(mm) ||
+    hh < 0 ||
+    hh > 23 ||
+    mm < 0 ||
+    mm > 59
+  ) {
+    return null;
+  }
+  return padHm(hh, mm);
+}
+
+function buildBarDistributionStartPromptMessage(): LineReplyMessage {
+  const items: LineTextQuickReplyItem[] = BAR_DISTRIBUTION_HOUR_LABELS.map((label) =>
+    messageQuickReplyItem(label, label)
+  );
   return {
     type: "text",
-    text: "配信の時間帯を選ぶか、このまま文字で入力してください（例: 10:00-12:00）。",
+    text: "配信の【開始時間】を選んでください。",
+    quickReply: { items },
+  };
+}
+
+function buildBarDistributionEndPromptMessage(): LineReplyMessage {
+  const items: LineTextQuickReplyItem[] = BAR_DISTRIBUTION_HOUR_LABELS.map((label) =>
+    messageQuickReplyItem(label, label)
+  );
+  return {
+    type: "text",
+    text: "配信の【終了時間】を選んでください。",
+    quickReply: { items },
+  };
+}
+
+function buildBarContactExchangePromptMessage(actionKind: typeof BAR_DETAIL_KIND_VOICE | typeof BAR_DETAIL_KIND_SNS): LineReplyMessage {
+  const items: LineTextQuickReplyItem[] = BAR_CONTACT_EXCHANGE_LABELS.map((label) =>
+    messageQuickReplyItem(label, label)
+  );
+  return {
+    type: "text",
+    text: `${actionKind}の【連絡先交換人数】を選んでください。（例: 3人）`,
     quickReply: { items },
   };
 }
@@ -317,16 +388,15 @@ function buildBarActionPromptMessage(options?: { followUp?: boolean }): LineRepl
   };
 }
 
-function parseBarPeopleCountDetail(raw: string): string | null {
-  const t = String(raw ?? "").trim().replace(/\s+/g, "").replace(/人$/, "").replace(/名$/, "");
+function parseBarContactExchangeDetailFromMessage(raw: string): string | null {
+  const t = String(raw ?? "").trim();
   if (!t) return null;
-  const n = Number(t);
-  if (!Number.isFinite(n) || n < 0) return null;
+  if (t === "10人以上") return "10人以上";
+  const m = /^(\d{1,2})人$/.exec(t.replace(/\s+/g, ""));
+  if (!m) return null;
+  const n = Number.parseInt(m[1], 10);
+  if (!Number.isInteger(n) || n < 0 || n > 9) return null;
   return `${n}人`;
-}
-
-function normalizeBarDistributionDetail(raw: string): string {
-  return String(raw ?? "").trim().replace(/\s*-\s*/g, "-");
 }
 
 async function notifyAdminsBarAttendanceCompleted(params: {
@@ -1201,26 +1271,6 @@ export async function tryHandleBarExtendedText(
       })
       .eq("id", schedule.id);
 
-    const rs = schedule.response_status;
-    const kindLabel =
-      rs === "absent"
-        ? "欠勤"
-        : rs === "late"
-          ? "遅刻"
-          : rs === "public_holiday"
-            ? "公休"
-            : "半休";
-    const displayName = cast.name ?? "キャスト";
-    try {
-      const adminIds = await getAdminLineUserIds(supabase, cast.store_id);
-      if (adminIds.length > 0) {
-        const adminMessage = `${displayName}さんの${kindLabel}理由：『${text}』`;
-        await sendMulticastMessage(adminIds, channelAccessToken, [{ type: "text", text: adminMessage }]);
-      }
-    } catch (e) {
-      console.error("[BAR Reason] 管理者通知失敗:", e);
-    }
-
     await sendReply(replyToken, channelAccessToken, [buildBarActionPromptMessage()]);
     return true;
   }
@@ -1241,23 +1291,101 @@ export async function tryHandleBarExtendedText(
       return true;
     }
 
-    let detailStr: string | null = null;
+    /** 旧バージョンの pending（"配信" のみ）が残っている場合は開始ステップへ移行 */
     if (kind === "配信") {
-      const normalized = normalizeBarDistributionDetail(text);
-      detailStr = normalized.length > 0 ? normalized : null;
-    } else if (kind === "声かけ" || kind === "SNS") {
-      detailStr = parseBarPeopleCountDetail(text);
+      const migrated = serializeBarExtReservationDetails({
+        v: 1,
+        entries: draft.entries,
+        confirmed_groups: draft.confirmed_groups,
+        tentative_groups: draft.tentative_groups,
+        pending_detail_kind: BAR_DETAIL_KIND_DIST_START,
+      });
+      await supabase
+        .from("attendance_schedules")
+        .update({
+          reservation_details: migrated,
+          pending_line_updated_at: new Date().toISOString(),
+        })
+        .eq("id", schedule.id);
+      await sendReply(replyToken, channelAccessToken, [
+        buildBarDistributionStartPromptMessage(),
+      ]);
+      return true;
     }
 
-    if (!detailStr) {
+    let actionKindForEntry: typeof BAR_DETAIL_KIND_VOICE | typeof BAR_DETAIL_KIND_SNS | "配信" | null =
+      null;
+    let detailStr: string | null = null;
+
+    if (kind === BAR_DETAIL_KIND_DIST_START) {
+      const hm = parseBarDistributionHourMessage(text);
+      if (!hm) {
+        await sendReply(replyToken, channelAccessToken, [
+          {
+            type: "text",
+            text: "下のボタンから開始時間を選んでください。",
+          },
+          buildBarDistributionStartPromptMessage(),
+        ]);
+        return true;
+      }
+      const kept: BarExtDraftState = {
+        v: 1,
+        entries: draft.entries,
+        confirmed_groups: draft.confirmed_groups,
+        tentative_groups: draft.tentative_groups,
+        distribution_pick_start: hm,
+        pending_detail_kind: BAR_DETAIL_KIND_DIST_END,
+      };
+      await supabase
+        .from("attendance_schedules")
+        .update({
+          reservation_details: serializeBarExtReservationDetails(kept),
+          pending_line_updated_at: new Date().toISOString(),
+        })
+        .eq("id", schedule.id);
+      await sendReply(replyToken, channelAccessToken, [buildBarDistributionEndPromptMessage()]);
+      return true;
+    }
+
+    if (kind === BAR_DETAIL_KIND_DIST_END) {
+      const endHm = parseBarDistributionHourMessage(text);
+      const startHm =
+        draft.distribution_pick_start && draft.distribution_pick_start.trim().length > 0
+          ? draft.distribution_pick_start.trim()
+          : null;
+      if (!endHm || !startHm) {
+        await sendReply(replyToken, channelAccessToken, [
+          buildBarDistributionStartPromptMessage(),
+        ]);
+        return true;
+      }
+      detailStr = `${startHm}-${endHm}`;
+      actionKindForEntry = "配信";
+    } else if (kind === BAR_DETAIL_KIND_VOICE || kind === BAR_DETAIL_KIND_SNS) {
+      detailStr = parseBarContactExchangeDetailFromMessage(text);
+      actionKindForEntry = kind;
+    }
+
+    if (!detailStr || !actionKindForEntry) {
       const hint =
-        kind === "配信"
-          ? "時間帯をボタンから選ぶか、例のように入力してください（例: 10:00-12:00）。"
-          : "人数を数値で入力してください（例: 3 / 3人）。";
-      if (kind === "配信") {
+        kind === BAR_DETAIL_KIND_DIST_END
+          ? "下のボタンから終了時間を選んでください。"
+          : "人数は下のボタンから選択してください。";
+      if (
+        kind === BAR_DETAIL_KIND_DIST_END ||
+        kind === BAR_DETAIL_KIND_DIST_START
+      ) {
         await sendReply(replyToken, channelAccessToken, [
           { type: "text", text: hint },
-          buildBarDistributionTimePromptMessage(),
+          kind === BAR_DETAIL_KIND_DIST_START
+            ? buildBarDistributionStartPromptMessage()
+            : buildBarDistributionEndPromptMessage(),
+        ]);
+      } else if (kind === BAR_DETAIL_KIND_VOICE || kind === BAR_DETAIL_KIND_SNS) {
+        await sendReply(replyToken, channelAccessToken, [
+          { type: "text", text: hint },
+          buildBarContactExchangePromptMessage(kind),
         ]);
       } else {
         await sendReply(replyToken, channelAccessToken, [{ type: "text", text: hint }]);
@@ -1265,10 +1393,12 @@ export async function tryHandleBarExtendedText(
       return true;
     }
 
-    const nextEntries = [...draft.entries, { kind, detail: detailStr }];
+    const nextEntries = [...draft.entries, { kind: actionKindForEntry, detail: detailStr }];
     const nextDraftJson = serializeBarExtReservationDetails({
       v: 1,
       entries: nextEntries,
+      confirmed_groups: draft.confirmed_groups,
+      tentative_groups: draft.tentative_groups,
     });
 
     await supabase
@@ -1440,15 +1570,46 @@ export async function handleBarActionPostback(
     return true;
   }
 
-  const needsDetail = actionType === "配信" || actionType === "声かけ" || actionType === "SNS";
+  const needsDetail =
+    actionType === "配信" || actionType === BAR_DETAIL_KIND_VOICE || actionType === BAR_DETAIL_KIND_SNS;
   if (!needsDetail) {
     await sendReply(replyToken, channelAccessToken, [buildBarActionPromptMessage({ followUp: true })]);
     return true;
   }
 
-  const nextReservationDetails = mergeBarDraftWithReservationDetails(schedule.reservation_details, {
-    pending_detail_kind: actionType,
-  });
+  const barDraftBase = parseBarExtDraft(schedule.reservation_details) ?? emptyBarExtDraft();
+
+  let nextReservationDetails: string;
+  let replyMsgs: LineReplyMessage[];
+
+  if (actionType === "配信") {
+    nextReservationDetails = serializeBarExtReservationDetails({
+      v: 1,
+      entries: barDraftBase.entries,
+      confirmed_groups: barDraftBase.confirmed_groups,
+      tentative_groups: barDraftBase.tentative_groups,
+      pending_detail_kind: BAR_DETAIL_KIND_DIST_START,
+    });
+    replyMsgs = [buildBarDistributionStartPromptMessage()];
+  } else if (actionType === BAR_DETAIL_KIND_VOICE) {
+    nextReservationDetails = serializeBarExtReservationDetails({
+      v: 1,
+      entries: barDraftBase.entries,
+      confirmed_groups: barDraftBase.confirmed_groups,
+      tentative_groups: barDraftBase.tentative_groups,
+      pending_detail_kind: BAR_DETAIL_KIND_VOICE,
+    });
+    replyMsgs = [buildBarContactExchangePromptMessage(BAR_DETAIL_KIND_VOICE)];
+  } else {
+    nextReservationDetails = serializeBarExtReservationDetails({
+      v: 1,
+      entries: barDraftBase.entries,
+      confirmed_groups: barDraftBase.confirmed_groups,
+      tentative_groups: barDraftBase.tentative_groups,
+      pending_detail_kind: BAR_DETAIL_KIND_SNS,
+    });
+    replyMsgs = [buildBarContactExchangePromptMessage(BAR_DETAIL_KIND_SNS)];
+  }
 
   await supabase
     .from("attendance_schedules")
@@ -1459,13 +1620,7 @@ export async function handleBarActionPostback(
     })
     .eq("id", schedule.id);
 
-  if (actionType === "配信") {
-    await sendReply(replyToken, channelAccessToken, [buildBarDistributionTimePromptMessage()]);
-  } else {
-    await sendReply(replyToken, channelAccessToken, [
-      { type: "text", text: `${actionType}の人数を入力してください（例: 3）` },
-    ]);
-  }
+  await sendReply(replyToken, channelAccessToken, replyMsgs);
   return true;
 }
 
