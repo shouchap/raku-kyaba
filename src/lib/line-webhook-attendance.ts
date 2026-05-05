@@ -1585,7 +1585,7 @@ export async function handleBarActionPostback(
     await sendReply(replyToken, channelAccessToken, [
       {
         type: "text",
-        text: `行動確認を保存しました。\n${combined}`,
+        text: `報告ありがとうございます。\n${combined}`,
       },
     ]);
     return true;
@@ -1619,7 +1619,7 @@ export async function handleBarActionPostback(
       attendanceScheduleId: schedule.id,
     });
     await sendReply(replyToken, channelAccessToken, [
-      { type: "text", text: "出勤確認を保存しました。ありがとうございました。" },
+      { type: "text", text: "報告ありがとうございます。" },
     ]);
     return true;
   }
