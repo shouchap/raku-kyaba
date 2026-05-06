@@ -20,6 +20,7 @@ import {
 import { ChevronDown, ChevronRight, Printer } from "lucide-react";
 import { GuideReportTab } from "./GuideReportTab";
 import { CastAttendanceManualModal } from "./CastAttendanceManualModal";
+import { StoreAttendanceEditHistoryModal } from "./StoreAttendanceEditHistoryModal";
 import type { ReportAttendanceLogPeriodRow } from "@/app/api/admin/report/route";
 import "./report-print.css";
 
@@ -475,6 +476,7 @@ function AdminReportContent() {
   /** 空文字 = 全員表示 */
   const [filterCastId, setFilterCastId] = useState("");
   const [manualAttendanceModalOpen, setManualAttendanceModalOpen] = useState(false);
+  const [storeAttendanceHistoryModalOpen, setStoreAttendanceHistoryModalOpen] = useState(false);
 
   /** 案内数レポート非対応店舗（OFF / BAR拡張）で tab=guide のときキャスト側へ戻す */
   useEffect(() => {
@@ -1131,18 +1133,26 @@ function AdminReportContent() {
                 ? `表示日: ${dayDate}`
                 : `集計期間: ${start} 〜 ${end}`}
           </p>
-          {reportTab === "cast" &&
-            businessType !== "welfare_b" &&
-            activeStoreId &&
-            manualModalCastOptions.length > 0 && (
+          {reportTab === "cast" && businessType !== "welfare_b" && activeStoreId && (
+            <>
               <button
                 type="button"
-                onClick={() => setManualAttendanceModalOpen(true)}
-                className="print:hidden inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
+                onClick={() => setStoreAttendanceHistoryModalOpen(true)}
+                className="print:hidden inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
               >
-                + 勤怠を手動編集・追加
+                🕒 編集履歴
               </button>
-            )}
+              {manualModalCastOptions.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setManualAttendanceModalOpen(true)}
+                  className="print:hidden inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
+                >
+                  + 勤怠を手動編集・追加
+                </button>
+              ) : null}
+            </>
+          )}
           <button
             type="button"
             onClick={handlePrint}
@@ -1693,6 +1703,14 @@ function AdminReportContent() {
           periodEndYmd={end}
           onClose={() => setManualAttendanceModalOpen(false)}
           onSaved={() => void fetchData()}
+        />
+      ) : null}
+
+      {activeStoreId ? (
+        <StoreAttendanceEditHistoryModal
+          open={storeAttendanceHistoryModalOpen}
+          storeId={activeStoreId}
+          onClose={() => setStoreAttendanceHistoryModalOpen(false)}
         />
       ) : null}
     </div>
