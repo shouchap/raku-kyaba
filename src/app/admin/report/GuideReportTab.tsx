@@ -243,7 +243,7 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
   const confirmDelete = async (r: DailyGuideResult) => {
     if (
       !window.confirm(
-        `${formatJaDateCell(r.target_date)} · ${r.staff_name}（合計${r.guide_count}組数）を削除しますか？`
+        `${formatJaDateCell(r.target_date)} · ${r.staff_name}（合計${r.guide_count}組）を削除しますか？`
       )
     ) {
       return;
@@ -380,19 +380,19 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
         </h2>
         <p className="mt-3 text-4xl font-bold tabular-nums tracking-tight text-emerald-950 sm:text-5xl">
           {totalGuides}
-          <span className="ml-2 text-lg font-semibold text-emerald-800 sm:text-xl">組数</span>
+          <span className="ml-2 text-lg font-semibold text-emerald-800 sm:text-xl">組</span>
         </p>
         <p className="mt-2 text-sm font-medium text-emerald-900/90 space-y-1">
           <span className="block">
-            GOLD: <span className="tabular-nums">{totalGoldGroups}</span>組数・
-            <span className="tabular-nums">{totalGoldPeople}</span>人数
+            GOLD: <span className="tabular-nums">{totalGoldGroups}</span>組・
+            <span className="tabular-nums">{totalGoldPeople}</span>人
           </span>
           <span className="block">
-            セクキャバ: <span className="tabular-nums">{totalSekGroups}</span>組数・
-            <span className="tabular-nums">{totalSekPeople}</span>人数
+            セクキャバ: <span className="tabular-nums">{totalSekGroups}</span>組・
+            <span className="tabular-nums">{totalSekPeople}</span>人
           </span>
           <span className="block pt-1 border-t border-emerald-200/80">
-            合計人数: <span className="tabular-nums">{totalPeople}</span>人数
+            合計人数: <span className="tabular-nums">{totalPeople}</span>人
           </span>
         </p>
       </section>
