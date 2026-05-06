@@ -939,7 +939,7 @@ function AdminReportContent() {
 
     return [
       {
-        label: "案内数",
+        label: "総出勤日数",
         value: String(attendance),
         sub: "出勤日数の合計",
         helpText:
@@ -970,21 +970,23 @@ function AdminReportContent() {
         </p>
       </div>
 
-      <div className="mb-5 flex flex-wrap gap-3 print:hidden">
-        {topKpis.map((kpi) => (
-          <section
-            key={kpi.label}
-            className={`w-full sm:w-[22rem] max-w-full rounded-xl border px-4 py-3 shadow-sm ${businessTheme.reportStatCardClass}`}
-          >
-            <p className={`text-xs font-semibold ${businessTheme.reportStatLabelClass} inline-flex items-center gap-1.5`}>
-              {kpi.label}
-              <KpiHelp text={kpi.helpText} />
-            </p>
-            <p className="mt-1 text-2xl font-bold tracking-tight">{kpi.value}</p>
-            <p className="mt-1 text-xs opacity-75">{kpi.sub}</p>
-          </section>
-        ))}
-      </div>
+      {reportTab === "cast" && (
+        <div className="mb-5 flex flex-wrap gap-3 print:hidden">
+          {topKpis.map((kpi) => (
+            <section
+              key={kpi.label}
+              className={`w-full sm:w-[22rem] max-w-full rounded-xl border px-4 py-3 shadow-sm ${businessTheme.reportStatCardClass}`}
+            >
+              <p className={`text-xs font-semibold ${businessTheme.reportStatLabelClass} inline-flex items-center gap-1.5`}>
+                {kpi.label}
+                <KpiHelp text={kpi.helpText} />
+              </p>
+              <p className="mt-1 text-2xl font-bold tracking-tight">{kpi.value}</p>
+              <p className="mt-1 text-xs opacity-75">{kpi.sub}</p>
+            </section>
+          ))}
+        </div>
+      )}
 
       <div className="mb-6 print:hidden" role="tablist" aria-label="レポート種別">
         <div className="inline-flex rounded-xl border border-gray-200/90 bg-gray-100/70 p-1 shadow-inner">
