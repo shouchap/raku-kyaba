@@ -7,6 +7,7 @@ import {
   buildSabakiRemindLines,
   formatRemindScheduledTime,
   formatScheduleTimeLabel,
+  REMIND_TIME_UNKNOWN_DISPLAY,
 } from "@/lib/attendance-remind-flex";
 import { getCurrentTimeJst, getTodayJst, getWeekdayJst } from "@/lib/date-utils";
 import {
@@ -125,6 +126,38 @@ function logError(context: string, err: unknown): void {
   console.error(`[Remind] ${context}:`, msg);
   if (stack) console.error(`[Remind] ${context} stack:`, stack);
   if (extra) console.error(`[Remind] ${context} details:`, extra);
+}
+
+function serializeRemindRejectReason(reason: unknown): { message: string; stack?: string; json?: string } {
+  if (reason instanceof Error) {
+    return { message: reason.message, stack: reason.stack };
+  }
+  if (reason && typeof reason === "object") {
+    try {
+      return { message: JSON.stringify(reason), json: JSON.stringify(reason, null, 2) };
+    } catch {
+      return { message: String(reason) };
+    }
+  }
+  return { message: String(reason) };
+}
+
+/** Promise.allSettled で rejected になった送信を Vercel ログで追えるようにする */
+function logRemindPushRejected(ctx: {
+  storeId: string;
+  mode: "manual" | "cron";
+  kind: "schedule" | "regular";
+  scheduleId?: string | null;
+  castId?: string | null;
+  castName?: string | null;
+  reason: unknown;
+}): void {
+  const { message, stack, json } = serializeRemindRejectReason(ctx.reason);
+  console.error(
+    `[Remind][PushRejected] storeId=${ctx.storeId} mode=${ctx.mode} kind=${ctx.kind} cast_id=${ctx.castId ?? "(unknown)"} schedule_id=${ctx.scheduleId ?? "(none)"} cast_name=${JSON.stringify(ctx.castName ?? "")} reason=${message}`
+  );
+  if (stack) console.error("[Remind][PushRejected] stack:", stack);
+  if (json) console.error("[Remind][PushRejected] reason(object):", json);
 }
 
 /** stores.remind_time（HH:00）から時（0〜23）を取得 */
@@ -275,27 +308,47 @@ function buildScheduleRemindParts(
   regularRemindMessageFromStore: string | null | undefined,
   regularFallbackHm: string | null | undefined
 ): { reminderMessageLine: string; scheduledTimeDisplay: string } {
-  if (schedule.is_sabaki === true) {
-    return buildSabakiRemindLines(castName);
-  }
-  const scheduledTime = formatRemindScheduledTime(
-    schedule.scheduled_time,
-    schedule.is_dohan,
-    regularFallbackHm
-  );
-  if (employmentUsesRegularRemindMessage(employmentType)) {
+  try {
+    if (schedule.is_sabaki === true) {
+      return buildSabakiRemindLines(castName);
+    }
+    const scheduledTime = formatRemindScheduledTime(
+      schedule.scheduled_time,
+      schedule.is_dohan,
+      regularFallbackHm
+    );
+    if (employmentUsesRegularRemindMessage(employmentType)) {
+      return {
+        reminderMessageLine: buildRegularRemindMessageLine(
+          castName,
+          regularRemindMessageFromStore
+        ),
+        scheduledTimeDisplay: scheduledTime,
+      };
+    }
     return {
-      reminderMessageLine: buildRegularRemindMessageLine(
-        castName,
-        regularRemindMessageFromStore
-      ),
+      reminderMessageLine: applyReminderMessageTemplate(messageTemplate, castName, scheduledTime),
       scheduledTimeDisplay: scheduledTime,
     };
+  } catch (e) {
+    logError("buildScheduleRemindParts 例外（フォールバックで継続）", e);
+    const fallbackDisplay = REMIND_TIME_UNKNOWN_DISPLAY;
+    try {
+      return {
+        reminderMessageLine: applyReminderMessageTemplate(
+          messageTemplate,
+          castName,
+          fallbackDisplay
+        ),
+        scheduledTimeDisplay: fallbackDisplay,
+      };
+    } catch {
+      return {
+        reminderMessageLine: `${String(castName ?? "").trim() || "キャスト"}さん、出勤確認をお願いいたします。`,
+        scheduledTimeDisplay: fallbackDisplay,
+      };
+    }
   }
-  return {
-    reminderMessageLine: applyReminderMessageTemplate(messageTemplate, castName, scheduledTime),
-    scheduledTimeDisplay: scheduledTime,
-  };
 }
 
 /**
@@ -363,7 +416,13 @@ async function runRemindForStore(
   }
   const { config, messageTemplate, holidayFlex } = loaded;
   const regularRemindMessageFromStore = store.regular_remind_message;
-  const regularFallbackHm = normalizeDbTimeToShiftOption(store.regular_start_time ?? null) || null;
+  let regularFallbackHm: string | null = null;
+  try {
+    regularFallbackHm = normalizeDbTimeToShiftOption(store.regular_start_time ?? null) || null;
+  } catch (normErr) {
+    logError(`regular_start_time の正規化で例外 store=${storeId}`, normErr);
+    regularFallbackHm = null;
+  }
 
   if (config.enabled === false) {
     console.info(
@@ -528,6 +587,36 @@ async function runRemindForStore(
         return { kind: "regular" as const, castId: rc.id };
       }),
     ]);
+
+    for (let i = 0; i < lineResults.length; i++) {
+      const r = lineResults[i];
+      if (r.status !== "rejected") continue;
+      if (i < schedules.length) {
+        const sch = schedules[i];
+        const c = parseCastJoinFromSchedule(sch);
+        logRemindPushRejected({
+          storeId,
+          mode: "manual",
+          kind: "schedule",
+          scheduleId: sch?.id,
+          castId: sch?.cast_id ?? null,
+          castName: c?.name ?? null,
+          reason: r.reason,
+        });
+      } else {
+        const rIdx = i - schedules.length;
+        const rc = regularNoSchedule[rIdx];
+        logRemindPushRejected({
+          storeId,
+          mode: "manual",
+          kind: "regular",
+          scheduleId: null,
+          castId: rc?.id ?? null,
+          castName: rc?.name ?? null,
+          reason: r.reason,
+        });
+      }
+    }
 
     const fulfilled = lineResults.filter((r) => r.status === "fulfilled") as PromiseFulfilledResult<
       | { kind: "schedule"; schedule: ScheduleRow }
@@ -730,10 +819,29 @@ async function runRemindForStore(
     if (r.status !== "fulfilled") {
       const idx = i;
       if (idx < schedules.length) {
-        logError(`LINE Push 失敗 scheduleId=${schedules[idx]?.id}`, r.reason);
+        const sch = schedules[idx];
+        const c = sch ? parseCastJoinFromSchedule(sch) : null;
+        logRemindPushRejected({
+          storeId,
+          mode: "cron",
+          kind: "schedule",
+          scheduleId: sch?.id,
+          castId: sch?.cast_id ?? null,
+          castName: c?.name ?? null,
+          reason: r.reason,
+        });
       } else {
         const rIdx = idx - schedules.length;
-        logError(`LINE Push 失敗 regular castId=${regularNoSchedule[rIdx]?.id}`, r.reason);
+        const rc = regularNoSchedule[rIdx];
+        logRemindPushRejected({
+          storeId,
+          mode: "cron",
+          kind: "regular",
+          scheduleId: null,
+          castId: rc?.id ?? null,
+          castName: rc?.name ?? null,
+          reason: r.reason,
+        });
       }
       continue;
     }

@@ -1,31 +1,48 @@
 import type { LineReplyMessage } from "@/lib/line-reply";
 
-/** DB／入力値から出勤予定の HH:mm を取り出す（取れなければ null） */
+/** シフト／レギュラーとも時刻が取れないときの最終表示（例外時もこれへフォールバック） */
+export const REMIND_TIME_UNKNOWN_DISPLAY = "--:--";
+
+/** DB／入力値から出勤予定の HH:mm を取り出す（取れなければ null、例外時も null） */
 function extractHourMinuteForRemind(raw: string | null | undefined): string | null {
-  if (raw == null || String(raw).trim() === "") return null;
-  const match = String(raw).trim().match(/^(\d{1,2}):(\d{2})/);
-  return match ? `${match[1]}:${match[2]}` : null;
+  try {
+    if (raw == null || String(raw).trim() === "") return null;
+    const match = String(raw).trim().match(/^(\d{1,2}):(\d{2})/);
+    return match ? `${match[1]}:${match[2]}` : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Cron（/api/remind）と単日登録の即時送信で共通の、出勤予定時刻の表示文字列。
  * `time` が空のときは `regularFallbackHm`（店舗のレギュラー出勤時間など HH:mm）を表示に使う。
+ * パース失敗・不正入力・内部例外でもスローせず {@link REMIND_TIME_UNKNOWN_DISPLAY} で送信を継続する。
  */
 export function formatRemindScheduledTime(
   time: string | null | undefined,
   isDohan?: boolean | null,
   regularFallbackHm?: string | null
 ): string {
-  const primary = extractHourMinuteForRemind(time);
-  let base = primary ?? null;
-  if (!base) {
-    const fb = regularFallbackHm?.trim() ?? "";
-    if (fb !== "") {
-      base = extractHourMinuteForRemind(fb.includes(":") ? fb : `${fb}:00`);
+  try {
+    const primary = extractHourMinuteForRemind(time);
+    let base = primary ?? null;
+    if (!base) {
+      try {
+        const fb = regularFallbackHm?.trim() ?? "";
+        if (fb !== "") {
+          base = extractHourMinuteForRemind(fb.includes(":") ? fb : `${fb}:00`);
+        }
+      } catch {
+        base = null;
+      }
     }
+    if (!base) return REMIND_TIME_UNKNOWN_DISPLAY;
+    const suffix = isDohan === true ? "（同伴）" : "";
+    return `${base}${suffix}`;
+  } catch {
+    return REMIND_TIME_UNKNOWN_DISPLAY;
   }
-  if (!base) return "—";
-  return isDohan ? `${base}（同伴）` : base;
 }
 
 /**
@@ -74,20 +91,41 @@ export function buildSabakiRemindLines(castName: string): {
 }
 
 /**
- * reminder_config.messageTemplate の {name} / {time} 置換
+ * reminder_config.messageTemplate の {name} / {time} 置換。
+ * テンプレ不正・置換失敗時もスローせず最小限の文面で返す。
  */
 export function applyReminderMessageTemplate(
   template: string,
   name: string,
   timeStr: string
 ): string {
-  const safeTpl =
-    template && typeof template === "string"
-      ? template
-      : "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。";
-  return safeTpl
-    .replace(/\{name\}/g, name ?? "キャスト")
-    .replace(/\{time\}/g, timeStr ?? "—");
+  try {
+    const safeTpl =
+      template && typeof template === "string"
+        ? template
+        : "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。";
+    const safeName =
+      typeof name === "string" && name.trim() !== "" ? name.trim() : "キャスト";
+    let safeTime: string;
+    try {
+      safeTime =
+        typeof timeStr === "string" && timeStr.trim() !== ""
+          ? timeStr.trim()
+          : REMIND_TIME_UNKNOWN_DISPLAY;
+    } catch {
+      safeTime = REMIND_TIME_UNKNOWN_DISPLAY;
+    }
+    return String(safeTpl)
+      .replace(/\{name\}/g, safeName)
+      .replace(/\{time\}/g, safeTime);
+  } catch {
+    try {
+      const n = typeof name === "string" && name.trim() !== "" ? name.trim() : "キャスト";
+      return `${n}さん、本日は ${REMIND_TIME_UNKNOWN_DISPLAY} 出勤予定です。出勤確認をお願いいたします。`;
+    } catch {
+      return "出勤確認をお願いいたします。";
+    }
+  }
 }
 
 /** Flex ヘッダー用。空なら「店舗」 */
@@ -291,7 +329,8 @@ export function buildAttendanceRemindFlexMessage(input: AttendanceRemindFlexInpu
 
   const reminderLine = (input.reminderMessageLine ?? "").trim();
   const castLabel = `${String(input.castName ?? "").trim() || "キャスト"} さん`;
-  const timeDisplay = String(input.scheduledTimeDisplay ?? "").trim() || "—";
+  const timeDisplay =
+    String(input.scheduledTimeDisplay ?? "").trim() || REMIND_TIME_UNKNOWN_DISPLAY;
   const timeHighlightColor = headerColor ?? COLOR_TIME_FALLBACK;
 
   const supplementTail = extractBodyAfterSanComma(reminderLine);
