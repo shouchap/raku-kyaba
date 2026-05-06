@@ -57,6 +57,39 @@ type Props = {
   customTerms: CustomTerms;
 };
 
+type NavIconWithFallbackProps = {
+  imageUrl: string;
+  label: string;
+  fallbackEmoji: string;
+  isActive: boolean;
+};
+
+/** 画像が無い／読み込み失敗時は `<img>` をDOMから外し、絵文字に切り替える（破損アイコンを出さない） */
+function NavIconWithFallback({ imageUrl, label, fallbackEmoji, isActive }: NavIconWithFallbackProps) {
+  const [hasError, setHasError] = useState(false);
+  const toneClass = isActive ? NAV_ICON_ACTIVE_CLASS : NAV_ICON_IDLE_CLASS;
+
+  if (hasError) {
+    return (
+      <span
+        aria-hidden
+        className={`flex h-5 w-5 shrink-0 items-center justify-center text-sm leading-none transition-opacity ${toneClass}`}
+      >
+        {fallbackEmoji}
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt={label}
+      className={`${NAV_ICON_CLASS} ${toneClass}`}
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
 function navLinkClass(isActive: boolean, vertical: boolean, businessType: BusinessType): string {
   const theme = BUSINESS_THEME[businessType];
   const align = vertical
@@ -89,7 +122,6 @@ export default function AdminNav({
   const pathname = usePathname();
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [iconLoadFailed, setIconLoadFailed] = useState<Record<string, boolean>>({});
 
   const currentLabel =
     stores.find((s) => s.id === activeStoreId)?.name ??
@@ -140,29 +172,6 @@ export default function AdminNav({
     router.refresh();
   };
 
-  const renderNavIcon = (key: string, item: Pick<NavItem, "label" | "imageUrl" | "fallbackEmoji">, isActive: boolean) => {
-    const failed = iconLoadFailed[key] === true;
-    const toneClass = isActive ? NAV_ICON_ACTIVE_CLASS : NAV_ICON_IDLE_CLASS;
-    if (!failed) {
-      return (
-        <img
-          src={item.imageUrl}
-          alt={item.label}
-          className={`${NAV_ICON_CLASS} ${toneClass}`}
-          onError={() => setIconLoadFailed((prev) => ({ ...prev, [key]: true }))}
-        />
-      );
-    }
-    return (
-      <span
-        aria-hidden
-        className={`inline-flex h-5 w-5 items-center justify-center text-sm leading-none ${toneClass}`}
-      >
-        {item.fallbackEmoji}
-      </span>
-    );
-  };
-
   const NavLinks = ({ vertical }: { vertical: boolean }) => (
     <>
       {navEntries.map((item) => {
@@ -177,7 +186,12 @@ export default function AdminNav({
             className={navLinkClass(isActive, vertical, businessType)}
             onClick={() => setMobileMenuOpen(false)}
           >
-            {renderNavIcon(item.href, item, isActive)}
+            <NavIconWithFallback
+              imageUrl={item.imageUrl}
+              label={item.label}
+              fallbackEmoji={item.fallbackEmoji}
+              isActive={isActive}
+            />
             {item.label}
           </Link>
         );
@@ -200,11 +214,12 @@ export default function AdminNav({
           }
           onClick={() => setMobileMenuOpen(false)}
         >
-          {renderNavIcon(
-            "/admin/stores",
-            { label: "店舗管理", imageUrl: STORE_ADMIN_ICON.imageUrl, fallbackEmoji: STORE_ADMIN_ICON.fallbackEmoji },
-            pathname === "/admin/stores"
-          )}
+          <NavIconWithFallback
+            imageUrl={STORE_ADMIN_ICON.imageUrl}
+            label="店舗管理"
+            fallbackEmoji={STORE_ADMIN_ICON.fallbackEmoji}
+            isActive={pathname === "/admin/stores"}
+          />
           店舗管理
         </Link>
       )}
