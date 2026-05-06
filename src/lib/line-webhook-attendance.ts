@@ -443,83 +443,6 @@ function parseBarContactExchangeDetailFromMessage(raw: string): string | null {
   return `${n}人`;
 }
 
-async function notifyAdminsBarAttendanceCompleted(params: {
-  supabase: ReturnType<typeof createSupabaseClient>;
-  storeId: string;
-  castName: string | null;
-  channelAccessToken: string;
-  plannedGroups: number | null;
-  tentativeGroups: number | null;
-  attendanceScheduleId: string;
-}): Promise<void> {
-  const {
-    supabase,
-    storeId,
-    castName,
-    channelAccessToken,
-    plannedGroups,
-    tentativeGroups,
-    attendanceScheduleId,
-  } = params;
-  const adminIds = await getAdminLineUserIds(supabase, storeId);
-  if (adminIds.length === 0) return;
-  const displayName = (castName ?? "キャスト").trim() || "キャスト";
-  const fixed = typeof plannedGroups === "number" ? plannedGroups : 0;
-  const tentative = typeof tentativeGroups === "number" ? tentativeGroups : 0;
-
-  let reasonSuffix = "";
-  const { data: schedRow } = await supabase
-    .from("attendance_schedules")
-    .select(
-      "response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason"
-    )
-    .eq("id", attendanceScheduleId)
-    .maybeSingle();
-  const s = schedRow as {
-    response_status?: string | null;
-    late_reason?: string | null;
-    absent_reason?: string | null;
-    public_holiday_reason?: string | null;
-    half_holiday_reason?: string | null;
-  } | null;
-  if (s?.response_status) {
-    const label =
-      s.response_status === "late"
-        ? "遅刻"
-        : s.response_status === "absent"
-          ? "欠勤"
-          : s.response_status === "public_holiday"
-            ? "公休"
-            : s.response_status === "half_holiday"
-              ? "半休"
-              : null;
-    const body =
-      s.response_status === "late"
-        ? s.late_reason
-        : s.response_status === "absent"
-          ? s.absent_reason
-          : s.response_status === "public_holiday"
-            ? s.public_holiday_reason
-            : s.response_status === "half_holiday"
-              ? s.half_holiday_reason
-              : null;
-    if (label && String(body ?? "").trim()) {
-      reasonSuffix = `\n${label}理由: ${String(body).trim()}`;
-    }
-  }
-
-  const adminMessage =
-    `【出勤連絡】${displayName}さんが出勤報告を完了しました。\n` +
-    `確定組数: ${fixed}組\n` +
-    `仮予定組数: ${tentative}組` +
-    reasonSuffix;
-  try {
-    await sendMulticastMessage(adminIds, channelAccessToken, [{ type: "text", text: adminMessage }]);
-  } catch (e) {
-    console.error("[BAR Attendance] 管理者通知失敗:", e);
-  }
-}
-
 async function fetchTodayAttendanceLogBasics(
   supabase: ReturnType<typeof createSupabaseClient>,
   storeId: string,
@@ -1750,15 +1673,6 @@ export async function handleBarExtendedPostback(
       { onConflict: "store_id,cast_id,attended_date", ignoreDuplicates: false }
     );
     await finalizeSchedule();
-    await notifyAdminsBarAttendanceCompleted({
-      supabase,
-      storeId: cast.store_id,
-      castName: cast.name ?? null,
-      channelAccessToken,
-      plannedGroups: logBasics?.planned_groups ?? null,
-      tentativeGroups: logBasics?.tentative_groups ?? null,
-      attendanceScheduleId: schedule.id,
-    });
     await sendReply(replyToken, channelAccessToken, [
       {
         type: "text",
