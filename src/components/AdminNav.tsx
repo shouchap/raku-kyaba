@@ -5,13 +5,14 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
-  CalendarClock,
+  CalendarDays,
+  CalendarPlus2,
   ClipboardList,
-  ConciergeBell,
   LogOut,
   Menu,
+  Megaphone,
   Settings,
-  ShieldCheck,
+  Store,
   UserRound,
   Users,
   X,
@@ -26,20 +27,25 @@ type NavItem = {
   icon: typeof ClipboardList;
 };
 
+// NOTE: 微調整や差し戻しが必要な場合は、この定数だけ変更すればOK。
+const NAV_ICON_CLASS = "h-4 w-4 shrink-0 transition-opacity";
+const NAV_ICON_ACTIVE_CLASS = "opacity-95";
+const NAV_ICON_IDLE_CLASS = "opacity-65";
+
 const NAV_ITEMS_BY_BUSINESS: Record<BusinessType, NavItem[]> = {
   cabaret: [
-    { href: "/admin/weekly", label: "シフト入力", icon: CalendarClock },
+    { href: "/admin/weekly", label: "シフト入力", icon: CalendarDays },
     { href: "/admin/view", label: "シフト一覧", icon: ClipboardList },
-    { href: "/admin/schedule", label: "単日登録", icon: ConciergeBell },
-    { href: "/admin/shifts/special", label: "特別シフト募集", icon: ShieldCheck },
+    { href: "/admin/schedule", label: "単日登録", icon: CalendarPlus2 },
+    { href: "/admin/shifts/special", label: "特別シフト募集", icon: Megaphone },
     { href: "/admin/casts", label: "キャスト管理", icon: Users },
     { href: "/admin/report", label: "月間レポート", icon: BarChart3 },
     { href: "/admin/settings", label: "システム設定", icon: Settings },
   ],
   bar: [
-    { href: "/admin/weekly", label: "出勤入力", icon: CalendarClock },
+    { href: "/admin/weekly", label: "出勤入力", icon: CalendarDays },
     { href: "/admin/view", label: "出勤一覧", icon: ClipboardList },
-    { href: "/admin/schedule", label: "単日登録", icon: ConciergeBell },
+    { href: "/admin/schedule", label: "単日登録", icon: CalendarPlus2 },
     { href: "/admin/casts", label: "キャスト管理", icon: Users },
     { href: "/admin/report", label: "BARレポート", icon: BarChart3 },
     { href: "/admin/settings", label: "BAR設定", icon: Settings },
@@ -158,7 +164,9 @@ export default function AdminNav({
             className={navLinkClass(isActive, vertical, businessType)}
             onClick={() => setMobileMenuOpen(false)}
           >
-            <item.icon className="h-4 w-4 shrink-0" />
+            <item.icon
+              className={`${NAV_ICON_CLASS} ${isActive ? NAV_ICON_ACTIVE_CLASS : NAV_ICON_IDLE_CLASS}`}
+            />
             {item.label}
           </Link>
         );
@@ -181,7 +189,11 @@ export default function AdminNav({
           }
           onClick={() => setMobileMenuOpen(false)}
         >
-          <ShieldCheck className="h-4 w-4 mr-1.5" />
+          <Store
+            className={`mr-1.5 ${NAV_ICON_CLASS} ${
+              pathname === "/admin/stores" ? NAV_ICON_ACTIVE_CLASS : NAV_ICON_IDLE_CLASS
+            }`}
+          />
           店舗管理
         </Link>
       )}
