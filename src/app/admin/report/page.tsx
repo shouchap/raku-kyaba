@@ -470,10 +470,13 @@ function AdminReportContent() {
   /** 空文字 = 全員表示 */
   const [filterCastId, setFilterCastId] = useState("");
 
-  /** 案内数レポート無効店舗で tab=guide のときキャスト側へ戻す */
+  /** 案内数レポート非対応店舗（OFF / BAR拡張）で tab=guide のときキャスト側へ戻す */
   useEffect(() => {
     if (loading) return;
-    if (!store || store.is_guide_enabled !== false) return;
+    if (!store) return;
+    const hideGuideTab =
+      store.is_guide_enabled === false || store.attendance_flow_type === "bar_extended";
+    if (!hideGuideTab) return;
     if (reportTab !== "guide") return;
     const params = new URLSearchParams(searchParams.toString());
     params.delete("tab");
@@ -754,8 +757,15 @@ function AdminReportContent() {
   const hasAccordionDetail = (r: CastReport) =>
     r.incidents.length > 0 || r.sabakiDates.length > 0;
 
-  const guideTabVisible = store == null || store.is_guide_enabled !== false;
+  /** BAR拡張または案内数OFFのときは案内数タブ自体を出さない */
+  const guideTabVisible =
+    store == null ||
+    (store.is_guide_enabled !== false && store.attendance_flow_type !== "bar_extended");
   const attendanceFlowBarExtended = store?.attendance_flow_type === "bar_extended";
+
+  /** 基本勤怠サマリー表: BAR行動モードでは非表示（排他） */
+  const showBasicAttendanceTable =
+    !attendanceFlowBarExtended || castSubTab === "basic";
 
   const guideMonthRange = useMemo(() => getMonthRangeIso(year, month), [year, month]);
 
@@ -776,7 +786,7 @@ function AdminReportContent() {
             : businessType === "welfare_b"
               ? " · 就労継続支援B型の日次記録（作業・体調）を一覧表示します。"
               : castSubTab === "bar_actions" && attendanceFlowBarExtended
-                ? " · 上部は勤怠サマリー、下部は BAR 拡張フローの行動入力（確定組数・配信・声かけ・SNS 等）のみを表形式で表示します。"
+                ? " · BAR 拡張フローの行動入力（確定組数・配信・声かけ・SNS 等）のみを表示しています。"
                 : " · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。"}
         </p>
       </div>
@@ -1208,6 +1218,7 @@ function AdminReportContent() {
         </div>
       ) : (
         <>
+        {showBasicAttendanceTable && (
         <div className="report-table-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
           <table className="report-table min-w-[880px] w-full text-left text-sm">
             <thead>
@@ -1477,6 +1488,7 @@ function AdminReportContent() {
             </tbody>
           </table>
         </div>
+        )}
 
         {castSubTab === "bar_actions" && attendanceFlowBarExtended && (
           <div className="mt-8 space-y-8 print:mt-6">
