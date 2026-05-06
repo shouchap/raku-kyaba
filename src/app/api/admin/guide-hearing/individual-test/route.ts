@@ -12,6 +12,7 @@ import {
   formatRemindScheduledTime,
 } from "@/lib/attendance-remind-flex";
 import { getTodayJst } from "@/lib/date-utils";
+import { normalizeDbTimeToShiftOption } from "@/lib/time-options";
 
 function rejectStoreMismatch(request: Request, user: User, storeId: string): NextResponse | null {
   if (isSuperAdminUser(user)) return null;
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
 
   const { data: store } = await admin
     .from("stores")
-    .select("id, name, attendance_flow_type")
+    .select("id, name, attendance_flow_type, regular_start_time")
     .eq("id", storeId)
     .maybeSingle();
   if (!store?.id) return NextResponse.json({ error: "Store not found" }, { status: 404 });
@@ -80,7 +81,15 @@ export async function POST(request: Request) {
   const template =
     (typeof cfgValue?.messageTemplate === "string" && cfgValue.messageTemplate.trim()) ||
     "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。";
-  const scheduledTime = formatRemindScheduledTime(sched?.scheduled_time ?? null, sched?.is_dohan ?? false);
+  const regularHm =
+    normalizeDbTimeToShiftOption(
+      (store as { regular_start_time?: string | null }).regular_start_time ?? null
+    ) || null;
+  const scheduledTime = formatRemindScheduledTime(
+    sched?.scheduled_time ?? null,
+    sched?.is_dohan ?? false,
+    regularHm
+  );
 
   const msg = buildAttendanceRemindFlexMessage({
     castName: cast.name ?? "キャスト",

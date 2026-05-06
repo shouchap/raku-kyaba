@@ -16,6 +16,7 @@ import { canUserEditStore } from "@/lib/admin-store-auth";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { mergeScheduleRowForWeeklyUpsert } from "@/lib/attendance-schedule-preserve";
 import { createServiceRoleClient } from "@/lib/supabase-service";
+import { normalizeDbTimeToShiftOption } from "@/lib/time-options";
 
 export const dynamic = "force-dynamic";
 
@@ -226,17 +227,21 @@ export async function POST(request: Request) {
   }
 
   const [storeRes, holidayFlex] = await Promise.all([
-    admin.from("stores").select("name").eq("id", storeId).maybeSingle(),
+    admin.from("stores").select("name, regular_start_time").eq("id", storeId).maybeSingle(),
     fetchAttendanceFlexHolidayOptions(admin, storeId),
   ]);
   const storeRow = storeRes.data;
+  const regularHm =
+    normalizeDbTimeToShiftOption(
+      (storeRow as { regular_start_time?: string | null } | null)?.regular_start_time ?? null
+    ) || null;
 
   const castName = cast?.name ?? "キャスト";
   const sabaki = Boolean(isSabaki);
   const { reminderMessageLine, scheduledTimeDisplay } = sabaki
     ? buildSabakiRemindLines(castName)
     : (() => {
-        const timeStr = formatRemindScheduledTime(scheduledTime, isDohan);
+        const timeStr = formatRemindScheduledTime(scheduledTime, isDohan, regularHm);
         return {
           reminderMessageLine: applyReminderMessageTemplate(messageTemplate, castName, timeStr),
           scheduledTimeDisplay: timeStr,

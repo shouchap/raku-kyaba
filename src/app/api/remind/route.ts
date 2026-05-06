@@ -21,6 +21,7 @@ import {
 } from "@/lib/line-channel-token";
 import type { HolidayFlexFlags } from "@/lib/reminder-config";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
+import { normalizeDbTimeToShiftOption } from "@/lib/time-options";
 
 /** キャッシュ無効化: 毎回最新のDB値を取得する */
 export const dynamic = "force-dynamic";
@@ -146,6 +147,8 @@ type StoreRow = {
   regular_holidays?: number[] | null;
   /** レギュラー向け本文。未マイグレーション時は null */
   regular_remind_message?: string | null;
+  /** 週間一括入力用デフォルト時刻（未設定時 null） */
+  regular_start_time?: string | null;
 };
 
 async function loadReminderConfig(
@@ -269,12 +272,17 @@ function buildScheduleRemindParts(
     is_sabaki?: boolean | null;
   },
   employmentType: string | null | undefined,
-  regularRemindMessageFromStore: string | null | undefined
+  regularRemindMessageFromStore: string | null | undefined,
+  regularFallbackHm: string | null | undefined
 ): { reminderMessageLine: string; scheduledTimeDisplay: string } {
   if (schedule.is_sabaki === true) {
     return buildSabakiRemindLines(castName);
   }
-  const scheduledTime = formatRemindScheduledTime(schedule.scheduled_time, schedule.is_dohan);
+  const scheduledTime = formatRemindScheduledTime(
+    schedule.scheduled_time,
+    schedule.is_dohan,
+    regularFallbackHm
+  );
   if (employmentUsesRegularRemindMessage(employmentType)) {
     return {
       reminderMessageLine: buildRegularRemindMessageLine(
@@ -355,6 +363,7 @@ async function runRemindForStore(
   }
   const { config, messageTemplate, holidayFlex } = loaded;
   const regularRemindMessageFromStore = store.regular_remind_message;
+  const regularFallbackHm = normalizeDbTimeToShiftOption(store.regular_start_time ?? null) || null;
 
   if (config.enabled === false) {
     console.info(
@@ -478,7 +487,8 @@ async function runRemindForStore(
           name,
           schedule,
           c.employment_type,
-          regularRemindMessageFromStore
+          regularRemindMessageFromStore,
+          regularFallbackHm
         );
         const message = buildAttendanceRemindFlexMessage({
           castName: name,
@@ -501,9 +511,10 @@ async function runRemindForStore(
           rc.name,
           regularRemindMessageFromStore
         );
+        const scheduledNoRowDisplay = formatRemindScheduledTime(null, false, regularFallbackHm);
         const message = buildAttendanceRemindFlexMessage({
           castName: rc.name,
-          scheduledTimeDisplay: "—",
+          scheduledTimeDisplay: scheduledNoRowDisplay,
           todayJst,
           storeName: store.name,
           flexOptions: {
@@ -626,7 +637,8 @@ async function runRemindForStore(
         name,
         schedule,
         c.employment_type,
-        regularRemindMessageFromStore
+        regularRemindMessageFromStore,
+        regularFallbackHm
       );
       const message = buildAttendanceRemindFlexMessage({
         castName: name,
@@ -682,9 +694,10 @@ async function runRemindForStore(
         rc.name,
         regularRemindMessageFromStore
       );
+      const scheduledNoRowDisplay = formatRemindScheduledTime(null, false, regularFallbackHm);
       const message = buildAttendanceRemindFlexMessage({
         castName: rc.name,
-        scheduledTimeDisplay: "—",
+        scheduledTimeDisplay: scheduledNoRowDisplay,
         todayJst,
         storeName: store.name,
         flexOptions: {
@@ -851,7 +864,7 @@ async function handleRemind(request: Request) {
     const { data: store, error: storeErr } = await supabase
       .from("stores")
       .select(
-        "id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays, regular_remind_message"
+        "id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays, regular_remind_message, regular_start_time"
       )
       .eq("id", storeId)
       .single();
@@ -879,7 +892,7 @@ async function handleRemind(request: Request) {
   const { data: stores, error: storesErr } = await supabase
     .from("stores")
     .select(
-      "id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays, regular_remind_message"
+      "id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays, regular_remind_message, regular_start_time"
     );
 
   if (storesErr) {

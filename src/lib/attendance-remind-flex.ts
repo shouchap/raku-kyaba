@@ -1,15 +1,30 @@
 import type { LineReplyMessage } from "@/lib/line-reply";
 
+/** DB／入力値から出勤予定の HH:mm を取り出す（取れなければ null） */
+function extractHourMinuteForRemind(raw: string | null | undefined): string | null {
+  if (raw == null || String(raw).trim() === "") return null;
+  const match = String(raw).trim().match(/^(\d{1,2}):(\d{2})/);
+  return match ? `${match[1]}:${match[2]}` : null;
+}
+
 /**
- * Cron（/api/remind）と単日登録の即時送信で共通の、出勤予定時刻の表示文字列
+ * Cron（/api/remind）と単日登録の即時送信で共通の、出勤予定時刻の表示文字列。
+ * `time` が空のときは `regularFallbackHm`（店舗のレギュラー出勤時間など HH:mm）を表示に使う。
  */
 export function formatRemindScheduledTime(
   time: string | null | undefined,
-  isDohan?: boolean | null
+  isDohan?: boolean | null,
+  regularFallbackHm?: string | null
 ): string {
-  if (!time) return "営業時間";
-  const match = String(time).match(/^(\d{1,2}):(\d{2})/);
-  const base = match ? `${match[1]}:${match[2]}` : "営業時間";
+  const primary = extractHourMinuteForRemind(time);
+  let base = primary ?? null;
+  if (!base) {
+    const fb = regularFallbackHm?.trim() ?? "";
+    if (fb !== "") {
+      base = extractHourMinuteForRemind(fb.includes(":") ? fb : `${fb}:00`);
+    }
+  }
+  if (!base) return "—";
   return isDohan ? `${base}（同伴）` : base;
 }
 
@@ -72,7 +87,7 @@ export function applyReminderMessageTemplate(
       : "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。";
   return safeTpl
     .replace(/\{name\}/g, name ?? "キャスト")
-    .replace(/\{time\}/g, timeStr ?? "営業時間");
+    .replace(/\{time\}/g, timeStr ?? "—");
 }
 
 /** Flex ヘッダー用。空なら「店舗」 */
@@ -92,6 +107,8 @@ export type AttendanceRemindFlexOptions = {
 const COLOR_BRAND_MAGENTA = "#AD1457";
 const COLOR_NAVY = "#1A237E";
 const COLOR_ATTEND_PRIMARY = "#C2185B";
+/** 「同伴」と「出勤」の色を分ける（パープル系） */
+const COLOR_DOHAN_BTN = "#9C27B0";
 const COLOR_LATE_ORANGE = "#EF6C00";
 const COLOR_MUTED_GRAY_BTN = "#90A4AE";
 const COLOR_HEADER_BG = "#FAFAFA";
@@ -198,7 +215,7 @@ function buildFooterButtonRows(flexOptions?: AttendanceRemindFlexOptions): objec
   rows.push(
     row2col(
       flexGridBtn("出勤", "attending", "出勤", COLOR_ATTEND_PRIMARY),
-      showDohan ? flexGridBtn("同伴", "dohan", "同伴", COLOR_ATTEND_PRIMARY) : filler()
+      showDohan ? flexGridBtn("同伴", "dohan", "同伴", COLOR_DOHAN_BTN) : filler()
     )
   );
 
@@ -206,7 +223,7 @@ function buildFooterButtonRows(flexOptions?: AttendanceRemindFlexOptions): objec
   rows.push(
     row2col(
       flexGridBtn("遅刻", "late", "遅刻", COLOR_LATE_ORANGE),
-      flexGridMutedBtn("お休み（欠勤）", "absent", "欠勤")
+      flexGridMutedBtn("欠勤", "absent", "欠勤")
     )
   );
 
