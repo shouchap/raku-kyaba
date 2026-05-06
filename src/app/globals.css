@@ -51,4 +51,23 @@
 /* 管理画面・ログイン共通: 読みやすいベース */
 body {
   -webkit-tap-highlight-color: transparent;
+  font-family:
+    var(--font-inter),
+    var(--font-noto-jp),
+    "Hiragino Kaku Gothic ProN",
+    "Yu Gothic UI",
+    sans-serif;
+  line-height: 1.55;
+}
+
+.app-card {
+  @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+}
+
+.btn-primary {
+  @apply inline-flex min-h-[44px] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700;
+}
+
+.btn-secondary {
+  @apply inline-flex min-h-[40px] items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50;
 }

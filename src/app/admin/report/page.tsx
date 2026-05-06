@@ -11,6 +11,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
+import { BUSINESS_THEME } from "@/lib/business-ui";
 import {
   addCalendarDaysJst,
   getMondayOfJstWeek,
@@ -843,9 +844,58 @@ function AdminReportContent() {
     !attendanceFlowBarExtended || castSubTab === "basic";
 
   const guideMonthRange = useMemo(() => getMonthRangeIso(year, month), [year, month]);
+  const businessTheme = BUSINESS_THEME[businessType];
+
+  const topKpis = useMemo(() => {
+    if (businessType === "welfare_b") {
+      const total = filteredWelfareRows.length;
+      const withWork = filteredWelfareRows.filter(
+        (r) => (r.quantity ?? 0) > 0 || String(r.work_item ?? "").trim() !== ""
+      ).length;
+      return [
+        { label: "出勤記録件数", value: String(total), sub: "表示中の日報レコード" },
+        {
+          label: "作業入力率",
+          value: total > 0 ? `${Math.round((withWork / total) * 100)}%` : "—",
+          sub: total > 0 ? `${withWork}/${total} 件` : "データなし",
+        },
+      ];
+    }
+
+    const castCount = filteredSortedReports.length;
+    const attendance = filteredSortedReports.reduce((sum, r) => sum + r.attendanceDays, 0);
+    const dohan = filteredSortedReports.reduce((sum, r) => sum + r.dohanCount, 0);
+    const planned = filteredSortedReports.reduce((sum, r) => {
+      const p = r.actionDetails.reduce(
+        (v, d) => (typeof d.plannedGroups === "number" ? v + d.plannedGroups : v),
+        0
+      );
+      return sum + p;
+    }, 0);
+    const tentative = filteredSortedReports.reduce((sum, r) => {
+      const t = r.actionDetails.reduce(
+        (v, d) => (typeof d.tentativeGroups === "number" ? v + d.tentativeGroups : v),
+        0
+      );
+      return sum + t;
+    }, 0);
+
+    if (businessType === "bar") {
+      return [
+        { label: "出勤人数", value: String(castCount), sub: "表示中キャスト" },
+        { label: "確定/仮組数", value: `${planned}/${tentative}`, sub: "期間内合計" },
+      ];
+    }
+
+    const dohanRate = attendance > 0 ? `${Math.round((dohan / attendance) * 100)}%` : "—";
+    return [
+      { label: "案内数", value: String(attendance), sub: "出勤日数の合計" },
+      { label: "指名/同伴率", value: dohanRate, sub: `${dohan} / ${attendance}` },
+    ];
+  }, [businessType, filteredSortedReports, filteredWelfareRows]);
 
   return (
-    <div className="admin-report-print-root p-4 sm:p-6">
+    <div className={`admin-report-print-root p-3 sm:p-6 ${businessTheme.pageBackgroundClass}`}>
       <div className="mb-6">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
           {reportTab === "guide"
@@ -864,6 +914,19 @@ function AdminReportContent() {
                 ? " · BAR 拡張フローの行動入力（確定組数・配信・声かけ・SNS 等）のみを表示しています。"
                 : " · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。"}
         </p>
+      </div>
+
+      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 print:hidden">
+        {topKpis.map((kpi) => (
+          <section
+            key={kpi.label}
+            className={`rounded-xl border px-4 py-3 shadow-sm ${businessTheme.reportStatCardClass}`}
+          >
+            <p className={`text-xs font-semibold ${businessTheme.reportStatLabelClass}`}>{kpi.label}</p>
+            <p className="mt-1 text-2xl font-bold tracking-tight">{kpi.value}</p>
+            <p className="mt-1 text-xs opacity-75">{kpi.sub}</p>
+          </section>
+        ))}
       </div>
 
       <div className="mb-6 print:hidden" role="tablist" aria-label="レポート種別">

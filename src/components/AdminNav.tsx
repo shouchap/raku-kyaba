@@ -3,25 +3,52 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut, Menu, X } from "lucide-react";
+import {
+  BarChart3,
+  CalendarClock,
+  ClipboardList,
+  ConciergeBell,
+  LogOut,
+  Menu,
+  Settings,
+  ShieldCheck,
+  UserRound,
+  Users,
+  X,
+} from "lucide-react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
+import { BUSINESS_THEME, type BusinessType } from "@/lib/business-ui";
 
-const NAV_ITEMS = [
-  { href: "/admin/weekly", label: "シフト入力", hideForWelfare: true },
-  { href: "/admin/view", label: "シフト一覧", hideForWelfare: true },
-  { href: "/admin/schedule", label: "単日登録", hideForWelfare: true },
-  {
-    href: "/admin/shifts/special",
-    label: "特別シフト募集",
-    hideForWelfare: true,
-    hideForBar: true,
-  },
-  { href: "/admin/casts", label: "キャスト管理" },
-  { href: "/admin/report", label: "月間レポート" },
-  { href: "/admin/settings", label: "システム設定" },
-] as const;
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof ClipboardList;
+};
 
-const WELFARE_CASTS_LABEL = "利用者管理";
+const NAV_ITEMS_BY_BUSINESS: Record<BusinessType, NavItem[]> = {
+  cabaret: [
+    { href: "/admin/weekly", label: "シフト入力", icon: CalendarClock },
+    { href: "/admin/view", label: "シフト一覧", icon: ClipboardList },
+    { href: "/admin/schedule", label: "単日登録", icon: ConciergeBell },
+    { href: "/admin/shifts/special", label: "特別シフト募集", icon: ShieldCheck },
+    { href: "/admin/casts", label: "キャスト管理", icon: Users },
+    { href: "/admin/report", label: "月間レポート", icon: BarChart3 },
+    { href: "/admin/settings", label: "システム設定", icon: Settings },
+  ],
+  bar: [
+    { href: "/admin/weekly", label: "出勤入力", icon: CalendarClock },
+    { href: "/admin/view", label: "出勤一覧", icon: ClipboardList },
+    { href: "/admin/schedule", label: "単日登録", icon: ConciergeBell },
+    { href: "/admin/casts", label: "キャスト管理", icon: Users },
+    { href: "/admin/report", label: "BARレポート", icon: BarChart3 },
+    { href: "/admin/settings", label: "BAR設定", icon: Settings },
+  ],
+  welfare_b: [
+    { href: "/admin/casts", label: "利用者管理", icon: UserRound },
+    { href: "/admin/report", label: "日報・実績", icon: BarChart3 },
+    { href: "/admin/settings", label: "事業所設定", icon: Settings },
+  ],
+};
 
 type StoreOption = { id: string; name: string };
 
@@ -30,20 +57,20 @@ type Props = {
   activeStoreId: string;
   isSuperAdmin: boolean;
   /** アクティブ店舗の業態（就労B型ではシフト系メニューを隠す） */
-  businessType: "cabaret" | "welfare_b" | "bar";
+  businessType: BusinessType;
 };
 
-function navLinkClass(isActive: boolean, vertical: boolean): string {
+function navLinkClass(isActive: boolean, vertical: boolean, businessType: BusinessType): string {
+  const theme = BUSINESS_THEME[businessType];
   const align = vertical
     ? "justify-start text-left w-full"
     : "justify-center";
   return [
     "flex items-center min-h-[44px] px-4 rounded-lg text-sm font-medium transition-colors touch-manipulation",
     align,
+    "gap-2",
     "border",
-    isActive
-      ? "text-blue-800 bg-blue-50 border-blue-200 shadow-sm"
-      : "text-slate-700 bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100",
+    isActive ? `${theme.navActiveClass} shadow-sm` : theme.navMutedClass,
   ].join(" ");
 }
 
@@ -53,18 +80,9 @@ export default function AdminNav({
   isSuperAdmin,
   businessType,
 }: Props) {
-  const isWelfare = businessType === "welfare_b";
-  const isBar = businessType === "bar";
-  const navEntries = NAV_ITEMS.filter((item) => {
-    if (isWelfare && "hideForWelfare" in item && item.hideForWelfare) return false;
-    if (isBar && "hideForBar" in item && item.hideForBar) return false;
-    return true;
-  }).map((item) =>
-    item.href === "/admin/casts" && isWelfare
-      ? { href: item.href, label: WELFARE_CASTS_LABEL }
-      : { href: item.href, label: item.label }
-  );
-  const homeHref = isWelfare ? "/admin/casts" : "/admin/weekly";
+  const theme = BUSINESS_THEME[businessType];
+  const navEntries = NAV_ITEMS_BY_BUSINESS[businessType];
+  const homeHref = businessType === "welfare_b" ? "/admin/casts" : "/admin/weekly";
   const pathname = usePathname();
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -129,9 +147,10 @@ export default function AdminNav({
           <Link
             key={item.href}
             href={item.href}
-            className={navLinkClass(isActive, vertical)}
+            className={navLinkClass(isActive, vertical, businessType)}
             onClick={() => setMobileMenuOpen(false)}
           >
+            <item.icon className="h-4 w-4 shrink-0" />
             {item.label}
           </Link>
         );
@@ -143,17 +162,18 @@ export default function AdminNav({
             vertical
               ? `flex items-center min-h-[44px] px-4 rounded-lg text-sm font-medium w-full text-left justify-start touch-manipulation border ${
                   pathname === "/admin/stores"
-                    ? "text-amber-900 bg-amber-50 border-amber-200"
-                    : "text-amber-800 bg-amber-50/50 border-amber-200/80 hover:bg-amber-50"
+                    ? `${theme.navActiveClass}`
+                    : `${theme.navMutedClass}`
                 }`
               : `px-3 py-2 rounded-lg text-sm font-medium transition-colors border min-h-[40px] inline-flex items-center touch-manipulation ${
                   pathname === "/admin/stores"
-                    ? "text-amber-900 bg-amber-50 border-amber-200"
-                    : "text-amber-800 border-amber-200/80 hover:bg-amber-50/80"
+                    ? `${theme.navActiveClass}`
+                    : `${theme.navMutedClass}`
                 }`
           }
           onClick={() => setMobileMenuOpen(false)}
         >
+          <ShieldCheck className="h-4 w-4 mr-1.5" />
           店舗管理
         </Link>
       )}
@@ -161,12 +181,14 @@ export default function AdminNav({
   );
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200/90 bg-white/95 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-white/90 [padding-top:max(0.5rem,env(safe-area-inset-top))] print:hidden">
+    <header
+      className={`sticky top-0 z-50 border-b shadow-sm backdrop-blur-md [padding-top:max(0.5rem,env(safe-area-inset-top))] print:hidden ${theme.headerClass}`}
+    >
       <div className="mx-auto max-w-6xl px-3 sm:px-5">
         <div className="flex items-center gap-2 sm:gap-3 py-2.5 sm:py-3">
           <button
             type="button"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 md:hidden touch-manipulation"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-current/20 bg-white/30 text-current shadow-sm hover:bg-white/40 md:hidden touch-manipulation"
             aria-expanded={mobileMenuOpen}
             aria-controls="admin-mobile-menu"
             aria-label={mobileMenuOpen ? "メニューを閉じる" : "メニューを開く"}
@@ -179,10 +201,10 @@ export default function AdminNav({
             href={homeHref}
             className="hidden shrink-0 sm:flex flex-col leading-tight"
           >
-            <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+            <span className="text-[10px] font-medium uppercase tracking-wider opacity-70">
               Portal
             </span>
-            <span className="text-base font-bold tracking-tight text-slate-900">
+            <span className="text-base font-bold tracking-tight">
               Raku STAFF
             </span>
           </Link>
@@ -197,7 +219,7 @@ export default function AdminNav({
                   id="admin-store-select"
                   value={activeStoreId}
                   onChange={handleStoreChange}
-                  className="h-11 w-full min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 sm:max-w-md"
+                  className="h-11 w-full min-w-0 max-w-full rounded-lg border border-current/20 bg-white/80 px-3 text-sm font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 sm:max-w-md"
                   title={currentLabel}
                 >
                   {stores.length === 0 ? (
@@ -213,7 +235,7 @@ export default function AdminNav({
               </>
             ) : (
               <div
-                className="flex h-11 min-w-0 max-w-full items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-800 sm:max-w-md"
+                className="flex h-11 min-w-0 max-w-full items-center rounded-lg border border-current/20 bg-white/40 px-3 text-sm font-medium sm:max-w-md"
                 title={currentLabel}
               >
                 <span className="truncate">{currentLabel}</span>
@@ -224,7 +246,7 @@ export default function AdminNav({
           <button
             type="button"
             onClick={handleLogout}
-            className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 touch-manipulation"
+            className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg border border-current/20 bg-white/70 px-3 text-sm font-medium shadow-sm hover:bg-white touch-manipulation"
           >
             <LogOut className="h-4 w-4 sm:hidden" strokeWidth={2} />
             <span className="hidden sm:inline">ログアウト</span>
@@ -234,7 +256,7 @@ export default function AdminNav({
         {/* スマホ: 展開メニュー */}
         <div
           id="admin-mobile-menu"
-          className={`border-t border-slate-100 bg-slate-50/80 md:hidden ${
+          className={`border-t border-current/10 bg-white/50 md:hidden ${
             mobileMenuOpen ? "block" : "hidden"
           }`}
         >
@@ -248,7 +270,7 @@ export default function AdminNav({
 
         {/* デスクトップ: 横並びメニュー */}
         <nav
-          className="hidden flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/50 px-1 py-2.5 md:flex"
+          className="hidden flex-wrap items-center gap-2 border-t border-current/10 bg-white/40 px-1 py-2.5 md:flex"
           aria-label="管理メニュー"
         >
           <NavLinks vertical={false} />

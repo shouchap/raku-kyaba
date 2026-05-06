@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { Info } from "lucide-react";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { DEFAULT_REGULAR_REMIND_BODY } from "@/lib/remind-employment";
 import {
@@ -41,6 +43,20 @@ type GuideReporterCandidate = {
   name: string;
   line_user_id: string | null;
 };
+
+type SettingsCategory = "store" | "line" | "feature" | "admin";
+
+function HelpTip({ text }: { text: string }) {
+  return (
+    <span
+      className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-gray-300 text-gray-500"
+      title={text}
+      aria-label={text}
+    >
+      <Info className="h-3 w-3" />
+    </span>
+  );
+}
 
 const DEFAULT_CONFIG: ReminderConfig = {
   enabled: true,
@@ -127,6 +143,7 @@ export default function AdminSettingsPage() {
   const [isGuideMasterEnabled, setIsGuideMasterEnabled] = useState(true);
   /** 同伴・捌きの管理機能（週間/単日シフトのUI出し分け） */
   const [isDohanSabakiEnabled, setIsDohanSabakiEnabled] = useState(true);
+  const [category, setCategory] = useState<SettingsCategory>("store");
 
   const fetchConfig = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
@@ -793,12 +810,41 @@ export default function AdminSettingsPage() {
           </p>
         </div>
 
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            { key: "store", label: "店舗基本設定" },
+            { key: "line", label: "LINE連携・通知" },
+            { key: "feature", label: "業態別機能" },
+            { key: "admin", label: "権限・管理者" },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setCategory(tab.key as SettingsCategory)}
+              className={`rounded-lg border px-3 py-2 text-xs sm:text-sm font-semibold transition ${
+                category === tab.key
+                  ? "border-blue-300 bg-blue-50 text-blue-900"
+                  : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
         <form
           onSubmit={handleSave}
-          className="rounded-lg border border-gray-200 bg-white shadow-sm p-4 sm:p-6"
+          className="rounded-lg border border-gray-200 bg-white shadow-sm p-4 sm:p-6 space-y-8"
         >
-          <div className="mb-8 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-4">
-            <h3 className="text-sm font-medium text-gray-900 mb-3">業態</h3>
+          <section
+            id="settings-store"
+            className={category === "store" ? "space-y-6" : "hidden"}
+          >
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-4">
+            <h3 className="text-sm font-medium text-gray-900 mb-3 inline-flex items-center gap-1.5">
+              業態
+              <HelpTip text="業態に応じて管理画面のメニュー色・表示項目が切り替わります。" />
+            </h3>
             <p className="text-xs text-gray-600 mb-4">
               キャバクラ・BAR・福祉で、LINEのリマインドやヒアリングの挙動、および日報のデータ構造が異なります。店舗の業態に合わせて正しく選択してください。
             </p>
@@ -835,8 +881,9 @@ export default function AdminSettingsPage() {
               </label>
             </div>
           </div>
+          </section>
 
-          {businessType === "welfare_b" ? (
+          {category !== "admin" && (businessType === "welfare_b" ? (
             <>
               <h2 className="text-sm font-medium text-gray-700 mb-6">
                 B型・定期配信メッセージ
@@ -1635,6 +1682,26 @@ export default function AdminSettingsPage() {
             </button>
           </div>
             </>
+          ))}
+
+          {category === "admin" && (
+            <section className="rounded-lg border border-gray-200 bg-gray-50/70 p-4 sm:p-5">
+              <h3 className="text-sm font-semibold text-gray-900 inline-flex items-center gap-1.5">
+                権限・管理者設定
+                <HelpTip text="管理者アカウント・店舗割当の変更は管理画面から実施します。" />
+              </h3>
+              <p className="mt-2 text-sm text-gray-600">
+                管理者権限の追加・店舗割当・パスワード管理は以下のページで行います。
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link href="/admin/stores" className="btn-secondary">
+                  店舗/管理者設定へ
+                </Link>
+                <Link href="/admin/casts" className="btn-secondary">
+                  利用者・キャスト管理へ
+                </Link>
+              </div>
+            </section>
           )}
         </form>
 
