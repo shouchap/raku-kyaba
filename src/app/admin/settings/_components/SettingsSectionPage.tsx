@@ -7,6 +7,7 @@ import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { DEFAULT_REGULAR_REMIND_BODY } from "@/lib/remind-employment";
 import { TIME_OPTIONS } from "@/lib/time-options";
 import { canonicalGuideHearingTime } from "@/lib/guide-hearing";
+import { DEFAULT_CUSTOM_TERMS, resolveCustomTerms, serializeCustomTerms } from "@/lib/custom-terms";
 
 type Section = "store" | "line" | "features" | "admins";
 type BusinessType = "cabaret" | "welfare_b" | "bar";
@@ -81,6 +82,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [attendanceFlowType, setAttendanceFlowType] = useState<"default" | "bar_extended">("default");
   const [isGuideMasterEnabled, setIsGuideMasterEnabled] = useState(true);
   const [isDohanSabakiEnabled, setIsDohanSabakiEnabled] = useState(true);
+  const [termAttendance, setTermAttendance] = useState(DEFAULT_CUSTOM_TERMS.term_attendance);
+  const [termCast, setTermCast] = useState(DEFAULT_CUSTOM_TERMS.term_cast);
 
   const [guideHearingEnabled, setGuideHearingEnabled] = useState(false);
   const [guideHearingTime, setGuideHearingTime] = useState("02:00");
@@ -115,6 +118,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       guideHearingEnabled,
       guideHearingTime,
       guideHearingReporterId,
+      termAttendance,
+      termCast,
     });
   }, [
     businessType,
@@ -136,6 +141,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     guideHearingEnabled,
     guideHearingTime,
     guideHearingReporterId,
+    termAttendance,
+    termCast,
   ]);
 
   const isDirty = useMemo(
@@ -182,6 +189,9 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setAttendanceFlowType(data.attendance_flow_type === "bar_extended" ? "bar_extended" : "default");
       setIsGuideMasterEnabled(data.is_guide_enabled !== false);
       setIsDohanSabakiEnabled(data.is_dohan_sabaki_enabled !== false);
+      const terms = resolveCustomTerms(data.custom_terms);
+      setTermAttendance(terms.term_attendance);
+      setTermCast(terms.term_cast);
       setPreOpenReportHourJst(
         typeof data.pre_open_report_hour_jst === "number" ? String(data.pre_open_report_hour_jst) : ""
       );
@@ -277,6 +287,10 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           attendance_flow_type: attendanceFlowType,
           is_guide_enabled: isGuideMasterEnabled,
           is_dohan_sabaki_enabled: isDohanSabakiEnabled,
+          custom_terms: serializeCustomTerms({
+            term_attendance: termAttendance,
+            term_cast: termCast,
+          }),
         }),
       });
       if (!res.ok) throw new Error("設定保存に失敗しました");
@@ -319,6 +333,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     attendanceFlowType,
     isGuideMasterEnabled,
     isDohanSabakiEnabled,
+    termAttendance,
+    termCast,
     guideHearingEnabled,
     guideHearingTime,
     guideHearingReporterId,
@@ -417,6 +433,32 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                   {bt === "cabaret" ? "キャバクラ" : bt === "bar" ? "BAR" : "福祉"}
                 </label>
               ))}
+            </div>
+          </section>
+          <section className="app-card p-4">
+            <h2 className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1.5">
+              表示ラベル設定
+              <Tip text="レポート・ナビの『出勤』『キャスト』表記を店舗ごとに調整できます。" />
+            </h2>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm">
+                出勤ラベル
+                <input
+                  value={termAttendance}
+                  onChange={(e) => setTermAttendance(e.target.value)}
+                  placeholder="出勤"
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm">
+                キャストラベル
+                <input
+                  value={termCast}
+                  onChange={(e) => setTermCast(e.target.value)}
+                  placeholder="キャスト"
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
             </div>
           </section>
           <section className="app-card p-4">

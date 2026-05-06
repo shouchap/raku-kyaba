@@ -8,6 +8,8 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getStoreAdminStoreIdFromUser } from "@/lib/roles";
 import { isSuperAdminUser } from "@/lib/super-admin";
 import { BUSINESS_THEME, normalizeBusinessType } from "@/lib/business-ui";
+import { resolveCustomTerms } from "@/lib/custom-terms";
+import { isUndefinedColumnError } from "@/lib/postgrest-error";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +30,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   let stores: { id: string; name: string }[] = [];
   let isSuperAdmin = false;
   let businessType: "cabaret" | "welfare_b" | "bar" = "cabaret";
+  let customTerms = resolveCustomTerms(null);
   try {
     const supabase = await createSupabaseServerClient();
     const {
@@ -48,13 +51,23 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     }
 
     if (activeStoreId) {
-      const { data: btRow } = await admin
+      const btWithTerms = await admin
         .from("stores")
-        .select("business_type")
+      .select("business_type, custom_terms")
         .eq("id", activeStoreId)
         .maybeSingle();
-      const bt = (btRow as { business_type?: string | null } | null)?.business_type;
+      let btRow = btWithTerms.data as { business_type?: string | null; custom_terms?: unknown } | null;
+      if (btWithTerms.error && isUndefinedColumnError(btWithTerms.error, "custom_terms")) {
+        const legacy = await admin
+          .from("stores")
+          .select("business_type")
+          .eq("id", activeStoreId)
+          .maybeSingle();
+        btRow = legacy.data as { business_type?: string | null; custom_terms?: unknown } | null;
+      }
+      const bt = btRow?.business_type;
       businessType = normalizeBusinessType(bt);
+      customTerms = resolveCustomTerms(btRow?.custom_terms);
     }
   } catch {
     // SUPABASE_SERVICE_ROLE_KEY 未設定時など
@@ -81,6 +94,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           activeStoreId={activeStoreId}
           isSuperAdmin={isSuperAdmin}
           businessType={businessType}
+          customTerms={customTerms}
         />
         <main className="flex-1 w-full px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pt-6 lg:px-8 lg:pt-8 print:p-0 print:pb-0">
           <div

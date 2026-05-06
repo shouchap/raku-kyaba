@@ -7,6 +7,7 @@ import { isSuperAdminUser } from "@/lib/super-admin";
 import { isUndefinedColumnError, logPostgrestError } from "@/lib/postgrest-error";
 import { DEFAULT_REGULAR_REMIND_BODY } from "@/lib/remind-employment";
 import { isAllowedShiftTime, normalizeDbTimeToShiftOption } from "@/lib/time-options";
+import { resolveCustomTerms, serializeCustomTerms } from "@/lib/custom-terms";
 
 export const dynamic = "force-dynamic";
 
@@ -393,6 +394,7 @@ export async function GET(request: Request) {
     let welfare_message_evening: string | null = null;
     let welfare_message_welcome: string | null = null;
     let welfare_work_items: string | null = null;
+    let customTerms = serializeCustomTerms(resolveCustomTerms(null));
 
     const welfareRes = await admin
       .from("stores")
@@ -506,7 +508,7 @@ export async function GET(request: Request) {
     let isDohanSabakiEnabled = true;
     const barFlagsRes = await admin
       .from("stores")
-      .select("ask_guest_name, ask_guest_time, is_guide_enabled, is_dohan_sabaki_enabled")
+      .select("ask_guest_name, ask_guest_time, is_guide_enabled, is_dohan_sabaki_enabled, custom_terms")
       .eq("id", storeId)
       .maybeSingle();
     if (!barFlagsRes.error && barFlagsRes.data) {
@@ -515,11 +517,13 @@ export async function GET(request: Request) {
         ask_guest_time?: boolean | null;
         is_guide_enabled?: boolean | null;
         is_dohan_sabaki_enabled?: boolean | null;
+        custom_terms?: unknown;
       };
       askGuestName = bf.ask_guest_name !== false;
       askGuestTime = bf.ask_guest_time === true;
       isGuideEnabled = bf.is_guide_enabled !== false;
       isDohanSabakiEnabled = bf.is_dohan_sabaki_enabled !== false;
+      customTerms = serializeCustomTerms(resolveCustomTerms(bf.custom_terms));
     } else if (
       barFlagsRes.error &&
       isUndefinedColumnError(barFlagsRes.error, "is_guide_enabled")
@@ -583,6 +587,7 @@ export async function GET(request: Request) {
       ask_guest_time: askGuestTime,
       is_guide_enabled: isGuideEnabled,
       is_dohan_sabaki_enabled: isDohanSabakiEnabled,
+      custom_terms: customTerms,
       enable_public_holiday: settingsRow?.enable_public_holiday === true,
       enable_half_holiday: settingsRow?.enable_half_holiday === true,
       regular_holidays: regularHolidays,
@@ -641,6 +646,10 @@ type PatchBody = {
   is_guide_enabled?: boolean;
   /** 同伴・捌き管理機能の店舗マスターON/OFF（044） */
   is_dohan_sabaki_enabled?: boolean;
+  custom_terms?: {
+    term_attendance?: string;
+    term_cast?: string;
+  };
 };
 
 /**
@@ -912,6 +921,14 @@ export async function PATCH(request: Request) {
     body.attendance_flow_type === "default" || body.attendance_flow_type === "bar_extended";
   const isGuideEnabledProvided = typeof body.is_guide_enabled === "boolean";
   const isDohanSabakiEnabledProvided = typeof body.is_dohan_sabaki_enabled === "boolean";
+  const customTermsProvided =
+    body.custom_terms !== undefined &&
+    body.custom_terms !== null &&
+    typeof body.custom_terms === "object" &&
+    !Array.isArray(body.custom_terms);
+  if (body.custom_terms !== undefined && !customTermsProvided) {
+    return NextResponse.json({ error: "custom_terms must be an object" }, { status: 400 });
+  }
 
   if (preOpenReportHourProvided) {
     const v = body.pre_open_report_hour_jst;
@@ -1119,7 +1136,7 @@ export async function PATCH(request: Request) {
       }
     }
 
-    const storePayload: Record<string, string | boolean | number | number[] | null> = {
+    const storePayload: Record<string, unknown> = {
       remind_time: remindTime,
       updated_at: nowIso,
     };
@@ -1166,6 +1183,9 @@ export async function PATCH(request: Request) {
     }
     if (isDohanSabakiEnabledProvided) {
       storePayload.is_dohan_sabaki_enabled = body.is_dohan_sabaki_enabled as boolean;
+    }
+    if (customTermsProvided) {
+      storePayload.custom_terms = serializeCustomTerms(resolveCustomTerms(body.custom_terms));
     }
 
     const storeRes = await admin.from("stores").update(storePayload).eq("id", storeId);

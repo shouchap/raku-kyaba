@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { BUSINESS_THEME, type BusinessType } from "@/lib/business-ui";
+import type { CustomTerms } from "@/lib/custom-terms";
 
 type NavItem = {
   href: string;
@@ -58,6 +59,7 @@ type Props = {
   isSuperAdmin: boolean;
   /** アクティブ店舗の業態（就労B型ではシフト系メニューを隠す） */
   businessType: BusinessType;
+  customTerms: CustomTerms;
 };
 
 function navLinkClass(isActive: boolean, vertical: boolean, businessType: BusinessType): string {
@@ -79,9 +81,15 @@ export default function AdminNav({
   activeStoreId,
   isSuperAdmin,
   businessType,
+  customTerms,
 }: Props) {
   const theme = BUSINESS_THEME[businessType];
-  const navEntries = NAV_ITEMS_BY_BUSINESS[businessType];
+  const navEntries = NAV_ITEMS_BY_BUSINESS[businessType].map((item) => {
+    if (item.href === "/admin/casts") return { ...item, label: `${customTerms.term_cast}管理` };
+    if (item.href === "/admin/report")
+      return { ...item, label: `${customTerms.term_cast}${customTerms.term_attendance}レポート` };
+    return item;
+  });
   const homeHref = businessType === "welfare_b" ? "/admin/casts" : "/admin/weekly";
   const pathname = usePathname();
   const router = useRouter();

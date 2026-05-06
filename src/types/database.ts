@@ -73,6 +73,8 @@ export interface Database {
           is_guide_enabled: boolean;
           /** 同伴・捌き管理機能を店舗で利用するか（044） */
           is_dohan_sabaki_enabled: boolean;
+          /** 店舗ごとの画面表示用語（出勤/キャスト など） */
+          custom_terms: Json;
           created_at: string;
           updated_at: string;
         };
@@ -103,6 +105,7 @@ export interface Database {
           | "guide_staff_names"
           | "is_guide_enabled"
           | "is_dohan_sabaki_enabled"
+          | "custom_terms"
           | "ask_guest_name"
           | "ask_guest_time"
           | "attendance_flow_type"
@@ -132,6 +135,7 @@ export interface Database {
           guide_staff_names?: string[];
           is_guide_enabled?: boolean;
           is_dohan_sabaki_enabled?: boolean;
+          custom_terms?: Json;
           ask_guest_name?: boolean;
           ask_guest_time?: boolean;
           attendance_flow_type?: string;

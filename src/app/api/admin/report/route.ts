@@ -127,17 +127,22 @@ export async function GET(request: Request) {
     regular_holidays?: unknown;
     is_guide_enabled?: boolean | null;
     attendance_flow_type?: string | null;
+    custom_terms?: unknown;
   };
 
   let storeRow: ReportStoreRow | null = null;
 
   const fullStoreRes = await admin
     .from("stores")
-    .select("id, name, business_type, regular_holidays, is_guide_enabled, attendance_flow_type")
+    .select("id, name, business_type, regular_holidays, is_guide_enabled, attendance_flow_type, custom_terms")
     .eq("id", storeId)
     .maybeSingle();
 
-  if (fullStoreRes.error && isUndefinedColumnError(fullStoreRes.error, "is_guide_enabled")) {
+  if (
+    fullStoreRes.error &&
+    (isUndefinedColumnError(fullStoreRes.error, "is_guide_enabled") ||
+      isUndefinedColumnError(fullStoreRes.error, "custom_terms"))
+  ) {
     const legacy = await admin
       .from("stores")
       .select("id, name, business_type, regular_holidays, attendance_flow_type")
@@ -175,6 +180,7 @@ export async function GET(request: Request) {
     name: String(storeRow.name ?? ""),
     is_guide_enabled: storeRow.is_guide_enabled !== false,
     attendance_flow_type: String(storeRow.attendance_flow_type ?? "default"),
+    custom_terms: storeRow.custom_terms ?? null,
   };
 
   if (businessType !== "welfare_b") {

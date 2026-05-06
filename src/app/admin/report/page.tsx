@@ -12,6 +12,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { BUSINESS_THEME } from "@/lib/business-ui";
+import { resolveCustomTerms } from "@/lib/custom-terms";
 import {
   addCalendarDaysJst,
   getMondayOfJstWeek,
@@ -32,6 +33,7 @@ type Store = {
   /** stores.is_guide_enabled（undefined は既定で ON とみなす） */
   is_guide_enabled?: boolean | null;
   attendance_flow_type?: string | null;
+  custom_terms?: unknown;
 };
 
 /** GET /api/admin/report の welfare 行（B型） */
@@ -835,8 +837,9 @@ function AdminReportContent() {
 
   /** BAR拡張または案内数OFFのときは案内数タブ自体を出さない */
   const guideTabVisible =
-    store == null ||
-    (store.is_guide_enabled !== false && store.attendance_flow_type !== "bar_extended");
+    businessType !== "welfare_b" &&
+    (store == null ||
+      (store.is_guide_enabled !== false && store.attendance_flow_type !== "bar_extended"));
   const attendanceFlowBarExtended = store?.attendance_flow_type === "bar_extended";
 
   /** 基本勤怠サマリー表: BAR行動モードでは非表示（排他） */
@@ -845,6 +848,9 @@ function AdminReportContent() {
 
   const guideMonthRange = useMemo(() => getMonthRangeIso(year, month), [year, month]);
   const businessTheme = BUSINESS_THEME[businessType];
+  const customTerms = useMemo(() => resolveCustomTerms(store?.custom_terms), [store?.custom_terms]);
+  const castLabel = customTerms.term_cast;
+  const attendanceLabel = customTerms.term_attendance;
 
   const topKpis = useMemo(() => {
     if (businessType === "welfare_b") {
@@ -853,7 +859,7 @@ function AdminReportContent() {
         (r) => (r.quantity ?? 0) > 0 || String(r.work_item ?? "").trim() !== ""
       ).length;
       return [
-        { label: "出勤記録件数", value: String(total), sub: "表示中の日報レコード" },
+        { label: `${attendanceLabel}記録件数`, value: String(total), sub: "表示中の日報レコード" },
         {
           label: "作業入力率",
           value: total > 0 ? `${Math.round((withWork / total) * 100)}%` : "—",
@@ -882,7 +888,7 @@ function AdminReportContent() {
 
     if (businessType === "bar") {
       return [
-        { label: "出勤人数", value: String(castCount), sub: "表示中キャスト" },
+        { label: `${attendanceLabel}人数`, value: String(castCount), sub: `表示中${castLabel}` },
         { label: "確定/仮組数", value: `${planned}/${tentative}`, sub: "期間内合計" },
       ];
     }
@@ -892,7 +898,7 @@ function AdminReportContent() {
       { label: "案内数", value: String(attendance), sub: "出勤日数の合計" },
       { label: "指名/同伴率", value: dohanRate, sub: `${dohan} / ${attendance}` },
     ];
-  }, [businessType, filteredSortedReports, filteredWelfareRows]);
+  }, [businessType, filteredSortedReports, filteredWelfareRows, attendanceLabel, castLabel]);
 
   return (
     <div className={`admin-report-print-root p-3 sm:p-6 ${businessTheme.pageBackgroundClass}`}>
@@ -902,7 +908,7 @@ function AdminReportContent() {
             ? "案内数レポート（月間）"
             : businessType === "welfare_b"
               ? `日報一覧（${periodKindLabel}）`
-              : `レポート（${periodKindLabel}集計）`}
+              : `${castLabel}${attendanceLabel}レポート（${periodKindLabel}集計）`}
         </h1>
         <p className="mt-1 text-sm text-gray-600 print:text-xs">
           {store?.name ?? "店舗"}
@@ -942,7 +948,9 @@ function AdminReportContent() {
                 : "text-gray-600 hover:text-gray-900"
             }`}
           >
-            キャスト出勤レポート
+            {castLabel}
+            {attendanceLabel}
+            レポート
           </button>
           {guideTabVisible && (
             <button
@@ -1008,7 +1016,7 @@ function AdminReportContent() {
             htmlFor="report-cast-filter"
             className="text-sm font-medium text-gray-700 whitespace-nowrap"
           >
-            利用者で絞り込む
+            {castLabel}で絞り込む
           </label>
           <select
             id="report-cast-filter"
@@ -1069,7 +1077,7 @@ function AdminReportContent() {
           <div
             className="mb-4 print:hidden"
             role="tablist"
-            aria-label="キャスト出勤レポートの表示切替"
+            aria-label={`${castLabel}${attendanceLabel}レポートの表示切替`}
           >
             <p className="text-xs font-medium text-gray-500 mb-2">出勤レポートの見え方</p>
             <div className="inline-flex rounded-xl border border-slate-200/90 bg-slate-100/70 p-1 shadow-inner">
@@ -1401,12 +1409,12 @@ function AdminReportContent() {
                     onClick={() => toggleSort("attendance")}
                     className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
                   >
-                    出勤日数
+                    {attendanceLabel}日数
                     {sortKey === "attendance" &&
                       (sortDir === "asc" ? " ↑" : " ↓")}
                   </button>
                   <span className="hidden font-semibold text-gray-900 print:inline">
-                    出勤日数
+                    {attendanceLabel}日数
                   </span>
                 </th>
                 <th className="px-3 py-3 text-right">

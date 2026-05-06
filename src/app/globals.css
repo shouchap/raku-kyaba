@@ -60,6 +60,22 @@ body {
   line-height: 1.55;
 }
 
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select,
+textarea {
+  color: rgb(15 23 42);
+  background-color: rgb(255 255 255);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):disabled,
+select:disabled,
+textarea:disabled {
+  color: rgb(71 85 105);
+  background-color: rgb(241 245 249);
+  border-color: rgb(203 213 225);
+  opacity: 1;
+}
+
 .app-card {
   @apply rounded-xl border border-slate-200 bg-white shadow-sm;
 }
