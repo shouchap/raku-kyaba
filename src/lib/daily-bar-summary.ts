@@ -67,6 +67,22 @@ function reasonForStatus(s: DailyBarSummaryScheduleRow | undefined, status: stri
   }
 }
 
+function sumTotalGroups(logs: DailyBarSummaryLogRow[]): {
+  totalPlannedGroups: number;
+  totalTentativeGroups: number;
+} {
+  return logs.reduce(
+    (acc, row) => {
+      const p = row.planned_groups;
+      const t = row.tentative_groups;
+      acc.totalPlannedGroups += typeof p === "number" && Number.isFinite(p) ? p : 0;
+      acc.totalTentativeGroups += typeof t === "number" && Number.isFinite(t) ? t : 0;
+      return acc;
+    },
+    { totalPlannedGroups: 0, totalTentativeGroups: 0 }
+  );
+}
+
 function formatCastSectionLine(params: {
   headerTag: string;
   castName: string;
@@ -126,6 +142,7 @@ export type DailyBarSummaryBuildInput = {
 export function buildDailyBarSummaryBody(input: DailyBarSummaryBuildInput): string {
   const { dateYmd, logs, nameByCastId, scheduleByCast } = input;
   const dateJa = formatJaDateFromYmdForBarSummary(dateYmd);
+  const { totalPlannedGroups, totalTentativeGroups } = sumTotalGroups(logs);
 
   const attending = logs.filter((l) => String(l.status ?? "") === "attending");
   const others = logs.filter((l) => String(l.status ?? "") !== "attending");
@@ -140,6 +157,7 @@ export function buildDailyBarSummaryBody(input: DailyBarSummaryBuildInput): stri
   const lines: string[] = [
     "【営業前サマリー（日報）】",
     `📅 ${dateJa}`,
+    `📊 全体組数: 確定 ${totalPlannedGroups}組 / 仮 ${totalTentativeGroups}組`,
     "",
     "■ 出勤・同伴キャスト",
   ];
