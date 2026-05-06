@@ -19,7 +19,7 @@ import {
 } from "@/lib/date-utils";
 import { ChevronDown, ChevronRight, Printer } from "lucide-react";
 import { GuideReportTab } from "./GuideReportTab";
-import { AttendanceLogEditModal } from "./AttendanceLogEditModal";
+import { CastAttendanceManualModal } from "./CastAttendanceManualModal";
 import type { ReportAttendanceLogPeriodRow } from "@/app/api/admin/report/route";
 import "./report-print.css";
 
@@ -185,14 +185,6 @@ function barSegmentColumns(segments: { kind: string; detail: string }[]): {
 }
 
 /** 日別タブ用: 2026年4月3日 */
-function pickAttendanceLogForYmd(
-  logs: ReportAttendanceLogPeriodRow[] | undefined,
-  ymd: string
-): ReportAttendanceLogPeriodRow | null {
-  const hit = logs?.find((l) => l.attendedDate === ymd);
-  return hit ?? null;
-}
-
 function formatJaFullDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   if (!y || !m || !d) return dateStr;
@@ -482,10 +474,9 @@ function AdminReportContent() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   /** 空文字 = 全員表示 */
   const [filterCastId, setFilterCastId] = useState("");
-  const [attendanceLogModal, setAttendanceLogModal] = useState<{
+  const [castAttendanceModal, setCastAttendanceModal] = useState<{
+    castId: string;
     castName: string;
-    log: ReportAttendanceLogPeriodRow;
-    initialPanel?: "edit" | "history";
   } | null>(null);
 
   /** 案内数レポート非対応店舗（OFF / BAR拡張）で tab=guide のときキャスト側へ戻す */
@@ -1297,7 +1288,7 @@ function AdminReportContent() {
         <>
         {showBasicAttendanceTable && (
         <div className="report-table-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
-          <table className="report-table min-w-[880px] w-full text-left text-sm">
+          <table className="report-table min-w-[980px] w-full text-left text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="print:hidden px-1 py-3 w-10" />
@@ -1313,6 +1304,9 @@ function AdminReportContent() {
                   <span className="hidden font-semibold text-gray-900 print:inline">
                     利用者名
                   </span>
+                </th>
+                <th className="print:hidden px-2 py-3 text-left min-w-[12rem]">
+                  <span className="text-xs font-semibold text-gray-800">手動編集</span>
                 </th>
                 <th className="px-3 py-3 text-right">
                   <button
@@ -1429,7 +1423,7 @@ function AdminReportContent() {
               {sortedReports.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={11}
                     className="px-3 py-8 text-center text-gray-500"
                   >
                     {emptyMessage}
@@ -1438,7 +1432,7 @@ function AdminReportContent() {
               ) : filteredSortedReports.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={11}
                     className="px-3 py-8 text-center text-gray-500"
                   >
                     {filterEmptyMessage}
@@ -1483,6 +1477,23 @@ function AdminReportContent() {
                             )}
                           </span>
                         </td>
+                        <td className="print:hidden px-2 py-2 align-middle">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCastAttendanceModal({
+                                castId: r.castId,
+                                castName: r.name,
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg border-2 border-indigo-400 bg-indigo-50 px-2.5 py-2 text-left text-[11px] sm:text-xs font-bold text-indigo-950 shadow-sm hover:bg-indigo-100 leading-snug max-w-[14rem]"
+                          >
+                            <span className="text-base shrink-0" aria-hidden>
+                              🛠️
+                            </span>
+                            <span>このキャストの勤怠を手動で編集・追加</span>
+                          </button>
+                        </td>
                         <td className="px-3 py-3 text-right tabular-nums">
                           {r.attendanceDays}
                         </td>
@@ -1516,72 +1527,23 @@ function AdminReportContent() {
                         <tr
                           className={`report-detail-row bg-gray-50/90 ${open ? "" : "hidden"}`}
                         >
-                          <td colSpan={10} className="px-4 py-3 text-sm text-gray-700">
+                          <td colSpan={11} className="px-4 py-3 text-sm text-gray-700">
                             <ul className="space-y-2 pl-2 border-l-2 border-blue-200">
                               {r.sabakiDates.length > 0 && (
-                                <>
-                                  <li className="list-none text-amber-950 mb-1">
-                                    <span className="inline-flex items-center gap-1.5">
-                                      <span
-                                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-amber-600 bg-amber-100 text-xs font-bold text-amber-900"
-                                        aria-hidden
-                                      >
-                                        捌
-                                      </span>
-                                      <span className="font-medium">捌き出勤（日ごと）</span>
+                                <li className="list-none text-amber-950">
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <span
+                                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-amber-600 bg-amber-100 text-xs font-bold text-amber-900"
+                                      aria-hidden
+                                    >
+                                      捌
                                     </span>
-                                  </li>
-                                  {[...r.sabakiDates].sort().map((dateStr) => {
-                                    const logHit = pickAttendanceLogForYmd(
-                                      r.attendanceLogsInPeriod,
-                                      dateStr
-                                    );
-                                    return (
-                                      <li
-                                        key={`sabaki-log-${dateStr}`}
-                                        className="list-none flex flex-wrap items-start gap-x-3 gap-y-1 justify-between border-b border-amber-100/80 pb-2 last:border-0 last:pb-0"
-                                      >
-                                        <span className="text-amber-950">
-                                          {formatJaMonthDay(dateStr)}
-                                        </span>
-                                        {logHit ? (
-                                          <span className="print:hidden inline-flex flex-wrap gap-1 shrink-0">
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setAttendanceLogModal({
-                                                  castName: r.name,
-                                                  log: logHit,
-                                                  initialPanel: "edit",
-                                                })
-                                              }
-                                              className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-50"
-                                            >
-                                              編集
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setAttendanceLogModal({
-                                                  castName: r.name,
-                                                  log: logHit,
-                                                  initialPanel: "history",
-                                                })
-                                              }
-                                              className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                                            >
-                                              履歴
-                                            </button>
-                                          </span>
-                                        ) : (
-                                          <span className="text-[11px] text-gray-400 print:hidden">
-                                            （打刻なし）
-                                          </span>
-                                        )}
-                                      </li>
-                                    );
-                                  })}
-                                </>
+                                    <span>
+                                      捌き出勤:{" "}
+                                      {r.sabakiDates.map(formatJaMonthDay).join("、")}
+                                    </span>
+                                  </span>
+                                </li>
                               )}
                               {r.incidents.map((inc, idx) => {
                                 const label =
@@ -1596,52 +1558,17 @@ function AdminReportContent() {
                                           : "—";
                                 const reasonText =
                                   inc.reason?.trim() || "（理由なし）";
-                                const logHit = pickAttendanceLogForYmd(
-                                  r.attendanceLogsInPeriod,
-                                  inc.dateStr
-                                );
                                 return (
-                                  <li
-                                    key={`${inc.dateStr}-${inc.kind}-${idx}`}
-                                    className="flex flex-wrap items-start gap-x-3 gap-y-1 justify-between"
-                                  >
-                                    <span>
-                                      {formatJaMonthDay(inc.dateStr)} [{label}]：{reasonText}
-                                    </span>
-                                    {logHit ? (
-                                      <span className="print:hidden inline-flex flex-wrap gap-1 shrink-0">
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            setAttendanceLogModal({
-                                              castName: r.name,
-                                              log: logHit,
-                                              initialPanel: "edit",
-                                            })
-                                          }
-                                          className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-50"
-                                        >
-                                          編集
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            setAttendanceLogModal({
-                                              castName: r.name,
-                                              log: logHit,
-                                              initialPanel: "history",
-                                            })
-                                          }
-                                          className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                                        >
-                                          履歴
-                                        </button>
-                                      </span>
-                                    ) : null}
+                                  <li key={`${inc.dateStr}-${inc.kind}-${idx}`}>
+                                    {formatJaMonthDay(inc.dateStr)} [{label}]：{reasonText}
                                   </li>
                                 );
                               })}
                             </ul>
+                            <p className="mt-3 text-xs text-indigo-800 print:hidden border-t border-gray-200/80 pt-3">
+                              打刻の新規追加・編集・削除は、表の「🛠️
+                              このキャストの勤怠を手動で編集・追加」から行えます。
+                            </p>
                           </td>
                         </tr>
                       )}
@@ -1675,133 +1602,99 @@ function AdminReportContent() {
                   (d.actionType && d.actionType.trim() !== "") ||
                   (d.actionDetail && d.actionDetail.trim() !== "")
               );
-              if (rowsWithData.length === 0) return null;
               return (
                 <section
                   key={`bar-actions-${r.castId}`}
                   className="rounded-xl border border-teal-100 bg-white shadow-sm overflow-hidden print:shadow-none print:border print:rounded-none"
                 >
-                  <h3 className="px-4 py-3 text-sm font-semibold text-teal-950 bg-teal-50/80 border-b border-teal-100">
-                    {r.name}
-                  </h3>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-[920px] w-full text-left text-sm">
-                      <thead>
-                        <tr className="border-b border-gray-200 bg-gray-50 text-xs font-semibold text-gray-700">
-                          <th className="px-3 py-2 whitespace-nowrap">日付</th>
-                          <th className="px-3 py-2 whitespace-nowrap text-right">確定組数</th>
-                          <th className="px-3 py-2 min-w-[6rem]">配信</th>
-                          <th className="px-3 py-2 min-w-[5rem]">声かけ</th>
-                          <th className="px-3 py-2 min-w-[4rem]">SNS</th>
-                          <th className="px-3 py-2 whitespace-nowrap">行動種別</th>
-                          <th className="px-3 py-2 min-w-[12rem]">詳細（原文）</th>
-                          <th className="print:hidden px-3 py-2 whitespace-nowrap text-right">
-                            操作
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rowsWithData.map((detail, idx) => {
-                          const segs = parseBarActionSegments(detail.actionDetail);
-                          const cols = barSegmentColumns(segs);
-                          const confirmed =
-                            typeof detail.plannedGroups === "number"
-                              ? Math.trunc(detail.plannedGroups)
-                              : null;
-                          const barLogHit =
-                            detail.attendanceLogId &&
-                            r.attendanceLogsInPeriod.find(
-                              (l) => l.attendanceLogId === detail.attendanceLogId
-                            );
-                          return (
-                            <tr
-                              key={`${r.castId}-${detail.dateStr}-${idx}`}
-                              className="border-b border-gray-100 hover:bg-gray-50/80 align-top"
-                            >
-                              <td className="px-3 py-2 tabular-nums whitespace-nowrap text-gray-900">
-                                {formatJaMonthDay(detail.dateStr)}
-                              </td>
-                              <td className="px-3 py-2 text-right tabular-nums text-gray-900">
-                                {confirmed !== null ? confirmed : "—"}
-                              </td>
-                              <td className="px-3 py-2 text-gray-800 text-xs sm:text-sm">
-                                {cols.broadcast}
-                              </td>
-                              <td className="px-3 py-2 text-gray-800 text-xs sm:text-sm">
-                                {cols.voice}
-                              </td>
-                              <td className="px-3 py-2 text-gray-800 text-xs sm:text-sm">
-                                {cols.sns}
-                              </td>
-                              <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
-                                {detail.actionType?.trim() || "—"}
-                              </td>
-                              <td className="px-3 py-2 text-gray-700 text-xs sm:text-sm break-words">
-                                {detail.actionDetail?.trim() || "—"}
-                                {cols.other !== "—" && cols.other ? (
-                                  <span className="block mt-1 text-gray-500">
-                                    その他: {cols.other}
-                                  </span>
-                                ) : null}
-                              </td>
-                              <td className="print:hidden px-3 py-2 text-right whitespace-nowrap align-middle">
-                                {barLogHit ? (
-                                  <span className="inline-flex flex-col sm:flex-row gap-1 justify-end">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setAttendanceLogModal({
-                                          castName: r.name,
-                                          log: barLogHit,
-                                          initialPanel: "edit",
-                                        })
-                                      }
-                                      className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-50"
-                                    >
-                                      編集
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setAttendanceLogModal({
-                                          castName: r.name,
-                                          log: barLogHit,
-                                          initialPanel: "history",
-                                        })
-                                      }
-                                      className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                                    >
-                                      履歴
-                                    </button>
-                                  </span>
-                                ) : (
-                                  <span className="text-gray-400 text-xs">—</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm font-semibold text-teal-950 bg-teal-50/80 border-b border-teal-100">
+                    <h3 className="text-base font-semibold m-0">{r.name}</h3>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCastAttendanceModal({
+                          castId: r.castId,
+                          castName: r.name,
+                        })
+                      }
+                      className="print:hidden inline-flex items-center gap-1.5 rounded-lg border-2 border-indigo-400 bg-indigo-50 px-2.5 py-2 text-left text-[11px] sm:text-xs font-bold text-indigo-950 shadow-sm hover:bg-indigo-100 leading-snug max-w-[16rem]"
+                    >
+                      <span className="text-base shrink-0" aria-hidden>
+                        🛠️
+                      </span>
+                      <span>このキャストの勤怠を手動で編集・追加</span>
+                    </button>
                   </div>
+                  {rowsWithData.length === 0 ? (
+                    <p className="px-4 py-4 text-sm text-gray-600">
+                      この期間の BAR 行動記録はありません。打刻の新規追加は上のボタンから行えます。
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-[820px] w-full text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-200 bg-gray-50 text-xs font-semibold text-gray-700">
+                            <th className="px-3 py-2 whitespace-nowrap">日付</th>
+                            <th className="px-3 py-2 whitespace-nowrap text-right">確定組数</th>
+                            <th className="px-3 py-2 min-w-[6rem]">配信</th>
+                            <th className="px-3 py-2 min-w-[5rem]">声かけ</th>
+                            <th className="px-3 py-2 min-w-[4rem]">SNS</th>
+                            <th className="px-3 py-2 whitespace-nowrap">行動種別</th>
+                            <th className="px-3 py-2 min-w-[12rem]">詳細（原文）</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rowsWithData.map((detail, idx) => {
+                            const segs = parseBarActionSegments(detail.actionDetail);
+                            const cols = barSegmentColumns(segs);
+                            const confirmed =
+                              typeof detail.plannedGroups === "number"
+                                ? Math.trunc(detail.plannedGroups)
+                                : null;
+                            return (
+                              <tr
+                                key={`${r.castId}-${detail.dateStr}-${idx}`}
+                                className="border-b border-gray-100 hover:bg-gray-50/80 align-top"
+                              >
+                                <td className="px-3 py-2 tabular-nums whitespace-nowrap text-gray-900">
+                                  {formatJaMonthDay(detail.dateStr)}
+                                </td>
+                                <td className="px-3 py-2 text-right tabular-nums text-gray-900">
+                                  {confirmed !== null ? confirmed : "—"}
+                                </td>
+                                <td className="px-3 py-2 text-gray-800 text-xs sm:text-sm">
+                                  {cols.broadcast}
+                                </td>
+                                <td className="px-3 py-2 text-gray-800 text-xs sm:text-sm">
+                                  {cols.voice}
+                                </td>
+                                <td className="px-3 py-2 text-gray-800 text-xs sm:text-sm">
+                                  {cols.sns}
+                                </td>
+                                <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
+                                  {detail.actionType?.trim() || "—"}
+                                </td>
+                                <td className="px-3 py-2 text-gray-700 text-xs sm:text-sm break-words">
+                                  {detail.actionDetail?.trim() || "—"}
+                                  {cols.other !== "—" && cols.other ? (
+                                    <span className="block mt-1 text-gray-500">
+                                      その他: {cols.other}
+                                    </span>
+                                  ) : null}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </section>
               );
             })}
-            {filteredSortedReports.length > 0 &&
-              filteredSortedReports.every(
-                (r) =>
-                  !r.actionDetails.some(
-                    (d) =>
-                      (typeof d.plannedGroups === "number" && !Number.isNaN(d.plannedGroups)) ||
-                      (typeof d.tentativeGroups === "number" &&
-                        !Number.isNaN(d.tentativeGroups) &&
-                        d.tentativeGroups > 0) ||
-                      (d.actionType && d.actionType.trim() !== "") ||
-                      (d.actionDetail && d.actionDetail.trim() !== "")
-                  )
-              ) && (
+            {filteredSortedReports.length === 0 && (
               <p className="text-sm text-gray-500 px-1">
-                この期間・条件では BAR 行動履歴の記録がありません。
+                表示するキャストがありません。フィルタを変更するか、期間を確認してください。
               </p>
             )}
           </div>
@@ -1809,15 +1702,16 @@ function AdminReportContent() {
         </>
       )}
 
-      {activeStoreId && attendanceLogModal ? (
-        <AttendanceLogEditModal
-          key={`${attendanceLogModal.log.attendanceLogId}-${attendanceLogModal.initialPanel ?? "edit"}`}
+      {activeStoreId && castAttendanceModal ? (
+        <CastAttendanceManualModal
+          key={`${castAttendanceModal.castId}-${start}-${end}`}
           open
           storeId={activeStoreId}
-          castName={attendanceLogModal.castName}
-          initial={attendanceLogModal.log}
-          initialPanel={attendanceLogModal.initialPanel}
-          onClose={() => setAttendanceLogModal(null)}
+          castId={castAttendanceModal.castId}
+          castName={castAttendanceModal.castName}
+          periodStartYmd={start}
+          periodEndYmd={end}
+          onClose={() => setCastAttendanceModal(null)}
           onSaved={() => void fetchData()}
         />
       ) : null}

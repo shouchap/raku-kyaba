@@ -256,7 +256,7 @@ export interface Database {
           subject_attendance_log_id: string;
           attendance_log_id: string | null;
           edited_by_admin_id: string;
-          action_type: "UPDATE" | "DELETE";
+          action_type: "UPDATE" | "DELETE" | "INSERT";
           old_data: Json;
           new_data: Json | null;
           created_at: string;
@@ -266,7 +266,7 @@ export interface Database {
           subject_attendance_log_id: string;
           attendance_log_id?: string | null;
           edited_by_admin_id: string;
-          action_type: "UPDATE" | "DELETE";
+          action_type: "UPDATE" | "DELETE" | "INSERT";
           old_data: Json;
           new_data?: Json | null;
           created_at?: string;
