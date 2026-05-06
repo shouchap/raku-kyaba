@@ -104,6 +104,12 @@ type ViewMode = "month" | "week" | "day";
 type ReportMainTab = "cast" | "guide";
 type SortPreset = "attendance" | "absent" | "late" | "dohan";
 type CastAttendanceSubTab = "basic" | "bar_actions";
+type TopKpi = {
+  label: string;
+  value: string;
+  sub: string;
+  helpText: string;
+};
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -249,6 +255,23 @@ function WelfareTextCell({ value }: { value: string | null }) {
         {full}
       </p>
     </details>
+  );
+}
+
+function KpiHelp({ text }: { text: string }) {
+  return (
+    <span className="relative inline-flex items-center group">
+      <button
+        type="button"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current/40 text-[10px] font-bold opacity-80 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-blue-400/60"
+        aria-label="KPI定義を表示"
+      >
+        ?
+      </button>
+      <span className="pointer-events-none absolute left-0 top-5 z-20 hidden w-64 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] leading-4 text-slate-700 shadow-lg group-hover:block group-focus-within:block">
+        {text}
+      </span>
+    </span>
   );
 }
 
@@ -853,18 +876,26 @@ function AdminReportContent() {
   const castLabel = customTerms.term_cast;
   const attendanceLabel = customTerms.term_attendance;
 
-  const topKpis = useMemo(() => {
+  const topKpis = useMemo<TopKpi[]>(() => {
     if (businessType === "welfare_b") {
       const total = filteredWelfareRows.length;
       const withWork = filteredWelfareRows.filter(
         (r) => (r.quantity ?? 0) > 0 || String(r.work_item ?? "").trim() !== ""
       ).length;
       return [
-        { label: `${attendanceLabel}記録件数`, value: String(total), sub: "表示中の日報レコード" },
+        {
+          label: `${attendanceLabel}記録件数`,
+          value: String(total),
+          sub: "表示中の日報レコード",
+          helpText:
+            "選択した期間・絞り込み条件で表示中の日報レコード件数です。1日複数レコードがある場合はその件数分カウントされます。",
+        },
         {
           label: "作業入力率",
           value: total > 0 ? `${Math.round((withWork / total) * 100)}%` : "—",
           sub: total > 0 ? `${withWork}/${total} 件` : "データなし",
+          helpText:
+            "作業入力率 = （作業項目または個数が入力されている件数）÷（表示中の日報レコード総数）で算出しています。",
         },
       ];
     }
@@ -889,13 +920,31 @@ function AdminReportContent() {
 
     if (businessType === "bar") {
       return [
-        { label: `${attendanceLabel}人数`, value: String(castCount), sub: `表示中${castLabel}` },
-        { label: "確定/仮組数", value: `${planned}/${tentative}`, sub: "期間内合計" },
+        {
+          label: `${attendanceLabel}人数`,
+          value: String(castCount),
+          sub: `表示中${castLabel}`,
+          helpText:
+            "選択した期間・絞り込み条件で表示中のキャスト人数です。行として表示されている対象者数をカウントします。",
+        },
+        {
+          label: "確定/仮組数",
+          value: `${planned}/${tentative}`,
+          sub: "期間内合計",
+          helpText:
+            "選択した期間内の全キャストについて、日次ログの確定組数（planned_groups）と仮組数（tentative_groups）を合計しています。",
+        },
       ];
     }
 
     return [
-      { label: "案内数", value: String(attendance), sub: "出勤日数の合計" },
+      {
+        label: "案内数",
+        value: String(attendance),
+        sub: "出勤日数の合計",
+        helpText:
+          "選択した期間内の、表示中キャスト全員の出勤日数（attendanceDays）の合計です。",
+      },
     ];
   }, [businessType, filteredSortedReports, filteredWelfareRows, attendanceLabel, castLabel]);
 
@@ -927,7 +976,10 @@ function AdminReportContent() {
             key={kpi.label}
             className={`w-full sm:w-[22rem] max-w-full rounded-xl border px-4 py-3 shadow-sm ${businessTheme.reportStatCardClass}`}
           >
-            <p className={`text-xs font-semibold ${businessTheme.reportStatLabelClass}`}>{kpi.label}</p>
+            <p className={`text-xs font-semibold ${businessTheme.reportStatLabelClass} inline-flex items-center gap-1.5`}>
+              {kpi.label}
+              <KpiHelp text={kpi.helpText} />
+            </p>
             <p className="mt-1 text-2xl font-bold tracking-tight">{kpi.value}</p>
             <p className="mt-1 text-xs opacity-75">{kpi.sub}</p>
           </section>

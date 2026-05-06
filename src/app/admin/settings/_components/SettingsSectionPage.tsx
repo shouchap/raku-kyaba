@@ -30,6 +30,30 @@ type GuideReporterCandidate = {
   line_user_id: string | null;
 };
 
+type SnapshotShape = {
+  businessType: BusinessType;
+  config: ReminderConfig;
+  remindTime: string;
+  preOpenReportHourJst: string;
+  allowShiftSubmission: boolean;
+  enablePublicHoliday: boolean;
+  enableHalfHoliday: boolean;
+  enableReservationCheck: boolean;
+  regularHolidays: number[];
+  regularStartTime: string;
+  regularRemindMessage: string;
+  askGuestName: boolean;
+  askGuestTime: boolean;
+  attendanceFlowType: "default" | "bar_extended";
+  isGuideMasterEnabled: boolean;
+  isDohanSabakiEnabled: boolean;
+  guideHearingEnabled: boolean;
+  guideHearingTime: string;
+  guideHearingReporterId: string;
+  termAttendance: string;
+  termCast: string;
+};
+
 const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
 const PRE_OPEN_HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => h);
 const WEEKDAY_HOLIDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"] as const;
@@ -100,8 +124,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [individualTestDetail, setIndividualTestDetail] = useState<string | null>(null);
   const [barSummaryTestDetail, setBarSummaryTestDetail] = useState<string | null>(null);
 
-  const createSnapshot = useCallback(() => {
-    return JSON.stringify({
+  const createSnapshotObj = useCallback((): SnapshotShape => {
+    return {
       businessType,
       config,
       remindTime,
@@ -123,7 +147,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       guideHearingReporterId,
       termAttendance,
       termCast,
-    });
+    };
   }, [
     businessType,
     config,
@@ -148,10 +172,54 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     termCast,
   ]);
 
+  const createSnapshot = useCallback(() => JSON.stringify(createSnapshotObj()), [createSnapshotObj]);
+
   const isDirty = useMemo(
     () => !loading && initialSnapshot !== "" && createSnapshot() !== initialSnapshot,
     [loading, initialSnapshot, createSnapshot]
   );
+
+  const DIRTY_LABELS: Record<keyof SnapshotShape, string> = {
+    businessType: "店舗種別",
+    config: "通知メッセージ設定",
+    remindTime: "リマインド時刻",
+    preOpenReportHourJst: "営業前サマリー時刻",
+    allowShiftSubmission: "シフト提出許可",
+    enablePublicHoliday: "公休設定",
+    enableHalfHoliday: "半休設定",
+    enableReservationCheck: "予約確認",
+    regularHolidays: "定休日",
+    regularStartTime: "レギュラー出勤時間",
+    regularRemindMessage: "レギュラーメッセージ",
+    askGuestName: "来客名質問",
+    askGuestTime: "来店時間質問",
+    attendanceFlowType: "出勤確認フロー",
+    isGuideMasterEnabled: "案内ヒアリング利用",
+    isDohanSabakiEnabled: "同伴・捌き利用",
+    guideHearingEnabled: "案内ヒアリング送信",
+    guideHearingTime: "案内ヒアリング時刻",
+    guideHearingReporterId: "案内ヒアリング報告者",
+    termAttendance: "出勤ラベル",
+    termCast: "キャストラベル",
+  };
+
+  const unsavedChangeLabels = useMemo(() => {
+    if (!isDirty || !initialSnapshot) return [] as string[];
+    let initialObj: SnapshotShape | null = null;
+    try {
+      initialObj = JSON.parse(initialSnapshot) as SnapshotShape;
+    } catch {
+      return ["未保存の変更があります"];
+    }
+    const current = createSnapshotObj();
+    const labels: string[] = [];
+    (Object.keys(DIRTY_LABELS) as (keyof SnapshotShape)[]).forEach((key) => {
+      if (JSON.stringify(initialObj?.[key]) !== JSON.stringify(current[key])) {
+        labels.push(DIRTY_LABELS[key]);
+      }
+    });
+    return labels;
+  }, [isDirty, initialSnapshot, createSnapshotObj]);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -402,6 +470,17 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                   : "権限・管理者"}
           </h1>
           {message ? <p className="text-xs text-slate-500">{message}</p> : null}
+          {showSave && isDirty ? (
+            <p
+              className="mt-1 text-xs text-amber-700"
+              title={unsavedChangeLabels.length > 0 ? unsavedChangeLabels.join(" / ") : "未保存の変更があります"}
+            >
+              未保存の変更: {unsavedChangeLabels.length}件
+              {unsavedChangeLabels.length > 0
+                ? `（${unsavedChangeLabels.slice(0, 3).join("、")}${unsavedChangeLabels.length > 3 ? " ほか" : ""}）`
+                : ""}
+            </p>
+          ) : null}
         </div>
         {showSave ? (
           <button
