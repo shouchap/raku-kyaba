@@ -79,6 +79,9 @@ export default function AdminSettingsPage() {
   const [testing, setTesting] = useState(false);
   const [testingGuide, setTestingGuide] = useState(false);
   const [testingIndividual, setTestingIndividual] = useState(false);
+  const [barSummaryTestCastId, setBarSummaryTestCastId] = useState("");
+  const [testingBarSummary, setTestingBarSummary] = useState(false);
+  const [barSummaryTestDetail, setBarSummaryTestDetail] = useState<string | null>(null);
   const [testComplete, setTestComplete] = useState(false);
   const [guideTestComplete, setGuideTestComplete] = useState(false);
   const [testErrorDetail, setTestErrorDetail] = useState<string | null>(null);
@@ -95,6 +98,8 @@ export default function AdminSettingsPage() {
     | "guide_test_error"
     | "individual_test_success"
     | "individual_test_error"
+    | "bar_summary_test_success"
+    | "bar_summary_test_error"
     | null
   >(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
@@ -510,6 +515,47 @@ export default function AdminSettingsPage() {
       setMessage("individual_test_error");
     } finally {
       setTestingIndividual(false);
+    }
+  };
+
+  const handleBarSummaryIndividualTestSend = async () => {
+    if (!barSummaryTestCastId) {
+      setBarSummaryTestDetail("送信先キャストを選択してください");
+      setMessage("bar_summary_test_error");
+      return;
+    }
+    setTestingBarSummary(true);
+    setBarSummaryTestDetail(null);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/daily-bar-summary/individual-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId: activeStoreId, castId: barSummaryTestCastId }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        details?: string;
+        castName?: string;
+        chunkCount?: number;
+        tokenSource?: string;
+      };
+      if (!res.ok) {
+        throw new Error(
+          [data.error, data.details].filter(Boolean).join(" — ") || "サマリーテスト送信に失敗しました"
+        );
+      }
+      setBarSummaryTestDetail(
+        `${data.castName ?? "キャスト"} のLINEに営業前サマリー（${data.chunkCount ?? 1}通）を送信しました（token: ${data.tokenSource ?? "unknown"}）`
+      );
+      setMessage("bar_summary_test_success");
+    } catch (err) {
+      setBarSummaryTestDetail(
+        err instanceof Error ? err.message : "サマリーテスト送信に失敗しました"
+      );
+      setMessage("bar_summary_test_error");
+    } finally {
+      setTestingBarSummary(false);
     }
   };
 
@@ -975,7 +1021,7 @@ export default function AdminSettingsPage() {
               <div className="flex flex-col sm:flex-row flex-wrap gap-2">
                 <button
                   type="submit"
-                  disabled={saving || testing || testingGuide || testingIndividual}
+                  disabled={saving || testing || testingGuide || testingIndividual || testingBarSummary}
                   className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-blue-600 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
                 >
                   {saving ? "保存中..." : "設定を保存"}
@@ -983,7 +1029,7 @@ export default function AdminSettingsPage() {
                 <button
                   type="button"
                   onClick={handleRemindTestSend}
-                  disabled={saving || testing || testingGuide || testingIndividual}
+                  disabled={saving || testing || testingGuide || testingIndividual || testingBarSummary}
                   className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-gray-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
                 >
                   {testing ? (testComplete ? "送信完了" : "送信中…") : "キャスト本日テスト送信"}
@@ -996,6 +1042,7 @@ export default function AdminSettingsPage() {
                     testing ||
                     testingGuide ||
                     testingIndividual ||
+                    testingBarSummary ||
                     !isGuideMasterEnabled
                   }
                   className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-emerald-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
@@ -1497,7 +1544,7 @@ export default function AdminSettingsPage() {
               <button
                 type="button"
                 onClick={handleIndividualGuideTestSend}
-                disabled={saving || testing || testingGuide || testingIndividual}
+                disabled={saving || testing || testingGuide || testingIndividual || testingBarSummary}
                 className="min-h-[48px] px-4 py-2 rounded-lg bg-purple-700 text-white text-sm font-medium hover:bg-purple-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {testingIndividual ? "送信中…" : "個別テスト送信"}
@@ -1514,10 +1561,51 @@ export default function AdminSettingsPage() {
             )}
           </div>
 
+          <div className="mb-8 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-4">
+            <h3 className="text-sm font-medium text-gray-900 mb-3">
+              営業前サマリー（日報）の個別テスト送信
+            </h3>
+            <p className="text-xs text-gray-600 mb-3">
+              選択したキャスト1名にのみ、本日分の「営業前サマリー（日報）」テキストをLINEで送信します（BAR拡張店舗のCronと同じ文面です）。
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select
+                value={barSummaryTestCastId}
+                onChange={(e) => setBarSummaryTestCastId(e.target.value)}
+                className="w-full max-w-md min-h-[48px] px-4 py-3 text-base border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+              >
+                <option value="">送信先を選択</option>
+                {guideReporterCandidates.map((c) => (
+                  <option key={`bar-sum-${c.id}`} value={c.id} disabled={!c.line_user_id}>
+                    {c.name}
+                    {c.line_user_id ? "" : "（LINE未連携）"}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleBarSummaryIndividualTestSend}
+                disabled={saving || testing || testingGuide || testingIndividual || testingBarSummary}
+                className="min-h-[48px] px-4 py-2 rounded-lg bg-amber-800 text-white text-sm font-medium hover:bg-amber-900 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {testingBarSummary ? "送信中…" : "サマリーテスト送信"}
+              </button>
+            </div>
+            {barSummaryTestDetail && (
+              <p
+                className={`mt-2 text-xs ${
+                  message === "bar_summary_test_error" ? "text-red-600" : "text-gray-600"
+                }`}
+              >
+                {barSummaryTestDetail}
+              </p>
+            )}
+          </div>
+
           <div className="flex flex-col sm:flex-row flex-wrap gap-2">
             <button
               type="submit"
-                  disabled={saving || testing || testingGuide || testingIndividual}
+                  disabled={saving || testing || testingGuide || testingIndividual || testingBarSummary}
               className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-blue-600 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
             >
               {saving ? "保存中..." : "設定を保存"}
@@ -1525,7 +1613,7 @@ export default function AdminSettingsPage() {
             <button
               type="button"
               onClick={handleRemindTestSend}
-                  disabled={saving || testing || testingGuide || testingIndividual}
+                  disabled={saving || testing || testingGuide || testingIndividual || testingBarSummary}
               className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-gray-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
             >
               {testing ? (testComplete ? "送信完了" : "送信中…") : "キャスト本日テスト送信"}
@@ -1538,6 +1626,7 @@ export default function AdminSettingsPage() {
                 testing ||
                 testingGuide ||
                 testingIndividual ||
+                testingBarSummary ||
                 !isGuideMasterEnabled
               }
               className="flex-1 min-h-[44px] min-w-0 px-2 py-2.5 sm:px-4 bg-emerald-700 text-white text-[11px] font-medium leading-tight rounded-lg hover:bg-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation whitespace-nowrap sm:text-sm"
@@ -1595,6 +1684,12 @@ export default function AdminSettingsPage() {
         )}
         {message === "individual_test_error" && individualTestDetail && (
           <p className="mt-4 text-red-600 text-sm">{individualTestDetail}</p>
+        )}
+        {message === "bar_summary_test_success" && barSummaryTestDetail && (
+          <p className="mt-4 text-green-600 text-sm font-medium">{barSummaryTestDetail}</p>
+        )}
+        {message === "bar_summary_test_error" && barSummaryTestDetail && (
+          <p className="mt-4 text-red-600 text-sm">{barSummaryTestDetail}</p>
         )}
       </div>
     </div>
