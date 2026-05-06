@@ -120,6 +120,8 @@ export default function AdminSettingsPage() {
   const [guideStaffNames, setGuideStaffNames] = useState<string[]>([]);
   /** 案内数ヒアリング・レポート機能の店舗マスター（cron・レポートタブと連動） */
   const [isGuideMasterEnabled, setIsGuideMasterEnabled] = useState(true);
+  /** 同伴・捌きの管理機能（週間/単日シフトのUI出し分け） */
+  const [isDohanSabakiEnabled, setIsDohanSabakiEnabled] = useState(true);
 
   const fetchConfig = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
@@ -150,6 +152,7 @@ export default function AdminSettingsPage() {
         ask_guest_time?: boolean;
         attendance_flow_type?: "default" | "bar_extended";
         is_guide_enabled?: boolean;
+        is_dohan_sabaki_enabled?: boolean;
         regular_holidays?: number[];
         regular_remind_message?: string;
         regular_start_time?: string | null;
@@ -169,6 +172,7 @@ export default function AdminSettingsPage() {
         data.attendance_flow_type === "bar_extended" ? "bar_extended" : "default"
       );
       setIsGuideMasterEnabled(data.is_guide_enabled !== false);
+      setIsDohanSabakiEnabled(data.is_dohan_sabaki_enabled !== false);
       setWelfareMorning(
         typeof data.welfare_message_morning === "string" ? data.welfare_message_morning : ""
       );
@@ -362,6 +366,7 @@ export default function AdminSettingsPage() {
             regular_holidays: regularHolidays,
             regular_start_time: regularStartTime.trim() === "" ? null : regularStartTime.trim(),
             is_guide_enabled: isGuideMasterEnabled,
+            is_dohan_sabaki_enabled: isDohanSabakiEnabled,
           }),
         });
 
@@ -428,6 +433,7 @@ export default function AdminSettingsPage() {
           ask_guest_time: askGuestTime,
           attendance_flow_type: attendanceFlowType,
           is_guide_enabled: isGuideMasterEnabled,
+          is_dohan_sabaki_enabled: isDohanSabakiEnabled,
         }),
       });
 
@@ -1204,6 +1210,24 @@ export default function AdminSettingsPage() {
               <option value="default">標準</option>
               <option value="bar_extended">BAR詳細（行動確認あり）</option>
             </select>
+          </div>
+
+          <div className="mb-8 rounded-lg border border-rose-200 bg-rose-50/70 px-4 py-4">
+            <h3 className="text-sm font-medium text-gray-900 mb-2">同伴・捌き管理</h3>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isDohanSabakiEnabled}
+                onChange={(e) => setIsDohanSabakiEnabled(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-rose-600 focus:ring-rose-500"
+              />
+              <span className="text-sm text-gray-700 leading-snug">
+                同伴・捌きの管理機能を利用する（キャバクラ業態向け）
+              </span>
+            </label>
+            <p className="text-xs text-gray-500 mt-2 pl-8">
+              OFFにすると、週間シフト登録・単日登録で「同伴」「捌き」ボタンを非表示にします。
+            </p>
           </div>
 
           {businessType === "bar" && (

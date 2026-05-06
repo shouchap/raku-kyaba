@@ -22,6 +22,7 @@ type Store = {
   name: string;
   regular_holidays?: number[];
   regular_start_time?: string | null;
+  is_dohan_sabaki_enabled?: boolean;
 };
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
@@ -64,6 +65,7 @@ export default function AdminWeeklyPage() {
   const [store, setStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [fixingMonth, setFixingMonth] = useState(false);
   const [notifying, setNotifying] = useState(false);
   const [notifyingOp, setNotifyingOp] = useState<{
     castId: string;
@@ -102,12 +104,30 @@ export default function AdminWeeklyPage() {
           .eq("store_id", storeId)
           .eq("is_active", true)
           .order("name"),
-        supabase.from("stores").select("id, name, regular_holidays, regular_start_time").eq("id", storeId).single(),
+        supabase
+          .from("stores")
+          .select("id, name, regular_holidays, regular_start_time, is_dohan_sabaki_enabled")
+          .eq("id", storeId)
+          .single(),
       ]);
 
       if (castsRes.data) setCasts(castsRes.data as Cast[]);
-      if (storesRes.data) {
-        const raw = storesRes.data as Record<string, unknown>;
+      let storeRaw: Record<string, unknown> | null = null;
+      if (storesRes.error?.code === "42703") {
+        const legacyStoreRes = await supabase
+          .from("stores")
+          .select("id, name, regular_holidays, regular_start_time")
+          .eq("id", storeId)
+          .single();
+        if (!legacyStoreRes.error && legacyStoreRes.data) {
+          storeRaw = { ...(legacyStoreRes.data as Record<string, unknown>), is_dohan_sabaki_enabled: true };
+        }
+      } else if (storesRes.data) {
+        storeRaw = storesRes.data as Record<string, unknown>;
+      }
+
+      if (storeRaw) {
+        const raw = storeRaw;
         const rh = raw.regular_holidays;
         setStore({
           id: String(raw.id ?? ""),
@@ -121,6 +141,7 @@ export default function AdminWeeklyPage() {
             raw.regular_start_time === null || raw.regular_start_time === undefined
               ? null
               : String(raw.regular_start_time),
+          is_dohan_sabaki_enabled: raw.is_dohan_sabaki_enabled !== false,
         });
       }
     } catch (err) {
@@ -303,6 +324,47 @@ export default function AdminWeeklyPage() {
     });
   }, [store, casts, dates]);
 
+  const handleFixCurrentMonth = useCallback(async () => {
+    if (!store?.id) return;
+    const [year, month] = baseDate.split("-").map(Number);
+    if (!year || !month) return;
+    const ok = window.confirm(
+      "現在表示している月の1日から末日まで、レギュラーキャストの固定シフトを一括で保存します。よろしいですか？"
+    );
+    if (!ok) return;
+
+    setFixingMonth(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/weekly/fix-month", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId: store.id,
+          year,
+          month,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!res.ok || data.ok !== true) {
+        throw new Error(data.error ?? "今月固定の一括保存に失敗しました");
+      }
+      await fetchData();
+      await loadExistingSchedules(store.id);
+      setMessage("success");
+      window.alert("今月固定シフトを反映しました。");
+    } catch (e) {
+      console.error(e);
+      setMessage("error");
+      window.alert(e instanceof Error ? e.message : "今月固定の一括保存に失敗しました");
+    } finally {
+      setFixingMonth(false);
+    }
+  }, [store, baseDate, fetchData, loadExistingSchedules]);
+
   const handleSave = async () => {
     if (!store) return;
 
@@ -470,14 +532,24 @@ export default function AdminWeeklyPage() {
         </div>
 
         <div className="mb-4 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 sm:gap-3">
-          <button
-            type="button"
-            onClick={handleApplyRegularBulk}
-            disabled={loading || !store || casts.length === 0}
-            className="inline-flex items-center justify-center w-full sm:w-auto min-h-[44px] px-4 py-2.5 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-800 shadow-sm hover:bg-gray-50 focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
-          >
-            レギュラー一括設定
-          </button>
+          <div className="flex w-full sm:w-auto gap-2">
+            <button
+              type="button"
+              onClick={handleApplyRegularBulk}
+              disabled={loading || !store || casts.length === 0}
+              className="inline-flex items-center justify-center w-full sm:w-auto min-h-[44px] px-4 py-2.5 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-800 shadow-sm hover:bg-gray-50 focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+            >
+              レギュラー一括設定
+            </button>
+            <button
+              type="button"
+              onClick={handleFixCurrentMonth}
+              disabled={loading || !store || casts.length === 0 || fixingMonth}
+              className="inline-flex items-center justify-center w-full sm:w-auto min-h-[44px] px-4 py-2.5 text-sm font-medium rounded-lg border border-blue-300 bg-blue-50 text-blue-800 shadow-sm hover:bg-blue-100 focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+            >
+              {fixingMonth ? "処理中..." : "今月固定"}
+            </button>
+          </div>
           <p className="text-xs text-gray-500 sm:max-w-xl">
             システム設定の「レギュラー出勤時間」を、勤務形態がレギュラーのキャストの定休日以外のマスに一括入力します（画面のみ。保存は「一括保存する」）。LINE
             で付いた公休・欠勤などの回答は、保存時に既存どおりマージされます。
@@ -556,7 +628,7 @@ export default function AdminWeeklyPage() {
                             ))}
                           </select>
                           {/* 同伴・捌き: 出勤時間がある場合のみ */}
-                          {hasTime && (
+                          {hasTime && store?.is_dohan_sabaki_enabled !== false && (
                             <div className="flex gap-0.5">
                               <button
                                 type="button"

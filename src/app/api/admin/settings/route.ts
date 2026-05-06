@@ -503,9 +503,10 @@ export async function GET(request: Request) {
     let askGuestName = true;
     let askGuestTime = false;
     let isGuideEnabled = true;
+    let isDohanSabakiEnabled = true;
     const barFlagsRes = await admin
       .from("stores")
-      .select("ask_guest_name, ask_guest_time, is_guide_enabled")
+      .select("ask_guest_name, ask_guest_time, is_guide_enabled, is_dohan_sabaki_enabled")
       .eq("id", storeId)
       .maybeSingle();
     if (!barFlagsRes.error && barFlagsRes.data) {
@@ -513,10 +514,12 @@ export async function GET(request: Request) {
         ask_guest_name?: boolean | null;
         ask_guest_time?: boolean | null;
         is_guide_enabled?: boolean | null;
+        is_dohan_sabaki_enabled?: boolean | null;
       };
       askGuestName = bf.ask_guest_name !== false;
       askGuestTime = bf.ask_guest_time === true;
       isGuideEnabled = bf.is_guide_enabled !== false;
+      isDohanSabakiEnabled = bf.is_dohan_sabaki_enabled !== false;
     } else if (
       barFlagsRes.error &&
       isUndefinedColumnError(barFlagsRes.error, "is_guide_enabled")
@@ -540,7 +543,28 @@ export async function GET(request: Request) {
         "[api/admin/settings] GET: stores.is_guide_enabled 未適用。マイグレーション 043 を適用してください。"
       );
     } else if (barFlagsRes.error && !isUndefinedColumnError(barFlagsRes.error, "ask_guest_name")) {
-      logPostgrestError("GET stores ask_guest_name / ask_guest_time", barFlagsRes.error);
+      if (isUndefinedColumnError(barFlagsRes.error, "is_dohan_sabaki_enabled")) {
+        const bfLegacy = await admin
+          .from("stores")
+          .select("ask_guest_name, ask_guest_time, is_guide_enabled")
+          .eq("id", storeId)
+          .maybeSingle();
+        if (!bfLegacy.error && bfLegacy.data) {
+          const bf = bfLegacy.data as {
+            ask_guest_name?: boolean | null;
+            ask_guest_time?: boolean | null;
+            is_guide_enabled?: boolean | null;
+          };
+          askGuestName = bf.ask_guest_name !== false;
+          askGuestTime = bf.ask_guest_time === true;
+          isGuideEnabled = bf.is_guide_enabled !== false;
+        }
+        console.warn(
+          "[api/admin/settings] GET: stores.is_dohan_sabaki_enabled 未適用。マイグレーション 044 を適用してください。"
+        );
+      } else {
+        logPostgrestError("GET stores ask_guest_name / ask_guest_time", barFlagsRes.error);
+      }
     }
 
     return NextResponse.json({
@@ -558,6 +582,7 @@ export async function GET(request: Request) {
       ask_guest_name: askGuestName,
       ask_guest_time: askGuestTime,
       is_guide_enabled: isGuideEnabled,
+      is_dohan_sabaki_enabled: isDohanSabakiEnabled,
       enable_public_holiday: settingsRow?.enable_public_holiday === true,
       enable_half_holiday: settingsRow?.enable_half_holiday === true,
       regular_holidays: regularHolidays,
@@ -614,6 +639,8 @@ type PatchBody = {
   attendance_flow_type?: "default" | "bar_extended";
   /** 案内数ヒアリング・レポートの店舗マスターON/OFF（043） */
   is_guide_enabled?: boolean;
+  /** 同伴・捌き管理機能の店舗マスターON/OFF（044） */
+  is_dohan_sabaki_enabled?: boolean;
 };
 
 /**
@@ -794,6 +821,9 @@ export async function PATCH(request: Request) {
     if (typeof body.is_guide_enabled === "boolean") {
       payload.is_guide_enabled = body.is_guide_enabled;
     }
+    if (typeof body.is_dohan_sabaki_enabled === "boolean") {
+      payload.is_dohan_sabaki_enabled = body.is_dohan_sabaki_enabled;
+    }
 
     const updRes = await adminWelfare.from("stores").update(payload).eq("id", storeId);
     if (updRes.error) {
@@ -843,6 +873,15 @@ export async function PATCH(request: Request) {
           { status: 500 }
         );
       }
+      if (isUndefinedColumnError(updRes.error, "is_dohan_sabaki_enabled")) {
+        return NextResponse.json(
+          {
+            error: "is_dohan_sabaki_enabled column is missing",
+            details: "Apply supabase/migrations/044_stores_is_dohan_sabaki_enabled.sql",
+          },
+          { status: 500 }
+        );
+      }
       return NextResponse.json(
         { error: "Failed to save welfare messages", details: updRes.error.message, code: updRes.error.code },
         { status: 500 }
@@ -872,6 +911,7 @@ export async function PATCH(request: Request) {
   const attendanceFlowTypeProvided =
     body.attendance_flow_type === "default" || body.attendance_flow_type === "bar_extended";
   const isGuideEnabledProvided = typeof body.is_guide_enabled === "boolean";
+  const isDohanSabakiEnabledProvided = typeof body.is_dohan_sabaki_enabled === "boolean";
 
   if (preOpenReportHourProvided) {
     const v = body.pre_open_report_hour_jst;
@@ -1124,6 +1164,9 @@ export async function PATCH(request: Request) {
     if (isGuideEnabledProvided) {
       storePayload.is_guide_enabled = body.is_guide_enabled as boolean;
     }
+    if (isDohanSabakiEnabledProvided) {
+      storePayload.is_dohan_sabaki_enabled = body.is_dohan_sabaki_enabled as boolean;
+    }
 
     const storeRes = await admin.from("stores").update(storePayload).eq("id", storeId);
 
@@ -1272,6 +1315,15 @@ export async function PATCH(request: Request) {
           warning:
             "その他の設定は保存しましたが、stores.allow_shift_submission カラムがありません。DB にカラムを追加してください。",
         });
+      }
+      if (isUndefinedColumnError(storeRes.error, "is_dohan_sabaki_enabled")) {
+        return NextResponse.json(
+          {
+            error: "is_dohan_sabaki_enabled column is missing",
+            details: "Apply supabase/migrations/044_stores_is_dohan_sabaki_enabled.sql",
+          },
+          { status: 500 }
+        );
       }
       return NextResponse.json(
         {

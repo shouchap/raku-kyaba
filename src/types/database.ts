@@ -71,6 +71,8 @@ export interface Database {
           guide_staff_names: string[];
           /** 案内数ヒアリング・案内数レポートを店舗で利用するか（043） */
           is_guide_enabled: boolean;
+          /** 同伴・捌き管理機能を店舗で利用するか（044） */
+          is_dohan_sabaki_enabled: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -100,6 +102,7 @@ export interface Database {
           | "guide_hearing_reporter_id"
           | "guide_staff_names"
           | "is_guide_enabled"
+          | "is_dohan_sabaki_enabled"
           | "ask_guest_name"
           | "ask_guest_time"
           | "attendance_flow_type"
@@ -128,6 +131,7 @@ export interface Database {
           guide_hearing_reporter_id?: string | null;
           guide_staff_names?: string[];
           is_guide_enabled?: boolean;
+          is_dohan_sabaki_enabled?: boolean;
           ask_guest_name?: boolean;
           ask_guest_time?: boolean;
           attendance_flow_type?: string;

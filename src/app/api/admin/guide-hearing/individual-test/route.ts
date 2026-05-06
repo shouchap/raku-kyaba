@@ -73,8 +73,12 @@ export async function POST(request: Request) {
     .eq("store_id", storeId)
     .eq("key", "reminder_config")
     .maybeSingle();
+  const cfgValue =
+    cfg?.value && typeof cfg.value === "object" && !Array.isArray(cfg.value)
+      ? (cfg.value as { messageTemplate?: string })
+      : undefined;
   const template =
-    (cfg?.value as { messageTemplate?: string } | undefined)?.messageTemplate ??
+    (typeof cfgValue?.messageTemplate === "string" && cfgValue.messageTemplate.trim()) ||
     "{name}さん、本日は {time} 出勤予定です。出勤確認をお願いいたします。";
   const scheduledTime = formatRemindScheduledTime(sched?.scheduled_time ?? null, sched?.is_dohan ?? false);
 
@@ -95,6 +99,13 @@ export async function POST(request: Request) {
   const token = await fetchResolvedLineChannelAccessTokenForStore(admin, storeId, "[AttendanceIndividualTest]");
   if (!token?.token) return NextResponse.json({ error: "LINEチャネルトークンが未設定です" }, { status: 400 });
 
-  await sendPushMessage(cast.line_user_id, token.token, [msg]);
+  try {
+    await sendPushMessage(cast.line_user_id, token.token, [msg]);
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "LINE送信に失敗しました" },
+      { status: 502 }
+    );
+  }
   return NextResponse.json({ ok: true, castName: cast.name, tokenSource: token.source });
 }

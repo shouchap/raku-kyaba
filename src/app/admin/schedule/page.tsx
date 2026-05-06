@@ -14,6 +14,7 @@ type Cast = {
 type Store = {
   id: string;
   name: string;
+  is_dohan_sabaki_enabled?: boolean;
 };
 
 export default function AdminSchedulePage() {
@@ -48,11 +49,26 @@ export default function AdminSchedulePage() {
             .eq("store_id", storeId)
             .eq("is_active", true)
             .order("name"),
-          supabase.from("stores").select("id, name").eq("id", storeId).single(),
+          supabase
+            .from("stores")
+            .select("id, name, is_dohan_sabaki_enabled")
+            .eq("id", storeId)
+            .single(),
         ]);
 
         if (castsRes.data) setCasts(castsRes.data as Cast[]);
-        if (storesRes.data) setStore(storesRes.data as Store);
+        if (storesRes.error?.code === "42703") {
+          const legacyStoreRes = await supabase
+            .from("stores")
+            .select("id, name")
+            .eq("id", storeId)
+            .single();
+          if (legacyStoreRes.data) {
+            setStore({ ...(legacyStoreRes.data as Store), is_dohan_sabaki_enabled: true });
+          }
+        } else if (storesRes.data) {
+          setStore(storesRes.data as Store);
+        }
       } catch (err) {
         console.error(err);
         setMessage("error");
@@ -216,31 +232,32 @@ export default function AdminSchedulePage() {
                 </option>
               ))}
             </select>
-            {/* 同伴トグル: ON時はピンクで視認性を確保 */}
-            <div className="mt-2 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setIsDohan((prev) => !prev)}
-                className={`flex-1 min-h-[40px] px-3 rounded-lg border font-medium transition-colors touch-manipulation text-sm ${
-                  isDohan
-                    ? "bg-pink-500 border-pink-600 text-white"
-                    : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                同伴 {isDohan && "✓"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsSabaki((prev) => !prev)}
-                className={`flex-1 min-h-[40px] px-3 rounded-lg border font-medium transition-colors touch-manipulation text-sm ${
-                  isSabaki
-                    ? "bg-amber-600 border-amber-700 text-white"
-                    : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                捌き {isSabaki && "✓"}
-              </button>
-            </div>
+            {store?.is_dohan_sabaki_enabled !== false && (
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDohan((prev) => !prev)}
+                  className={`flex-1 min-h-[40px] px-3 rounded-lg border font-medium transition-colors touch-manipulation text-sm ${
+                    isDohan
+                      ? "bg-pink-500 border-pink-600 text-white"
+                      : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  同伴 {isDohan && "✓"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSabaki((prev) => !prev)}
+                  className={`flex-1 min-h-[40px] px-3 rounded-lg border font-medium transition-colors touch-manipulation text-sm ${
+                    isSabaki
+                      ? "bg-amber-600 border-amber-700 text-white"
+                      : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  捌き {isSabaki && "✓"}
+                </button>
+              </div>
+            )}
           </div>
 
           {message === "success" && (
