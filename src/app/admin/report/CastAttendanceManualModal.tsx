@@ -161,11 +161,16 @@ function applyLogToForm(log: LookupLog, setters: {
   setters.setReservationDetails(String(log.reservation_details ?? "").trim());
 }
 
+export type ManualAttendanceCastOption = {
+  castId: string;
+  name: string;
+};
+
 export type CastAttendanceManualModalProps = {
   open: boolean;
   storeId: string;
-  castId: string;
-  castName: string;
+  /** 親のレポートデータ（cast_reports 等）から渡す店舗内キャスト一覧 */
+  castOptions: ManualAttendanceCastOption[];
   periodStartYmd: string;
   periodEndYmd: string;
   onClose: () => void;
@@ -175,8 +180,7 @@ export type CastAttendanceManualModalProps = {
 export function CastAttendanceManualModal({
   open,
   storeId,
-  castId,
-  castName,
+  castOptions,
   periodStartYmd,
   periodEndYmd,
   onClose,
@@ -187,6 +191,7 @@ export function CastAttendanceManualModal({
     [periodStartYmd, periodEndYmd]
   );
 
+  const [selectedCastId, setSelectedCastId] = useState("");
   const [selectedYmd, setSelectedYmd] = useState(periodStartYmd);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingLookup, setLoadingLookup] = useState(false);
@@ -209,12 +214,17 @@ export function CastAttendanceManualModal({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const selectedCastName = useMemo(() => {
+    const hit = castOptions.find((c) => c.castId === selectedCastId);
+    return hit?.name ?? "";
+  }, [castOptions, selectedCastId]);
+
   const fetchLookup = useCallback(async () => {
-    if (!open || !storeId || !castId || !selectedYmd) return;
+    if (!open || !storeId || !selectedCastId || !selectedYmd) return;
     setLoadingLookup(true);
     setLoadError(null);
     try {
-      const url = `/api/admin/attendance-logs/lookup?storeId=${encodeURIComponent(storeId)}&castId=${encodeURIComponent(castId)}&attended_date=${encodeURIComponent(selectedYmd)}`;
+      const url = `/api/admin/attendance-logs/lookup?storeId=${encodeURIComponent(storeId)}&castId=${encodeURIComponent(selectedCastId)}&attended_date=${encodeURIComponent(selectedYmd)}`;
       const res = await fetch(url, { credentials: "include" });
       const payload = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -245,7 +255,7 @@ export function CastAttendanceManualModal({
     } finally {
       setLoadingLookup(false);
     }
-  }, [open, storeId, castId, selectedYmd]);
+  }, [open, storeId, selectedCastId, selectedYmd]);
 
   useEffect(() => {
     if (!open) return;
@@ -254,8 +264,26 @@ export function CastAttendanceManualModal({
 
   useEffect(() => {
     if (!open) return;
+    if (!selectedCastId) {
+      applyLogToForm(null, {
+        setAttendanceLogId,
+        setStatus,
+        setPlannedGroups,
+        setTentativeGroups,
+        setActionType,
+        setActionDetail,
+        setIsSabaki,
+        setPublicHolidayReason,
+        setHalfHolidayReason,
+        setHasReservation,
+        setReservationDetails,
+      });
+      setLoadError(null);
+      setLoadingLookup(false);
+      return;
+    }
     void fetchLookup();
-  }, [open, fetchLookup]);
+  }, [open, selectedCastId, selectedYmd, fetchLookup]);
 
   const loadHistories = useCallback(async () => {
     if (!attendanceLogId || !storeId) return;
@@ -313,7 +341,7 @@ export function CastAttendanceManualModal({
   };
 
   const handleSave = async () => {
-    if (!storeId || !castId || !selectedYmd) return;
+    if (!storeId || !selectedCastId || !selectedYmd) return;
     let payload: Record<string, unknown>;
     try {
       payload = buildPayload();
@@ -347,7 +375,7 @@ export function CastAttendanceManualModal({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               storeId,
-              castId,
+              castId: selectedCastId,
               attended_date: selectedYmd,
               ...payload,
             }),
@@ -400,7 +428,12 @@ export function CastAttendanceManualModal({
 
   if (!open) return null;
 
-  const modeLabel = attendanceLogId ? "既存ログを編集" : "新規打刻を追加";
+  const modeLabel =
+    !selectedCastId || !selectedYmd
+      ? ""
+      : attendanceLogId
+        ? "既存ログを編集"
+        : "新規打刻を追加";
 
   return (
     <div
@@ -412,7 +445,7 @@ export function CastAttendanceManualModal({
       <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[92vh] overflow-hidden flex flex-col border border-gray-200">
         <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2 bg-slate-50/90">
           <h2 id="cast-attendance-manual-title" className="text-base font-bold text-gray-900">
-            {castName} の勤怠（手動）
+            勤怠の手動編集・追加
           </h2>
           <button
             type="button"
@@ -423,21 +456,57 @@ export function CastAttendanceManualModal({
           </button>
         </div>
 
-        <div className="px-4 py-2 border-b border-gray-100 bg-amber-50/50 text-xs text-amber-950">
-          <span className="font-semibold">{modeLabel}</span>
-          <span className="text-gray-600"> · 期間 {periodStartYmd} 〜 {periodEndYmd}</span>
-        </div>
+        {castOptions.length === 0 ? (
+          <div className="px-4 py-3 border-b border-gray-100 text-sm text-amber-900 bg-amber-50/60">
+            この店舗で表示できるキャストがいません。レポートを読み込んでから再度お試しください。
+          </div>
+        ) : (
+          <div className="px-4 py-2 border-b border-gray-100 bg-amber-50/50 text-xs text-amber-950">
+            {modeLabel ? (
+              <>
+                <span className="font-semibold">{modeLabel}</span>
+                {selectedCastName ? (
+                  <span className="text-gray-700"> · {selectedCastName}</span>
+                ) : null}
+              </>
+            ) : (
+              <span className="text-gray-700">利用者と日付を選ぶと、既存打刻の読み込みまたは新規追加ができます。</span>
+            )}
+            <span className="text-gray-600"> · 表示期間 {periodStartYmd} 〜 {periodEndYmd}</span>
+          </div>
+        )}
 
-        <div className="px-4 py-3 border-b border-gray-100 space-y-2">
+        <div className="px-4 py-3 border-b border-gray-100 space-y-3">
           <label className="block">
-            <span className="block text-xs font-medium text-gray-600 mb-1">対象日</span>
+            <span className="block text-xs font-medium text-gray-600 mb-1">1. 対象の利用者</span>
+            <select
+              value={selectedCastId}
+              onChange={(e) => {
+                setSelectedCastId(e.target.value);
+                setPanel("edit");
+                setHistories(null);
+                setHistoryError(null);
+              }}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+            >
+              <option value="">選択してください</option>
+              {castOptions.map((c) => (
+                <option key={c.castId} value={c.castId}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="block text-xs font-medium text-gray-600 mb-1">2. 対象日</span>
             <select
               value={selectedYmd}
               onChange={(e) => {
                 setSelectedYmd(e.target.value);
                 setPanel("edit");
               }}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+              disabled={dateOptions.length === 0}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 disabled:opacity-50"
             >
               {dateOptions.map((ymd) => (
                 <option key={ymd} value={ymd}>
@@ -446,8 +515,10 @@ export function CastAttendanceManualModal({
               ))}
             </select>
           </label>
-          {loadingLookup && <p className="text-xs text-gray-500">読み込み中…</p>}
-          {loadError && <p className="text-xs text-red-600">{loadError}</p>}
+          {selectedCastId && loadingLookup && (
+            <p className="text-xs text-gray-500">打刻を読み込み中…</p>
+          )}
+          {selectedCastId && loadError && <p className="text-xs text-red-600">{loadError}</p>}
         </div>
 
         <div className="px-3 pt-2 flex gap-1 border-b border-gray-100">
@@ -465,12 +536,12 @@ export function CastAttendanceManualModal({
           <button
             type="button"
             onClick={() => setPanel("history")}
-            disabled={!attendanceLogId}
+            disabled={!selectedCastId || !attendanceLogId}
             className={`px-3 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-colors ${
               panel === "history"
                 ? "border-blue-600 text-blue-800 bg-white"
                 : "border-transparent text-gray-500 hover:text-gray-800"
-            } ${!attendanceLogId ? "opacity-40 cursor-not-allowed" : ""}`}
+            } ${!selectedCastId || !attendanceLogId ? "opacity-40 cursor-not-allowed" : ""}`}
           >
             履歴
           </button>
@@ -478,6 +549,11 @@ export function CastAttendanceManualModal({
 
         <div className="flex-1 overflow-y-auto px-4 py-4 text-sm">
           {panel === "edit" ? (
+            !selectedCastId ? (
+              <p className="text-sm text-gray-600">
+                まず上のプルダウンで対象の利用者を選んでください。
+              </p>
+            ) : (
             <div className="space-y-4">
               <label className="block">
                 <span className="block text-xs font-medium text-gray-600 mb-1">ステータス</span>
@@ -604,6 +680,7 @@ export function CastAttendanceManualModal({
                 ) : null}
               </div>
             </div>
+            )
           ) : (
             <div className="space-y-4">
               {!attendanceLogId ? (

@@ -474,10 +474,7 @@ function AdminReportContent() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   /** 空文字 = 全員表示 */
   const [filterCastId, setFilterCastId] = useState("");
-  const [castAttendanceModal, setCastAttendanceModal] = useState<{
-    castId: string;
-    castName: string;
-  } | null>(null);
+  const [manualAttendanceModalOpen, setManualAttendanceModalOpen] = useState(false);
 
   /** 案内数レポート非対応店舗（OFF / BAR拡張）で tab=guide のときキャスト側へ戻す */
   useEffect(() => {
@@ -762,6 +759,14 @@ function AdminReportContent() {
     if (!filterCastId) return sortedReports;
     return sortedReports.filter((r) => r.castId === filterCastId);
   }, [sortedReports, filterCastId]);
+
+  const manualModalCastOptions = useMemo(
+    () =>
+      [...cabaretReports]
+        .map((r) => ({ castId: r.castId, name: r.name }))
+        .sort((a, b) => a.name.localeCompare(b.name, "ja")),
+    [cabaretReports]
+  );
 
   const filteredWelfareRows = useMemo(() => {
     if (!filterCastId) return welfareRows;
@@ -1126,6 +1131,18 @@ function AdminReportContent() {
                 ? `表示日: ${dayDate}`
                 : `集計期間: ${start} 〜 ${end}`}
           </p>
+          {reportTab === "cast" &&
+            businessType !== "welfare_b" &&
+            activeStoreId &&
+            manualModalCastOptions.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setManualAttendanceModalOpen(true)}
+                className="print:hidden inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
+              >
+                + 勤怠を手動編集・追加
+              </button>
+            )}
           <button
             type="button"
             onClick={handlePrint}
@@ -1288,7 +1305,7 @@ function AdminReportContent() {
         <>
         {showBasicAttendanceTable && (
         <div className="report-table-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
-          <table className="report-table min-w-[980px] w-full text-left text-sm">
+          <table className="report-table min-w-[880px] w-full text-left text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="print:hidden px-1 py-3 w-10" />
@@ -1304,9 +1321,6 @@ function AdminReportContent() {
                   <span className="hidden font-semibold text-gray-900 print:inline">
                     利用者名
                   </span>
-                </th>
-                <th className="print:hidden px-2 py-3 text-left min-w-[12rem]">
-                  <span className="text-xs font-semibold text-gray-800">手動編集</span>
                 </th>
                 <th className="px-3 py-3 text-right">
                   <button
@@ -1423,7 +1437,7 @@ function AdminReportContent() {
               {sortedReports.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={10}
                     className="px-3 py-8 text-center text-gray-500"
                   >
                     {emptyMessage}
@@ -1432,7 +1446,7 @@ function AdminReportContent() {
               ) : filteredSortedReports.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={10}
                     className="px-3 py-8 text-center text-gray-500"
                   >
                     {filterEmptyMessage}
@@ -1477,23 +1491,6 @@ function AdminReportContent() {
                             )}
                           </span>
                         </td>
-                        <td className="print:hidden px-2 py-2 align-middle">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCastAttendanceModal({
-                                castId: r.castId,
-                                castName: r.name,
-                              })
-                            }
-                            className="inline-flex items-center gap-1.5 rounded-lg border-2 border-indigo-400 bg-indigo-50 px-2.5 py-2 text-left text-[11px] sm:text-xs font-bold text-indigo-950 shadow-sm hover:bg-indigo-100 leading-snug max-w-[14rem]"
-                          >
-                            <span className="text-base shrink-0" aria-hidden>
-                              🛠️
-                            </span>
-                            <span>このキャストの勤怠を手動で編集・追加</span>
-                          </button>
-                        </td>
                         <td className="px-3 py-3 text-right tabular-nums">
                           {r.attendanceDays}
                         </td>
@@ -1527,7 +1524,7 @@ function AdminReportContent() {
                         <tr
                           className={`report-detail-row bg-gray-50/90 ${open ? "" : "hidden"}`}
                         >
-                          <td colSpan={11} className="px-4 py-3 text-sm text-gray-700">
+                          <td colSpan={10} className="px-4 py-3 text-sm text-gray-700">
                             <ul className="space-y-2 pl-2 border-l-2 border-blue-200">
                               {r.sabakiDates.length > 0 && (
                                 <li className="list-none text-amber-950">
@@ -1565,9 +1562,8 @@ function AdminReportContent() {
                                 );
                               })}
                             </ul>
-                            <p className="mt-3 text-xs text-indigo-800 print:hidden border-t border-gray-200/80 pt-3">
-                              打刻の新規追加・編集・削除は、表の「🛠️
-                              このキャストの勤怠を手動で編集・追加」から行えます。
+                            <p className="mt-3 text-xs text-gray-600 print:hidden border-t border-gray-200/80 pt-3">
+                              打刻の新規追加・編集・削除は、画面上部の「+ 勤怠を手動編集・追加」から行えます。
                             </p>
                           </td>
                         </tr>
@@ -1607,27 +1603,12 @@ function AdminReportContent() {
                   key={`bar-actions-${r.castId}`}
                   className="rounded-xl border border-teal-100 bg-white shadow-sm overflow-hidden print:shadow-none print:border print:rounded-none"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm font-semibold text-teal-950 bg-teal-50/80 border-b border-teal-100">
-                    <h3 className="text-base font-semibold m-0">{r.name}</h3>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setCastAttendanceModal({
-                          castId: r.castId,
-                          castName: r.name,
-                        })
-                      }
-                      className="print:hidden inline-flex items-center gap-1.5 rounded-lg border-2 border-indigo-400 bg-indigo-50 px-2.5 py-2 text-left text-[11px] sm:text-xs font-bold text-indigo-950 shadow-sm hover:bg-indigo-100 leading-snug max-w-[16rem]"
-                    >
-                      <span className="text-base shrink-0" aria-hidden>
-                        🛠️
-                      </span>
-                      <span>このキャストの勤怠を手動で編集・追加</span>
-                    </button>
-                  </div>
+                  <h3 className="px-4 py-3 text-base font-semibold text-teal-950 bg-teal-50/80 border-b border-teal-100 m-0">
+                    {r.name}
+                  </h3>
                   {rowsWithData.length === 0 ? (
                     <p className="px-4 py-4 text-sm text-gray-600">
-                      この期間の BAR 行動記録はありません。打刻の新規追加は上のボタンから行えます。
+                      この期間の BAR 行動記録はありません。打刻の新規追加は画面上部の「+ 勤怠を手動編集・追加」から行えます。
                     </p>
                   ) : (
                     <div className="overflow-x-auto">
@@ -1702,16 +1683,15 @@ function AdminReportContent() {
         </>
       )}
 
-      {activeStoreId && castAttendanceModal ? (
+      {activeStoreId && manualAttendanceModalOpen ? (
         <CastAttendanceManualModal
-          key={`${castAttendanceModal.castId}-${start}-${end}`}
+          key={`${start}-${end}`}
           open
           storeId={activeStoreId}
-          castId={castAttendanceModal.castId}
-          castName={castAttendanceModal.castName}
+          castOptions={manualModalCastOptions}
           periodStartYmd={start}
           periodEndYmd={end}
-          onClose={() => setCastAttendanceModal(null)}
+          onClose={() => setManualAttendanceModalOpen(false)}
           onSaved={() => void fetchData()}
         />
       ) : null}
