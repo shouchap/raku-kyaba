@@ -3,20 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  BarChart3,
-  CalendarDays,
-  CalendarPlus2,
-  ClipboardList,
-  LogOut,
-  Menu,
-  Megaphone,
-  Settings,
-  Store,
-  UserRound,
-  Users,
-  X,
-} from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { BUSINESS_THEME, type BusinessType } from "@/lib/business-ui";
 import type { CustomTerms } from "@/lib/custom-terms";
@@ -24,36 +11,38 @@ import type { CustomTerms } from "@/lib/custom-terms";
 type NavItem = {
   href: string;
   label: string;
-  icon: typeof ClipboardList;
+  imageUrl: string;
+  fallbackEmoji: string;
 };
 
-// NOTE: 微調整や差し戻しが必要な場合は、この定数だけ変更すればOK。
-const NAV_ICON_CLASS = "h-4 w-4 shrink-0 transition-opacity";
+// NOTE: 微調整や差し戻しが必要な場合は、この定数群だけ変更すればOK。
+const NAV_ICON_CLASS = "h-5 w-5 shrink-0 object-contain transition-opacity";
 const NAV_ICON_ACTIVE_CLASS = "opacity-95";
 const NAV_ICON_IDLE_CLASS = "opacity-65";
+const STORE_ADMIN_ICON = { imageUrl: "/icons/stores.png", fallbackEmoji: "🏬" } as const;
 
 const NAV_ITEMS_BY_BUSINESS: Record<BusinessType, NavItem[]> = {
   cabaret: [
-    { href: "/admin/weekly", label: "シフト入力", icon: CalendarDays },
-    { href: "/admin/view", label: "シフト一覧", icon: ClipboardList },
-    { href: "/admin/schedule", label: "単日登録", icon: CalendarPlus2 },
-    { href: "/admin/shifts/special", label: "特別シフト募集", icon: Megaphone },
-    { href: "/admin/casts", label: "キャスト管理", icon: Users },
-    { href: "/admin/report", label: "月間レポート", icon: BarChart3 },
-    { href: "/admin/settings", label: "システム設定", icon: Settings },
+    { href: "/admin/weekly", label: "シフト入力", imageUrl: "/icons/shift-input.png", fallbackEmoji: "📅" },
+    { href: "/admin/view", label: "シフト一覧", imageUrl: "/icons/shift-list.png", fallbackEmoji: "📋" },
+    { href: "/admin/schedule", label: "単日登録", imageUrl: "/icons/single-day.png", fallbackEmoji: "➕" },
+    { href: "/admin/shifts/special", label: "特別シフト募集", imageUrl: "/icons/special-shift.png", fallbackEmoji: "📣" },
+    { href: "/admin/casts", label: "キャスト管理", imageUrl: "/icons/casts.png", fallbackEmoji: "👥" },
+    { href: "/admin/report", label: "月間レポート", imageUrl: "/icons/report.png", fallbackEmoji: "📈" },
+    { href: "/admin/settings", label: "システム設定", imageUrl: "/icons/settings.png", fallbackEmoji: "⚙️" },
   ],
   bar: [
-    { href: "/admin/weekly", label: "出勤入力", icon: CalendarDays },
-    { href: "/admin/view", label: "出勤一覧", icon: ClipboardList },
-    { href: "/admin/schedule", label: "単日登録", icon: CalendarPlus2 },
-    { href: "/admin/casts", label: "キャスト管理", icon: Users },
-    { href: "/admin/report", label: "BARレポート", icon: BarChart3 },
-    { href: "/admin/settings", label: "BAR設定", icon: Settings },
+    { href: "/admin/weekly", label: "出勤入力", imageUrl: "/icons/attendance-input.png", fallbackEmoji: "📅" },
+    { href: "/admin/view", label: "出勤一覧", imageUrl: "/icons/attendance-list.png", fallbackEmoji: "📋" },
+    { href: "/admin/schedule", label: "単日登録", imageUrl: "/icons/single-day.png", fallbackEmoji: "➕" },
+    { href: "/admin/casts", label: "キャスト管理", imageUrl: "/icons/casts.png", fallbackEmoji: "👥" },
+    { href: "/admin/report", label: "BARレポート", imageUrl: "/icons/bar-report.png", fallbackEmoji: "📊" },
+    { href: "/admin/settings", label: "BAR設定", imageUrl: "/icons/settings.png", fallbackEmoji: "⚙️" },
   ],
   welfare_b: [
-    { href: "/admin/casts", label: "利用者管理", icon: UserRound },
-    { href: "/admin/report", label: "日報・実績", icon: BarChart3 },
-    { href: "/admin/settings", label: "事業所設定", icon: Settings },
+    { href: "/admin/casts", label: "利用者管理", imageUrl: "/icons/users.png", fallbackEmoji: "🧑" },
+    { href: "/admin/report", label: "日報・実績", imageUrl: "/icons/daily-report.png", fallbackEmoji: "📝" },
+    { href: "/admin/settings", label: "事業所設定", imageUrl: "/icons/settings.png", fallbackEmoji: "⚙️" },
   ],
 };
 
@@ -100,6 +89,7 @@ export default function AdminNav({
   const pathname = usePathname();
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [iconLoadFailed, setIconLoadFailed] = useState<Record<string, boolean>>({});
 
   const currentLabel =
     stores.find((s) => s.id === activeStoreId)?.name ??
@@ -150,6 +140,29 @@ export default function AdminNav({
     router.refresh();
   };
 
+  const renderNavIcon = (key: string, item: Pick<NavItem, "label" | "imageUrl" | "fallbackEmoji">, isActive: boolean) => {
+    const failed = iconLoadFailed[key] === true;
+    const toneClass = isActive ? NAV_ICON_ACTIVE_CLASS : NAV_ICON_IDLE_CLASS;
+    if (!failed) {
+      return (
+        <img
+          src={item.imageUrl}
+          alt={item.label}
+          className={`${NAV_ICON_CLASS} ${toneClass}`}
+          onError={() => setIconLoadFailed((prev) => ({ ...prev, [key]: true }))}
+        />
+      );
+    }
+    return (
+      <span
+        aria-hidden
+        className={`inline-flex h-5 w-5 items-center justify-center text-sm leading-none ${toneClass}`}
+      >
+        {item.fallbackEmoji}
+      </span>
+    );
+  };
+
   const NavLinks = ({ vertical }: { vertical: boolean }) => (
     <>
       {navEntries.map((item) => {
@@ -164,9 +177,7 @@ export default function AdminNav({
             className={navLinkClass(isActive, vertical, businessType)}
             onClick={() => setMobileMenuOpen(false)}
           >
-            <item.icon
-              className={`${NAV_ICON_CLASS} ${isActive ? NAV_ICON_ACTIVE_CLASS : NAV_ICON_IDLE_CLASS}`}
-            />
+            {renderNavIcon(item.href, item, isActive)}
             {item.label}
           </Link>
         );
@@ -189,11 +200,11 @@ export default function AdminNav({
           }
           onClick={() => setMobileMenuOpen(false)}
         >
-          <Store
-            className={`mr-1.5 ${NAV_ICON_CLASS} ${
-              pathname === "/admin/stores" ? NAV_ICON_ACTIVE_CLASS : NAV_ICON_IDLE_CLASS
-            }`}
-          />
+          {renderNavIcon(
+            "/admin/stores",
+            { label: "店舗管理", imageUrl: STORE_ADMIN_ICON.imageUrl, fallbackEmoji: STORE_ADMIN_ICON.fallbackEmoji },
+            pathname === "/admin/stores"
+          )}
           店舗管理
         </Link>
       )}
