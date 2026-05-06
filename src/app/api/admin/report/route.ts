@@ -16,6 +16,23 @@ export const dynamic = "force-dynamic";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** GET /api/admin/report の cast_reports に付ける打刻一覧（管理画面の手動編集用） */
+export type ReportAttendanceLogPeriodRow = {
+  attendanceLogId: string;
+  attendedDate: string;
+  status: string;
+  plannedGroups: number | null;
+  tentativeGroups: number;
+  actionType: string | null;
+  actionDetail: string | null;
+  isSabaki: boolean;
+  publicHolidayReason: string | null;
+  halfHolidayReason: string | null;
+  hasReservation: boolean | null;
+  reservationDetails: string | null;
+  respondedAt: string;
+};
+
 function storeIdForbiddenUnlessMatchesCookie(
   request: Request,
   user: User,
@@ -185,6 +202,7 @@ export async function GET(request: Request) {
     const castIds = casts.map((c) => c.id);
 
     let schedules: AdminReportScheduleRow[] = [];
+    const logsInPeriodByCast = new Map<string, ReportAttendanceLogPeriodRow[]>();
     if (castIds.length > 0) {
       const { data: schedRows, error: schedErr } = await admin
         .from("attendance_schedules")
@@ -209,28 +227,105 @@ export async function GET(request: Request) {
 
       const { data: attendanceLogs } = await admin
         .from("attendance_logs")
-        .select("cast_id, attended_date, planned_groups, action_type, action_detail")
+        .select(
+          [
+            "id",
+            "cast_id",
+            "attended_date",
+            "status",
+            "planned_groups",
+            "tentative_groups",
+            "action_type",
+            "action_detail",
+            "is_sabaki",
+            "public_holiday_reason",
+            "half_holiday_reason",
+            "has_reservation",
+            "reservation_details",
+            "responded_at",
+          ].join(", ")
+        )
         .eq("store_id", storeId)
         .in("cast_id", castIds)
         .gte("attended_date", start)
         .lte("attended_date", end);
-      const logMap = new Map<string, { planned_groups: number | null; action_type: string | null; action_detail: string | null }>();
+
+      type LogAugment = {
+        attendance_log_id: string;
+        log_status: AdminReportScheduleRow["log_status"];
+        planned_groups: number | null;
+        tentative_groups: number | null;
+        action_type: string | null;
+        action_detail: string | null;
+      };
+
+      const logMap = new Map<string, LogAugment>();
+
+      const numericOrNull = (v: unknown): number | null => {
+        if (v === null || v === undefined) return null;
+        const n = typeof v === "number" ? v : Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const intOrZero = (v: unknown): number => {
+        if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+        if (v != null && v !== "") {
+          const n = Number(v);
+          if (Number.isFinite(n)) return Math.trunc(n);
+        }
+        return 0;
+      };
+
       for (const row of attendanceLogs ?? []) {
         const castId = String((row as { cast_id?: string }).cast_id ?? "");
         const date = String((row as { attended_date?: string }).attended_date ?? "");
-        logMap.set(`${castId}:${date}`, {
-          planned_groups:
-            typeof (row as { planned_groups?: number | null }).planned_groups === "number"
-              ? (row as { planned_groups?: number | null }).planned_groups ?? null
-              : null,
+        const planned_groups = numericOrNull((row as { planned_groups?: unknown }).planned_groups);
+        const tentative_groups = intOrZero((row as { tentative_groups?: unknown }).tentative_groups);
+        const aug: LogAugment = {
+          attendance_log_id: String((row as { id?: string }).id ?? ""),
+          log_status: ((row as { status?: string | null }).status ??
+            null) as AdminReportScheduleRow["log_status"],
+          planned_groups,
+          tentative_groups,
           action_type: ((row as { action_type?: string | null }).action_type ?? null) as string | null,
           action_detail: ((row as { action_detail?: string | null }).action_detail ?? null) as string | null,
-        });
+        };
+        logMap.set(`${castId}:${date}`, aug);
+
+        const payload: ReportAttendanceLogPeriodRow = {
+          attendanceLogId: aug.attendance_log_id,
+          attendedDate: date,
+          status: String((row as { status?: string }).status ?? "attending"),
+          plannedGroups: planned_groups,
+          tentativeGroups: tentative_groups,
+          actionType: aug.action_type,
+          actionDetail: aug.action_detail,
+          isSabaki: Boolean((row as { is_sabaki?: boolean }).is_sabaki),
+          publicHolidayReason: ((row as { public_holiday_reason?: string | null }).public_holiday_reason ??
+            null) as string | null,
+          halfHolidayReason: ((row as { half_holiday_reason?: string | null }).half_holiday_reason ??
+            null) as string | null,
+          hasReservation: (() => {
+            const hr = (row as { has_reservation?: boolean | null }).has_reservation;
+            return typeof hr === "boolean" ? hr : null;
+          })(),
+          reservationDetails: ((row as { reservation_details?: string | null }).reservation_details ??
+            null) as string | null,
+          respondedAt: String((row as { responded_at?: string }).responded_at ?? ""),
+        };
+        const list = logsInPeriodByCast.get(castId) ?? [];
+        list.push(payload);
+        logsInPeriodByCast.set(castId, list);
       }
-      schedules = schedules.map((s) => {
+
+      for (const [, list] of logsInPeriodByCast) {
+        list.sort((a, b) => a.attendedDate.localeCompare(b.attendedDate));
+      }
+
+      schedules = schedules.map((s): AdminReportScheduleRow => {
         const key = `${s.cast_id}:${s.scheduled_date}`;
         const found = logMap.get(key);
-        return found ? { ...s, ...found } : s;
+        return found ? ({ ...s, ...found } as AdminReportScheduleRow) : s;
       });
     }
 
@@ -245,6 +340,11 @@ export async function GET(request: Request) {
     const bt =
       businessType === "bar" ? "bar" : ("cabaret" as const);
 
+    const cast_reports_payload = cast_reports.map((cr) => ({
+      ...cr,
+      attendance_logs_in_period: logsInPeriodByCast.get(cr.castId) ?? [],
+    }));
+
     return NextResponse.json({
       ok: true,
       business_type: bt,
@@ -252,7 +352,7 @@ export async function GET(request: Request) {
       welfare_rows: null,
       today: todayYmd,
       period: { start, end },
-      cast_reports,
+      cast_reports: cast_reports_payload,
     });
   }
 

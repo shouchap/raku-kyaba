@@ -19,6 +19,8 @@ import {
 } from "@/lib/date-utils";
 import { ChevronDown, ChevronRight, Printer } from "lucide-react";
 import { GuideReportTab } from "./GuideReportTab";
+import { AttendanceLogEditModal } from "./AttendanceLogEditModal";
+import type { ReportAttendanceLogPeriodRow } from "@/app/api/admin/report/route";
 import "./report-print.css";
 
 type Store = {
@@ -71,9 +73,12 @@ type CastReport = {
   /** 定休を除く月初〜今日までの範囲で、回答のない日数（サーバー集計） */
   unfilledDays: number;
   incidents: Incident[];
+  attendanceLogsInPeriod: ReportAttendanceLogPeriodRow[];
   actionDetails: Array<{
     dateStr: string;
+    attendanceLogId: string | null;
     plannedGroups: number | null;
+    tentativeGroups: number | null;
     actionType: string | null;
     actionDetail: string | null;
   }>;
@@ -180,6 +185,14 @@ function barSegmentColumns(segments: { kind: string; detail: string }[]): {
 }
 
 /** 日別タブ用: 2026年4月3日 */
+function pickAttendanceLogForYmd(
+  logs: ReportAttendanceLogPeriodRow[] | undefined,
+  ymd: string
+): ReportAttendanceLogPeriodRow | null {
+  const hit = logs?.find((l) => l.attendedDate === ymd);
+  return hit ?? null;
+}
+
 function formatJaFullDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   if (!y || !m || !d) return dateStr;
@@ -469,6 +482,11 @@ function AdminReportContent() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   /** 空文字 = 全員表示 */
   const [filterCastId, setFilterCastId] = useState("");
+  const [attendanceLogModal, setAttendanceLogModal] = useState<{
+    castName: string;
+    log: ReportAttendanceLogPeriodRow;
+    initialPanel?: "edit" | "history";
+  } | null>(null);
 
   /** 案内数レポート非対応店舗（OFF / BAR拡張）で tab=guide のときキャスト側へ戻す */
   useEffect(() => {
@@ -583,7 +601,7 @@ function AdminReportContent() {
       const reportRes = await fetch(reportUrl, { credentials: "include" });
       const payload = (await reportRes.json().catch(() => ({}))) as {
         ok?: boolean;
-        cast_reports?: CastReport[];
+        cast_reports?: Record<string, unknown>[];
         error?: string;
         details?: string;
       };
@@ -595,21 +613,80 @@ function AdminReportContent() {
       }
       const rows = Array.isArray(payload.cast_reports) ? payload.cast_reports : [];
       setCabaretReports(
-        rows.map((r) => ({
-          castId: r.castId,
-          name: r.name,
-          attendanceDays: r.attendanceDays,
-          dohanCount: r.dohanCount,
-          sabakiCount: r.sabakiCount,
-          sabakiDates: Array.isArray(r.sabakiDates) ? r.sabakiDates : [],
-          lateCount: r.lateCount,
-          absentCount: r.absentCount,
-          halfHolidayCount: r.halfHolidayCount,
-          publicHolidayCount: r.publicHolidayCount,
-          unfilledDays: typeof r.unfilledDays === "number" ? r.unfilledDays : 0,
-          incidents: Array.isArray(r.incidents) ? r.incidents : [],
-          actionDetails: Array.isArray(r.actionDetails) ? r.actionDetails : [],
-        }))
+        rows.map((raw) => {
+          const r = raw as Record<string, unknown>;
+          const logsRaw = r.attendance_logs_in_period;
+          const attendanceLogsInPeriod: ReportAttendanceLogPeriodRow[] = Array.isArray(logsRaw)
+            ? (logsRaw as Record<string, unknown>[]).map((row) => ({
+                attendanceLogId: String(row.attendanceLogId ?? ""),
+                attendedDate: String(row.attendedDate ?? ""),
+                status: String(row.status ?? "attending"),
+                plannedGroups:
+                  row.plannedGroups === null || row.plannedGroups === undefined
+                    ? null
+                    : typeof row.plannedGroups === "number"
+                      ? row.plannedGroups
+                      : Number(row.plannedGroups),
+                tentativeGroups:
+                  typeof row.tentativeGroups === "number"
+                    ? Math.trunc(row.tentativeGroups)
+                    : Number(row.tentativeGroups ?? 0),
+                actionType: (row.actionType ?? null) as string | null,
+                actionDetail: (row.actionDetail ?? null) as string | null,
+                isSabaki: Boolean(row.isSabaki),
+                publicHolidayReason: (row.publicHolidayReason ?? null) as string | null,
+                halfHolidayReason: (row.halfHolidayReason ?? null) as string | null,
+                hasReservation:
+                  typeof row.hasReservation === "boolean" ? row.hasReservation : null,
+                reservationDetails: (row.reservationDetails ?? null) as string | null,
+                respondedAt: String(row.respondedAt ?? ""),
+              }))
+            : [];
+          const detailsRaw = r.actionDetails;
+          const actionDetails = Array.isArray(detailsRaw)
+            ? (detailsRaw as Record<string, unknown>[]).map((d) => ({
+                dateStr: String(d.dateStr ?? ""),
+                attendanceLogId:
+                  typeof d.attendanceLogId === "string"
+                    ? d.attendanceLogId
+                    : d.attendanceLogId != null
+                      ? String(d.attendanceLogId)
+                      : null,
+                plannedGroups:
+                  typeof d.plannedGroups === "number"
+                    ? d.plannedGroups
+                    : d.plannedGroups != null
+                      ? Number(d.plannedGroups)
+                      : null,
+                tentativeGroups:
+                  typeof d.tentativeGroups === "number"
+                    ? d.tentativeGroups
+                    : d.tentativeGroups != null
+                      ? Number(d.tentativeGroups)
+                      : null,
+                actionType: (d.actionType ?? null) as string | null,
+                actionDetail: (d.actionDetail ?? null) as string | null,
+              }))
+            : [];
+          return {
+            castId: String(r.castId ?? ""),
+            name: String(r.name ?? ""),
+            attendanceDays: typeof r.attendanceDays === "number" ? r.attendanceDays : 0,
+            dohanCount: typeof r.dohanCount === "number" ? r.dohanCount : 0,
+            sabakiCount: typeof r.sabakiCount === "number" ? r.sabakiCount : 0,
+            sabakiDates: Array.isArray(r.sabakiDates) ? (r.sabakiDates as string[]) : [],
+            lateCount: typeof r.lateCount === "number" ? r.lateCount : 0,
+            absentCount: typeof r.absentCount === "number" ? r.absentCount : 0,
+            halfHolidayCount:
+              typeof r.halfHolidayCount === "number" ? r.halfHolidayCount : 0,
+            publicHolidayCount:
+              typeof r.publicHolidayCount === "number" ? r.publicHolidayCount : 0,
+            unfilledDays: typeof r.unfilledDays === "number" ? r.unfilledDays : 0,
+            incidents: Array.isArray(r.incidents) ? (r.incidents as Incident[]) : [],
+            attendanceLogsInPeriod,
+            actionDetails,
+          };
+        })
       );
     } catch (e: unknown) {
       console.error(e);
@@ -1442,20 +1519,69 @@ function AdminReportContent() {
                           <td colSpan={10} className="px-4 py-3 text-sm text-gray-700">
                             <ul className="space-y-2 pl-2 border-l-2 border-blue-200">
                               {r.sabakiDates.length > 0 && (
-                                <li className="list-none text-amber-950">
-                                  <span className="inline-flex items-center gap-1.5">
-                                    <span
-                                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-amber-600 bg-amber-100 text-xs font-bold text-amber-900"
-                                      aria-hidden
-                                    >
-                                      捌
+                                <>
+                                  <li className="list-none text-amber-950 mb-1">
+                                    <span className="inline-flex items-center gap-1.5">
+                                      <span
+                                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-amber-600 bg-amber-100 text-xs font-bold text-amber-900"
+                                        aria-hidden
+                                      >
+                                        捌
+                                      </span>
+                                      <span className="font-medium">捌き出勤（日ごと）</span>
                                     </span>
-                                    <span>
-                                      捌き出勤:{" "}
-                                      {r.sabakiDates.map(formatJaMonthDay).join("、")}
-                                    </span>
-                                  </span>
-                                </li>
+                                  </li>
+                                  {[...r.sabakiDates].sort().map((dateStr) => {
+                                    const logHit = pickAttendanceLogForYmd(
+                                      r.attendanceLogsInPeriod,
+                                      dateStr
+                                    );
+                                    return (
+                                      <li
+                                        key={`sabaki-log-${dateStr}`}
+                                        className="list-none flex flex-wrap items-start gap-x-3 gap-y-1 justify-between border-b border-amber-100/80 pb-2 last:border-0 last:pb-0"
+                                      >
+                                        <span className="text-amber-950">
+                                          {formatJaMonthDay(dateStr)}
+                                        </span>
+                                        {logHit ? (
+                                          <span className="print:hidden inline-flex flex-wrap gap-1 shrink-0">
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setAttendanceLogModal({
+                                                  castName: r.name,
+                                                  log: logHit,
+                                                  initialPanel: "edit",
+                                                })
+                                              }
+                                              className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-50"
+                                            >
+                                              編集
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setAttendanceLogModal({
+                                                  castName: r.name,
+                                                  log: logHit,
+                                                  initialPanel: "history",
+                                                })
+                                              }
+                                              className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                            >
+                                              履歴
+                                            </button>
+                                          </span>
+                                        ) : (
+                                          <span className="text-[11px] text-gray-400 print:hidden">
+                                            （打刻なし）
+                                          </span>
+                                        )}
+                                      </li>
+                                    );
+                                  })}
+                                </>
                               )}
                               {r.incidents.map((inc, idx) => {
                                 const label =
@@ -1470,10 +1596,48 @@ function AdminReportContent() {
                                           : "—";
                                 const reasonText =
                                   inc.reason?.trim() || "（理由なし）";
+                                const logHit = pickAttendanceLogForYmd(
+                                  r.attendanceLogsInPeriod,
+                                  inc.dateStr
+                                );
                                 return (
-                                  <li key={`${inc.dateStr}-${inc.kind}-${idx}`}>
-                                    {formatJaMonthDay(inc.dateStr)} [
-                                    {label}]：{reasonText}
+                                  <li
+                                    key={`${inc.dateStr}-${inc.kind}-${idx}`}
+                                    className="flex flex-wrap items-start gap-x-3 gap-y-1 justify-between"
+                                  >
+                                    <span>
+                                      {formatJaMonthDay(inc.dateStr)} [{label}]：{reasonText}
+                                    </span>
+                                    {logHit ? (
+                                      <span className="print:hidden inline-flex flex-wrap gap-1 shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setAttendanceLogModal({
+                                              castName: r.name,
+                                              log: logHit,
+                                              initialPanel: "edit",
+                                            })
+                                          }
+                                          className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-50"
+                                        >
+                                          編集
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setAttendanceLogModal({
+                                              castName: r.name,
+                                              log: logHit,
+                                              initialPanel: "history",
+                                            })
+                                          }
+                                          className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                        >
+                                          履歴
+                                        </button>
+                                      </span>
+                                    ) : null}
                                   </li>
                                 );
                               })}
@@ -1505,6 +1669,9 @@ function AdminReportContent() {
               const rowsWithData = sortedActions.filter(
                 (d) =>
                   (typeof d.plannedGroups === "number" && !Number.isNaN(d.plannedGroups)) ||
+                  (typeof d.tentativeGroups === "number" &&
+                    !Number.isNaN(d.tentativeGroups) &&
+                    d.tentativeGroups > 0) ||
                   (d.actionType && d.actionType.trim() !== "") ||
                   (d.actionDetail && d.actionDetail.trim() !== "")
               );
@@ -1528,6 +1695,9 @@ function AdminReportContent() {
                           <th className="px-3 py-2 min-w-[4rem]">SNS</th>
                           <th className="px-3 py-2 whitespace-nowrap">行動種別</th>
                           <th className="px-3 py-2 min-w-[12rem]">詳細（原文）</th>
+                          <th className="print:hidden px-3 py-2 whitespace-nowrap text-right">
+                            操作
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1538,6 +1708,11 @@ function AdminReportContent() {
                             typeof detail.plannedGroups === "number"
                               ? Math.trunc(detail.plannedGroups)
                               : null;
+                          const barLogHit =
+                            detail.attendanceLogId &&
+                            r.attendanceLogsInPeriod.find(
+                              (l) => l.attendanceLogId === detail.attendanceLogId
+                            );
                           return (
                             <tr
                               key={`${r.castId}-${detail.dateStr}-${idx}`}
@@ -1569,6 +1744,40 @@ function AdminReportContent() {
                                   </span>
                                 ) : null}
                               </td>
+                              <td className="print:hidden px-3 py-2 text-right whitespace-nowrap align-middle">
+                                {barLogHit ? (
+                                  <span className="inline-flex flex-col sm:flex-row gap-1 justify-end">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setAttendanceLogModal({
+                                          castName: r.name,
+                                          log: barLogHit,
+                                          initialPanel: "edit",
+                                        })
+                                      }
+                                      className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-50"
+                                    >
+                                      編集
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setAttendanceLogModal({
+                                          castName: r.name,
+                                          log: barLogHit,
+                                          initialPanel: "history",
+                                        })
+                                      }
+                                      className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                    >
+                                      履歴
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400 text-xs">—</span>
+                                )}
+                              </td>
                             </tr>
                           );
                         })}
@@ -1584,6 +1793,9 @@ function AdminReportContent() {
                   !r.actionDetails.some(
                     (d) =>
                       (typeof d.plannedGroups === "number" && !Number.isNaN(d.plannedGroups)) ||
+                      (typeof d.tentativeGroups === "number" &&
+                        !Number.isNaN(d.tentativeGroups) &&
+                        d.tentativeGroups > 0) ||
                       (d.actionType && d.actionType.trim() !== "") ||
                       (d.actionDetail && d.actionDetail.trim() !== "")
                   )
@@ -1596,6 +1808,19 @@ function AdminReportContent() {
         )}
         </>
       )}
+
+      {activeStoreId && attendanceLogModal ? (
+        <AttendanceLogEditModal
+          key={`${attendanceLogModal.log.attendanceLogId}-${attendanceLogModal.initialPanel ?? "edit"}`}
+          open
+          storeId={activeStoreId}
+          castName={attendanceLogModal.castName}
+          initial={attendanceLogModal.log}
+          initialPanel={attendanceLogModal.initialPanel}
+          onClose={() => setAttendanceLogModal(null)}
+          onSaved={() => void fetchData()}
+        />
+      ) : null}
     </div>
   );
 }

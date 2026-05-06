@@ -250,6 +250,29 @@ export interface Database {
         };
         Update: Partial<Database["public"]["Tables"]["attendance_logs"]["Insert"]>;
       };
+      attendance_edit_histories: {
+        Row: {
+          id: string;
+          subject_attendance_log_id: string;
+          attendance_log_id: string | null;
+          edited_by_admin_id: string;
+          action_type: "UPDATE" | "DELETE";
+          old_data: Json;
+          new_data: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          subject_attendance_log_id: string;
+          attendance_log_id?: string | null;
+          edited_by_admin_id: string;
+          action_type: "UPDATE" | "DELETE";
+          old_data: Json;
+          new_data?: Json | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["attendance_edit_histories"]["Insert"]>;
+      };
       welfare_daily_logs: {
         Row: {
           id: string;

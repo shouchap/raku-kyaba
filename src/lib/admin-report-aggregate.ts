@@ -13,7 +13,18 @@ export type AdminReportScheduleRow = {
   absent_reason: string | null;
   public_holiday_reason: string | null;
   half_holiday_reason: string | null;
+  /** attendance_logs.id があれば打刻の手動編集対象 */
+  attendance_log_id?: string | null;
+  /** attendance_logs.status（シフトの response_status とは別） */
+  log_status?:
+    | "attending"
+    | "absent"
+    | "late"
+    | "public_holiday"
+    | "half_holiday"
+    | null;
   planned_groups?: number | null;
+  tentative_groups?: number | null;
   action_type?: string | null;
   action_detail?: string | null;
   response_status:
@@ -50,7 +61,9 @@ export type AdminReportCastRow = {
   incidents: AdminReportIncident[];
   actionDetails: Array<{
     dateStr: string;
+    attendanceLogId: string | null;
     plannedGroups: number | null;
+    tentativeGroups: number | null;
     actionType: string | null;
     actionDetail: string | null;
   }>;
@@ -190,7 +203,9 @@ export function buildAdminReportCastRows(
     const incidents: AdminReportIncident[] = [];
     const actionDetails: Array<{
       dateStr: string;
+      attendanceLogId: string | null;
       plannedGroups: number | null;
+      tentativeGroups: number | null;
       actionType: string | null;
       actionDetail: string | null;
     }> = [];
@@ -265,14 +280,24 @@ export function buildAdminReportCastRows(
           reason: row.public_holiday_reason,
         });
       }
+      const tentative =
+        typeof row.tentative_groups === "number" && !Number.isNaN(row.tentative_groups)
+          ? row.tentative_groups
+          : row.tentative_groups != null
+            ? Number(row.tentative_groups)
+            : 0;
+      const tentativeSafe = Number.isFinite(tentative) ? tentative : 0;
       if (
         row.planned_groups != null ||
+        tentativeSafe > 0 ||
         (row.action_type && row.action_type.trim() !== "") ||
         (row.action_detail && row.action_detail.trim() !== "")
       ) {
         actionDetails.push({
           dateStr,
+          attendanceLogId: row.attendance_log_id ?? null,
           plannedGroups: row.planned_groups ?? null,
+          tentativeGroups: tentativeSafe,
           actionType: row.action_type ?? null,
           actionDetail: row.action_detail ?? null,
         });
