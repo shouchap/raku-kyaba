@@ -213,6 +213,7 @@ export function CastAttendanceManualModal({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [step, setStep] = useState<"select" | "edit">("select");
 
   const selectedCastName = useMemo(() => {
     const hit = castOptions.find((c) => c.castId === selectedCastId);
@@ -260,6 +261,8 @@ export function CastAttendanceManualModal({
   useEffect(() => {
     if (!open) return;
     setSelectedYmd((prev) => (dateOptions.includes(prev) ? prev : dateOptions[0] ?? periodStartYmd));
+    setStep("select");
+    setPanel("edit");
   }, [open, dateOptions, periodStartYmd]);
 
   useEffect(() => {
@@ -476,76 +479,102 @@ export function CastAttendanceManualModal({
           </div>
         )}
 
-        <div className="px-4 py-3 border-b border-gray-100 space-y-3">
-          <label className="block">
-            <span className="block text-xs font-medium text-gray-600 mb-1">1. 対象の利用者</span>
-            <select
-              value={selectedCastId}
-              onChange={(e) => {
-                setSelectedCastId(e.target.value);
-                setPanel("edit");
-                setHistories(null);
-                setHistoryError(null);
-              }}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
-            >
-              <option value="">選択してください</option>
-              {castOptions.map((c) => (
-                <option key={c.castId} value={c.castId}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="block text-xs font-medium text-gray-600 mb-1">2. 対象日</span>
-            <select
-              value={selectedYmd}
-              onChange={(e) => {
-                setSelectedYmd(e.target.value);
-                setPanel("edit");
-              }}
-              disabled={dateOptions.length === 0}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 disabled:opacity-50"
-            >
-              {dateOptions.map((ymd) => (
-                <option key={ymd} value={ymd}>
-                  {ymd}（{formatJaYmd(ymd)}）
-                </option>
-              ))}
-            </select>
-          </label>
-          {selectedCastId && loadingLookup && (
-            <p className="text-xs text-gray-500">打刻を読み込み中…</p>
-          )}
-          {selectedCastId && loadError && <p className="text-xs text-red-600">{loadError}</p>}
-        </div>
-
-        <div className="px-3 pt-2 flex gap-1 border-b border-gray-100">
-          <button
-            type="button"
-            onClick={() => setPanel("edit")}
-            className={`px-3 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-colors ${
-              panel === "edit"
-                ? "border-blue-600 text-blue-800 bg-white"
-                : "border-transparent text-gray-500 hover:text-gray-800"
-            }`}
-          >
-            編集・保存
-          </button>
-          <button
-            type="button"
-            onClick={() => setPanel("history")}
-            disabled={!selectedCastId || !attendanceLogId}
-            className={`px-3 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-colors ${
-              panel === "history"
-                ? "border-blue-600 text-blue-800 bg-white"
-                : "border-transparent text-gray-500 hover:text-gray-800"
-            } ${!selectedCastId || !attendanceLogId ? "opacity-40 cursor-not-allowed" : ""}`}
-          >
-            履歴
-          </button>
-        </div>
+        {step === "select" ? (
+          <div className="px-4 py-3 border-b border-gray-100 space-y-3">
+            <label className="block">
+              <span className="block text-xs font-medium text-gray-600 mb-1">1. 対象の利用者</span>
+              <select
+                value={selectedCastId}
+                onChange={(e) => {
+                  setSelectedCastId(e.target.value);
+                  setPanel("edit");
+                  setHistories(null);
+                  setHistoryError(null);
+                }}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+              >
+                <option value="">選択してください</option>
+                {castOptions.map((c) => (
+                  <option key={c.castId} value={c.castId}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="block text-xs font-medium text-gray-600 mb-1">2. 対象日</span>
+              <select
+                value={selectedYmd}
+                onChange={(e) => {
+                  setSelectedYmd(e.target.value);
+                  setPanel("edit");
+                }}
+                disabled={dateOptions.length === 0}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 disabled:opacity-50"
+              >
+                {dateOptions.map((ymd) => (
+                  <option key={ymd} value={ymd}>
+                    {ymd}（{formatJaYmd(ymd)}）
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedCastId && loadingLookup && (
+              <p className="text-xs text-gray-500">打刻を読み込み中…</p>
+            )}
+            {selectedCastId && loadError && <p className="text-xs text-red-600">{loadError}</p>}
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setStep("edit")}
+                disabled={!selectedCastId || !selectedYmd}
+                className="rounded-lg bg-blue-700 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-800 disabled:opacity-50"
+              >
+                3. 編集内容を入力
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="px-4 py-2 border-b border-gray-100 bg-slate-50/70 flex items-center justify-between gap-2">
+              <p className="text-xs text-gray-700">
+                対象: <span className="font-semibold">{selectedCastName || "未選択"}</span> · {selectedYmd || "日付未選択"}
+              </p>
+              <button
+                type="button"
+                onClick={() => setStep("select")}
+                className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              >
+                対象を変更
+              </button>
+            </div>
+            <div className="px-3 pt-2 flex gap-1 border-b border-gray-100">
+              <button
+                type="button"
+                onClick={() => setPanel("edit")}
+                className={`px-3 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-colors ${
+                  panel === "edit"
+                    ? "border-blue-600 text-blue-800 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-800"
+                }`}
+              >
+                編集・保存
+              </button>
+              <button
+                type="button"
+                onClick={() => setPanel("history")}
+                disabled={!selectedCastId || !attendanceLogId}
+                className={`px-3 py-2 text-sm font-semibold rounded-t-lg border-b-2 transition-colors ${
+                  panel === "history"
+                    ? "border-blue-600 text-blue-800 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-800"
+                } ${!selectedCastId || !attendanceLogId ? "opacity-40 cursor-not-allowed" : ""}`}
+              >
+                履歴
+              </button>
+            </div>
+          </>
+        )}
 
         <div className="flex-1 overflow-y-auto px-4 py-4 text-sm">
           {panel === "edit" ? (

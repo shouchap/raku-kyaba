@@ -480,6 +480,7 @@ function AdminReportContent() {
   const [filterCastId, setFilterCastId] = useState("");
   const [manualAttendanceModalOpen, setManualAttendanceModalOpen] = useState(false);
   const [storeAttendanceHistoryModalOpen, setStoreAttendanceHistoryModalOpen] = useState(false);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   /** 案内数レポート非対応店舗（OFF / BAR拡張）で tab=guide のときキャスト側へ戻す */
   useEffect(() => {
@@ -969,6 +970,45 @@ function AdminReportContent() {
       </div>
 
       {reportTab === "cast" && (
+        <div className="mb-4 print:hidden rounded-xl border border-gray-200 bg-white/90 p-3 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-slate-700">
+              まずここから: 1. 期間を選択 → 2. {castLabel}を絞り込み → 3. 手動編集
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowMobileFilters((v) => !v)}
+              className="sm:hidden inline-flex items-center rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700"
+            >
+              {showMobileFilters ? "詳細を閉じる" : "詳細を表示"}
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {businessType !== "welfare_b" && activeStoreId ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setStoreAttendanceHistoryModalOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                >
+                  🕒 編集履歴
+                </button>
+                {manualModalCastOptions.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setManualAttendanceModalOpen(true)}
+                    className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
+                  >
+                    + 勤怠を手動編集・追加
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {reportTab === "cast" && (
       <div className="mb-4 flex flex-wrap gap-2 print:hidden">
         <button
           type="button"
@@ -1009,7 +1049,11 @@ function AdminReportContent() {
       )}
 
       {reportTab === "cast" && !loading && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 sm:gap-3 print:hidden">
+        <div
+          className={`mb-4 items-center gap-2 sm:gap-3 print:hidden ${
+            showMobileFilters ? "flex flex-wrap" : "hidden sm:flex sm:flex-wrap"
+          }`}
+        >
           <label
             htmlFor="report-cast-filter"
             className="text-sm font-medium text-gray-700 whitespace-nowrap"
@@ -1202,26 +1246,6 @@ function AdminReportContent() {
                 ? `表示日: ${dayDate}`
                 : `集計期間: ${start} 〜 ${end}`}
           </p>
-          {reportTab === "cast" && businessType !== "welfare_b" && activeStoreId && (
-            <>
-              <button
-                type="button"
-                onClick={() => setStoreAttendanceHistoryModalOpen(true)}
-                className="print:hidden inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-              >
-                🕒 編集履歴
-              </button>
-              {manualModalCastOptions.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setManualAttendanceModalOpen(true)}
-                  className="print:hidden inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
-                >
-                  + 勤怠を手動編集・追加
-                </button>
-              ) : null}
-            </>
-          )}
           <button
             type="button"
             onClick={handlePrint}
