@@ -51,6 +51,9 @@ const DEFAULT_CONFIG: ReminderConfig = {
     "{name}さん、はじめまして。出勤・退勤の連絡はこのLINEから行えます。よろしくお願いいたします。",
 };
 
+const CONTROL_CLASS =
+  "rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-300";
+
 function Tip({ text }: { text: string }) {
   return (
     <span title={text} aria-label={text} className="inline-flex items-center text-slate-400">
@@ -386,7 +389,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const showSave = section !== "admins";
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 text-slate-900">
       <header className="sticky top-2 z-20 app-card flex items-center justify-between gap-3 p-3 backdrop-blur">
         <div>
           <h1 className="text-base font-bold text-slate-900">
@@ -418,57 +421,58 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
 
       {section === "store" && (
         <div className="space-y-4">
-          <section className="app-card p-4">
+          <section className="app-card p-4 text-slate-900">
             <h2 className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1.5">
               店舗種別 <Tip text="業態によりナビゲーションやレポート表示が切り替わります。" />
             </h2>
             <div className="mt-3 flex flex-wrap gap-4">
               {(["cabaret", "bar", "welfare_b"] as BusinessType[]).map((bt) => (
-                <label key={bt} className="inline-flex items-center gap-2 text-sm">
+                <label key={bt} className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
                     type="radio"
                     checked={businessType === bt}
                     onChange={() => setBusinessType(bt)}
+                    className="h-4 w-4 accent-blue-600 disabled:accent-slate-400"
                   />
                   {bt === "cabaret" ? "キャバクラ" : bt === "bar" ? "BAR" : "福祉"}
                 </label>
               ))}
             </div>
           </section>
-          <section className="app-card p-4">
+          <section className="app-card p-4 text-slate-900">
             <h2 className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1.5">
               表示ラベル設定
               <Tip text="レポート・ナビの『出勤』『キャスト』表記を店舗ごとに調整できます。" />
             </h2>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm">
+              <label className="block text-sm text-slate-700">
                 出勤ラベル
                 <input
                   value={termAttendance}
                   onChange={(e) => setTermAttendance(e.target.value)}
                   placeholder="出勤"
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  className={`mt-1 w-full ${CONTROL_CLASS}`}
                 />
               </label>
-              <label className="block text-sm">
+              <label className="block text-sm text-slate-700">
                 キャストラベル
                 <input
                   value={termCast}
                   onChange={(e) => setTermCast(e.target.value)}
                   placeholder="キャスト"
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  className={`mt-1 w-full ${CONTROL_CLASS}`}
                 />
               </label>
             </div>
           </section>
-          <section className="app-card p-4">
+          <section className="app-card p-4 text-slate-900">
             <h2 className="text-sm font-semibold text-slate-900">営業時間・定休日</h2>
             <p className="mt-1 text-xs text-slate-500">
               住所・営業時間の詳細編集は店舗管理で行います。
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-7">
               {WEEKDAY_HOLIDAY_LABELS.map((label, idx) => (
-                <label key={idx} className="inline-flex items-center gap-2 text-sm">
+                <label key={idx} className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
                     type="checkbox"
                     checked={regularHolidays.includes(idx)}
@@ -479,6 +483,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                           : prev.filter((v) => v !== idx)
                       )
                     }
+                    className="h-4 w-4 accent-blue-600 disabled:accent-slate-400"
                   />
                   {label}
                 </label>
@@ -489,7 +494,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               <select
                 value={regularStartTime}
                 onChange={(e) => setRegularStartTime(e.target.value)}
-                className="mt-1 w-full max-w-xs rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                className={`mt-1 w-full max-w-xs text-sm ${CONTROL_CLASS}`}
               >
                 {TIME_OPTIONS.map((opt) => (
                   <option key={opt.value || "unset"} value={opt.value}>
@@ -504,26 +509,26 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
 
       {section === "features" && (
         <div className="space-y-4">
-          <section className="app-card p-4 space-y-3">
+          <section className="app-card p-4 space-y-3 text-slate-900">
             <h2 className="text-sm font-semibold text-slate-900">業態別機能フラグ</h2>
-            <label className="flex items-start gap-3 text-sm">
-              <input type="checkbox" checked={isDohanSabakiEnabled} onChange={(e) => setIsDohanSabakiEnabled(e.target.checked)} />
+            <label className="flex items-start gap-3 text-sm text-slate-700">
+              <input type="checkbox" checked={isDohanSabakiEnabled} onChange={(e) => setIsDohanSabakiEnabled(e.target.checked)} className="mt-0.5 h-4 w-4 accent-blue-600 disabled:accent-slate-400" />
               同伴・捌きを利用する
             </label>
-            <label className="flex items-start gap-3 text-sm">
-              <input type="checkbox" checked={isGuideMasterEnabled} onChange={(e) => setIsGuideMasterEnabled(e.target.checked)} />
+            <label className="flex items-start gap-3 text-sm text-slate-700">
+              <input type="checkbox" checked={isGuideMasterEnabled} onChange={(e) => setIsGuideMasterEnabled(e.target.checked)} className="mt-0.5 h-4 w-4 accent-blue-600 disabled:accent-slate-400" />
               案内ヒアリングを利用する
             </label>
-            <label className="flex items-start gap-3 text-sm">
-              <input type="checkbox" checked={enableReservationCheck} onChange={(e) => setEnableReservationCheck(e.target.checked)} />
+            <label className="flex items-start gap-3 text-sm text-slate-700">
+              <input type="checkbox" checked={enableReservationCheck} onChange={(e) => setEnableReservationCheck(e.target.checked)} className="mt-0.5 h-4 w-4 accent-blue-600 disabled:accent-slate-400" />
               出勤回答時に予約確認
             </label>
-            <label className="block text-sm">
+            <label className="block text-sm text-slate-700">
               出勤確認フロー
               <select
                 value={attendanceFlowType}
                 onChange={(e) => setAttendanceFlowType(e.target.value === "bar_extended" ? "bar_extended" : "default")}
-                className="mt-1 block w-full max-w-sm rounded-lg border border-slate-300 bg-white px-3 py-2"
+                className={`mt-1 block w-full max-w-sm ${CONTROL_CLASS}`}
               >
                 <option value="default">標準</option>
                 <option value="bar_extended">BAR詳細</option>
@@ -532,12 +537,12 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             {businessType === "bar" && (
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <p className="text-sm font-medium text-slate-800">BAR来客質問</p>
-                <label className="mt-2 flex items-start gap-2 text-sm">
-                  <input type="checkbox" checked={askGuestName} onChange={(e) => setAskGuestName(e.target.checked)} />
+                <label className="mt-2 flex items-start gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={askGuestName} onChange={(e) => setAskGuestName(e.target.checked)} className="mt-0.5 h-4 w-4 accent-blue-600 disabled:accent-slate-400" />
                   来客名を質問する
                 </label>
-                <label className="mt-1 flex items-start gap-2 text-sm">
-                  <input type="checkbox" checked={askGuestTime} onChange={(e) => setAskGuestTime(e.target.checked)} />
+                <label className="mt-1 flex items-start gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={askGuestTime} onChange={(e) => setAskGuestTime(e.target.checked)} className="mt-0.5 h-4 w-4 accent-blue-600 disabled:accent-slate-400" />
                   来店時間を質問する
                 </label>
               </div>
@@ -548,42 +553,42 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
 
       {section === "line" && (
         <div className="space-y-4">
-          <section className="app-card p-4 space-y-3">
+          <section className="app-card p-4 space-y-3 text-slate-900">
             <h2 className="text-sm font-semibold text-slate-900">通知設定</h2>
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" checked={config.enabled} onChange={(e) => setConfig((c) => ({ ...c, enabled: e.target.checked }))} />
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={config.enabled} onChange={(e) => setConfig((c) => ({ ...c, enabled: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-blue-600 disabled:accent-slate-400" />
               リマインドを有効化
             </label>
-            <label className="block text-sm">
+            <label className="block text-sm text-slate-700">
               リマインド時刻
-              <select value={remindTime} onChange={(e) => setRemindTime(e.target.value)} className="mt-1 block w-full max-w-xs rounded-lg border border-slate-300 bg-white px-3 py-2">
+              <select value={remindTime} onChange={(e) => setRemindTime(e.target.value)} className={`mt-1 block w-full max-w-xs ${CONTROL_CLASS}`}>
                 {REMIND_TIME_OPTIONS.map((v) => (
                   <option key={v} value={v}>{v}</option>
                 ))}
               </select>
             </label>
-            <label className="block text-sm">
+            <label className="block text-sm text-slate-700">
               営業前サマリー時刻
-              <select value={preOpenReportHourJst} onChange={(e) => setPreOpenReportHourJst(e.target.value)} className="mt-1 block w-full max-w-xs rounded-lg border border-slate-300 bg-white px-3 py-2">
+              <select value={preOpenReportHourJst} onChange={(e) => setPreOpenReportHourJst(e.target.value)} className={`mt-1 block w-full max-w-xs ${CONTROL_CLASS}`}>
                 <option value="">送信しない</option>
                 {PRE_OPEN_HOUR_OPTIONS.map((v) => (
                   <option key={v} value={String(v)}>{v}時</option>
                 ))}
               </select>
             </label>
-            <label className="block text-sm">
+            <label className="block text-sm text-slate-700">
               レギュラーメッセージ
-              <textarea value={regularRemindMessage} onChange={(e) => setRegularRemindMessage(e.target.value)} rows={3} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
+              <textarea value={regularRemindMessage} onChange={(e) => setRegularRemindMessage(e.target.value)} rows={3} className={`mt-1 w-full ${CONTROL_CLASS}`} />
             </label>
           </section>
 
-          <section className="app-card border-amber-200 bg-amber-50/40 p-4 space-y-3">
+          <section className="app-card border-amber-200 bg-amber-50/40 p-4 space-y-3 text-slate-900">
             <h2 className="text-sm font-semibold text-slate-900">運用テスト・デバッグ</h2>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <p className="text-xs font-medium text-slate-600">出勤確認 個別テスト</p>
                 <div className="mt-1 flex gap-2">
-                  <select value={individualTestCastId} onChange={(e) => setIndividualTestCastId(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-2 text-sm">
+                  <select value={individualTestCastId} onChange={(e) => setIndividualTestCastId(e.target.value)} className={`min-w-0 flex-1 text-sm ${CONTROL_CLASS}`}>
                     <option value="">送信先選択</option>
                     {guideReporterCandidates.map((c) => (
                       <option key={c.id} value={c.id} disabled={!c.line_user_id}>
@@ -600,7 +605,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               <div>
                 <p className="text-xs font-medium text-slate-600">サマリー 個別テスト</p>
                 <div className="mt-1 flex gap-2">
-                  <select value={barSummaryTestCastId} onChange={(e) => setBarSummaryTestCastId(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-2 text-sm">
+                  <select value={barSummaryTestCastId} onChange={(e) => setBarSummaryTestCastId(e.target.value)} className={`min-w-0 flex-1 text-sm ${CONTROL_CLASS}`}>
                     <option value="">送信先選択</option>
                     {guideReporterCandidates.map((c) => (
                       <option key={`sum-${c.id}`} value={c.id} disabled={!c.line_user_id}>
@@ -620,7 +625,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       )}
 
       {section === "admins" && (
-        <section className="app-card p-5">
+        <section className="app-card p-5 text-slate-900">
           <h2 className="text-sm font-semibold text-slate-900">権限・管理者</h2>
           <p className="mt-2 text-sm text-slate-600">
             管理者の追加・店舗割当・LINE管理者IDは専用画面で管理します。
