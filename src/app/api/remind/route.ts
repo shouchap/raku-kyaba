@@ -557,7 +557,6 @@ async function runRemindForStore(
           flexOptions: {
             enablePublicHoliday: holidayFlex.enablePublicHoliday,
             enableHalfHoliday: holidayFlex.enableHalfHoliday,
-            enableDohan: holidayFlex.attendanceFlowType === "bar_extended",
           },
           reminderMessageLine,
           showSabakiTimePicker: schedule.is_sabaki === true,
@@ -579,7 +578,6 @@ async function runRemindForStore(
           flexOptions: {
             enablePublicHoliday: holidayFlex.enablePublicHoliday,
             enableHalfHoliday: holidayFlex.enableHalfHoliday,
-            enableDohan: holidayFlex.attendanceFlowType === "bar_extended",
           },
           reminderMessageLine,
         });
@@ -737,7 +735,6 @@ async function runRemindForStore(
         flexOptions: {
           enablePublicHoliday: holidayFlex.enablePublicHoliday,
           enableHalfHoliday: holidayFlex.enableHalfHoliday,
-          enableDohan: holidayFlex.attendanceFlowType === "bar_extended",
         },
         reminderMessageLine,
         showSabakiTimePicker: schedule.is_sabaki === true,
@@ -792,7 +789,6 @@ async function runRemindForStore(
         flexOptions: {
           enablePublicHoliday: holidayFlex.enablePublicHoliday,
           enableHalfHoliday: holidayFlex.enableHalfHoliday,
-          enableDohan: holidayFlex.attendanceFlowType === "bar_extended",
         },
         reminderMessageLine,
       });

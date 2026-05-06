@@ -134,11 +134,10 @@ export function formatFlexHeaderStoreName(storeName: string | null | undefined):
   return s.length > 0 ? s : "店舗";
 }
 
-/** 半休・公休ボタンの有無（店舗の system_settings） */
+/** 半休・公休ボタンの有無（店舗の system_settings）。同伴ボタンは LINE Flex 上は常に表示 */
 export type AttendanceRemindFlexOptions = {
   enablePublicHoliday?: boolean;
   enableHalfHoliday?: boolean;
-  enableDohan?: boolean;
 };
 
 /** ブランド・ボタン配色（夜の店舗向け：マゼンタ／アンバー／グレー） */
@@ -232,11 +231,10 @@ function flexGridMutedBtn(label: string, data: string, displayText: string): obj
   return flexGridBtn(label, data, displayText, COLOR_MUTED_GRAY_BTN);
 }
 
-/** 出勤確認フッター: 横2列 × 最大3行（同伴・半休・公休は店舗設定で非表示可） */
+/** 出勤確認フッター: 横2列 × 最大3行（半休・公休のみ店舗設定で非表示可）。同伴は常に表示 */
 function buildFooterButtonRows(flexOptions?: AttendanceRemindFlexOptions): object[] {
   const showHalf = flexOptions?.enableHalfHoliday === true;
   const showPublic = flexOptions?.enablePublicHoliday === true;
-  const showDohan = flexOptions?.enableDohan === true;
 
   const filler = (): object => ({ type: "filler" });
 
@@ -249,11 +247,11 @@ function buildFooterButtonRows(flexOptions?: AttendanceRemindFlexOptions): objec
 
   const rows: object[] = [];
 
-  // 1行目: 出勤 / 同伴（または空き）
+  // 1行目: 出勤 / 同伴（管理画面の stores.is_dohan_sabaki_enabled 等に関わらず常に表示）
   rows.push(
     row2col(
       flexGridBtn("出勤", "attending", "出勤", COLOR_ATTEND_PRIMARY),
-      showDohan ? flexGridBtn("同伴", "dohan", "同伴", COLOR_DOHAN_BTN) : filler()
+      flexGridBtn("同伴", "dohan", "同伴", COLOR_DOHAN_BTN)
     )
   );
 

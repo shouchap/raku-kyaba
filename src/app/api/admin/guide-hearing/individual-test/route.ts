@@ -101,7 +101,6 @@ export async function POST(request: Request) {
     flexOptions: {
       enablePublicHoliday: cfg?.enable_public_holiday === true,
       enableHalfHoliday: cfg?.enable_half_holiday === true,
-      enableDohan: store.attendance_flow_type === "bar_extended",
     },
   });
 
