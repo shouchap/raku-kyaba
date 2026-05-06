@@ -893,10 +893,8 @@ function AdminReportContent() {
       ];
     }
 
-    const dohanRate = attendance > 0 ? `${Math.round((dohan / attendance) * 100)}%` : "—";
     return [
       { label: "案内数", value: String(attendance), sub: "出勤日数の合計" },
-      { label: "指名/同伴率", value: dohanRate, sub: `${dohan} / ${attendance}` },
     ];
   }, [businessType, filteredSortedReports, filteredWelfareRows, attendanceLabel, castLabel]);
 
@@ -922,11 +920,11 @@ function AdminReportContent() {
         </p>
       </div>
 
-      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 print:hidden">
+      <div className="mb-5 flex flex-wrap gap-3 print:hidden">
         {topKpis.map((kpi) => (
           <section
             key={kpi.label}
-            className={`rounded-xl border px-4 py-3 shadow-sm ${businessTheme.reportStatCardClass}`}
+            className={`w-full sm:w-[22rem] max-w-full rounded-xl border px-4 py-3 shadow-sm ${businessTheme.reportStatCardClass}`}
           >
             <p className={`text-xs font-semibold ${businessTheme.reportStatLabelClass}`}>{kpi.label}</p>
             <p className="mt-1 text-2xl font-bold tracking-tight">{kpi.value}</p>
