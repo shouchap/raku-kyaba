@@ -121,8 +121,10 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [barSummaryTestCastId, setBarSummaryTestCastId] = useState("");
   const [testingIndividual, setTestingIndividual] = useState(false);
   const [testingBarSummary, setTestingBarSummary] = useState(false);
+  const [broadcastingRemind, setBroadcastingRemind] = useState(false);
   const [individualTestDetail, setIndividualTestDetail] = useState<string | null>(null);
   const [barSummaryTestDetail, setBarSummaryTestDetail] = useState<string | null>(null);
+  const [broadcastRemindDetail, setBroadcastRemindDetail] = useState<string | null>(null);
 
   const createSnapshotObj = useCallback((): SnapshotShape => {
     return {
@@ -450,6 +452,39 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     }
   }, [activeStoreId, barSummaryTestCastId]);
 
+  const handleBroadcastRemind = useCallback(async () => {
+    setBroadcastingRemind(true);
+    setBroadcastRemindDetail(null);
+    try {
+      const res = await fetch("/api/admin/remind/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId: activeStoreId }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        skipped?: string | null;
+        successCount?: number;
+        failureCount?: number;
+        totalCandidates?: number;
+      };
+      if (!res.ok) throw new Error(data.error ?? "一斉送信に失敗しました");
+      if (data.skipped) {
+        setBroadcastRemindDetail(`送信スキップ: ${data.skipped}`);
+        return;
+      }
+      setBroadcastRemindDetail(
+        `送信完了: 成功 ${data.successCount ?? 0} / 失敗 ${data.failureCount ?? 0} / 対象 ${
+          data.totalCandidates ?? 0
+        }`
+      );
+    } catch (e) {
+      setBroadcastRemindDetail(e instanceof Error ? e.message : "一斉送信に失敗しました");
+    } finally {
+      setBroadcastingRemind(false);
+    }
+  }, [activeStoreId]);
+
   if (loading) {
     return <div className="app-card p-6 text-sm text-slate-500">設定を読み込み中...</div>;
   }
@@ -698,6 +733,25 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 </div>
                 {barSummaryTestDetail ? <p className="mt-1 text-xs text-slate-600">{barSummaryTestDetail}</p> : null}
               </div>
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-white/70 p-3">
+              <p className="text-xs font-medium text-slate-700">本日の出勤確認を一斉送信</p>
+              <p className="mt-1 text-xs text-slate-600">
+                今日の対象者に対して、本番同等の出勤確認を即時送信します（時刻条件は無視）。
+              </p>
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => void handleBroadcastRemind()}
+                  disabled={broadcastingRemind}
+                  className="btn-secondary"
+                >
+                  {broadcastingRemind ? "送信中..." : "本日の一斉送信を実行"}
+                </button>
+              </div>
+              {broadcastRemindDetail ? (
+                <p className="mt-2 text-xs text-slate-700">{broadcastRemindDetail}</p>
+              ) : null}
             </div>
           </section>
         </div>
