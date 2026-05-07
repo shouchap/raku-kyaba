@@ -7,10 +7,9 @@ export type CastEmploymentType = "admin" | "regular" | "part_time" | "employee";
 /** リマインド送信から除外（管理者・店長向け） */
 export function shouldSkipRemindForCast(
   employmentType: string | null | undefined,
-  isAdmin: boolean | null | undefined
+  _isAdmin: boolean | null | undefined
 ): boolean {
   if (employmentType === "admin") return true;
-  if (isAdmin === true) return true;
   return false;
 }
 

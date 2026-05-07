@@ -251,9 +251,20 @@ export default function AdminCastsPage() {
                         {employmentLabel(cast)}
                       </span>
                     )}
+                    {!cast.line_user_id && (
+                      <span
+                        className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                        title="LINE未連携のため、定時の自動一斉送信（出勤確認リマインド）の対象外です"
+                      >
+                        ⚠️ LINE未連携
+                      </span>
+                    )}
                     {cast.is_admin && (
-                      <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                        👑 通知
+                      <span
+                        className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800"
+                        title="管理者向け通知の受信対象です（キャスト本人への出勤確認送信可否とは別設定）"
+                      >
+                        👑 管理通知先
                       </span>
                     )}
                     <div className="ml-auto flex shrink-0 gap-2">
