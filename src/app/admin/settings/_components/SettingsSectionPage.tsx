@@ -50,6 +50,9 @@ type SnapshotShape = {
   guideHearingEnabled: boolean;
   guideHearingTime: string;
   guideHearingReporterId: string;
+  weeklyReportEnabled: boolean;
+  weeklyReportDay: number;
+  weeklyReportTime: string;
   termAttendance: string;
   termCast: string;
 };
@@ -117,6 +120,10 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [guideHearingReporterId, setGuideHearingReporterId] = useState("");
   const [guideReporterCandidates, setGuideReporterCandidates] = useState<GuideReporterCandidate[]>([]);
 
+  const [weeklyReportEnabled, setWeeklyReportEnabled] = useState(false);
+  const [weeklyReportDay, setWeeklyReportDay] = useState(1);
+  const [weeklyReportTime, setWeeklyReportTime] = useState("09:00");
+
   const [individualTestCastId, setIndividualTestCastId] = useState("");
   const [barSummaryTestCastId, setBarSummaryTestCastId] = useState("");
   const [testingIndividual, setTestingIndividual] = useState(false);
@@ -126,6 +133,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [barSummaryTestDetail, setBarSummaryTestDetail] = useState<string | null>(null);
   const [broadcastRemindDetail, setBroadcastRemindDetail] = useState<string | null>(null);
   const [broadcastFailedCastNames, setBroadcastFailedCastNames] = useState<string[]>([]);
+  const [testingWeeklyReport, setTestingWeeklyReport] = useState(false);
+  const [weeklyReportTestDetail, setWeeklyReportTestDetail] = useState<string | null>(null);
 
   const createSnapshotObj = useCallback((): SnapshotShape => {
     return {
@@ -148,6 +157,9 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       guideHearingEnabled,
       guideHearingTime,
       guideHearingReporterId,
+      weeklyReportEnabled,
+      weeklyReportDay,
+      weeklyReportTime,
       termAttendance,
       termCast,
     };
@@ -171,6 +183,9 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     guideHearingEnabled,
     guideHearingTime,
     guideHearingReporterId,
+    weeklyReportEnabled,
+    weeklyReportDay,
+    weeklyReportTime,
     termAttendance,
     termCast,
   ]);
@@ -202,6 +217,9 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     guideHearingEnabled: "案内ヒアリング送信",
     guideHearingTime: "案内ヒアリング時刻",
     guideHearingReporterId: "案内ヒアリング報告者",
+    weeklyReportEnabled: "週間レポート自動送信（ON/OFF）",
+    weeklyReportDay: "週間レポート送信曜日",
+    weeklyReportTime: "週間レポート送信時刻",
     termAttendance: "出勤ラベル",
     termCast: "キャストラベル",
   };
@@ -269,6 +287,14 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setPreOpenReportHourJst(
         typeof data.pre_open_report_hour_jst === "number" ? String(data.pre_open_report_hour_jst) : ""
       );
+
+      setWeeklyReportEnabled(data.weekly_report_enabled === true);
+      const wd = data.weekly_report_day;
+      setWeeklyReportDay(
+        typeof wd === "number" && Number.isInteger(wd) && wd >= 0 && wd <= 6 ? wd : 1
+      );
+      const wtime = typeof data.weekly_report_time === "string" ? data.weekly_report_time.trim() : "";
+      setWeeklyReportTime(REMIND_TIME_OPTIONS.includes(wtime) ? wtime : "09:00");
 
       if (data.reminder_config && typeof data.reminder_config === "object") {
         const rc = data.reminder_config as Record<string, unknown>;
@@ -368,6 +394,9 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             term_attendance: termAttendance,
             term_cast: termCast,
           }),
+          weekly_report_enabled: weeklyReportEnabled,
+          weekly_report_day: weeklyReportDay,
+          weekly_report_time: weeklyReportTime,
         }),
       });
       if (!res.ok) throw new Error("設定保存に失敗しました");
@@ -412,6 +441,9 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     isDohanSabakiEnabled,
     termAttendance,
     termCast,
+    weeklyReportEnabled,
+    weeklyReportDay,
+    weeklyReportTime,
     guideHearingEnabled,
     guideHearingTime,
     guideHearingReporterId,
@@ -436,6 +468,32 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setTestingIndividual(false);
     }
   }, [activeStoreId, individualTestCastId]);
+
+  const handleWeeklyReportTest = useCallback(async () => {
+    setTestingWeeklyReport(true);
+    setWeeklyReportTestDetail(null);
+    try {
+      const res = await fetch("/api/admin/weekly-report/test-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId: activeStoreId }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        chunkCount?: number;
+        sendDateYmd?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "送信に失敗しました");
+      setWeeklyReportTestDetail(
+        `${data.sendDateYmd ?? "本日"}基準で ${data.chunkCount ?? 1} 通送信しました（管理者宛）`
+      );
+    } catch (e) {
+      setWeeklyReportTestDetail(e instanceof Error ? e.message : "送信に失敗しました");
+    } finally {
+      setTestingWeeklyReport(false);
+    }
+  }, [activeStoreId]);
 
   const handleBarSummaryTest = useCallback(async () => {
     if (!barSummaryTestCastId) return;
@@ -704,6 +762,53 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             </label>
           </section>
 
+          <section className="app-card p-4 space-y-3 text-slate-900">
+            <h2 className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1.5">
+              週間レポート自動送信
+              <Tip text="管理者LINEへ、直近7日分の集計テキストを毎週自動送信します。送信曜日・時刻の条件一致時のみ送信されます（Vercel / Cron はBearer CRON_SECRET）。" />
+            </h2>
+            <p className="text-xs text-slate-600">
+              対象期間は「送信日の前日」を終端とした過去7日間です。フェーズ1はテキストメッセージのみです。
+            </p>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={weeklyReportEnabled}
+                onChange={(e) => setWeeklyReportEnabled(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-blue-600 disabled:accent-slate-400"
+              />
+              週間レポートを自動送信する
+            </label>
+            <label className="block text-sm text-slate-700">
+              送信曜日（JST）
+              <select
+                value={weeklyReportDay}
+                onChange={(e) => setWeeklyReportDay(Number(e.target.value))}
+                className={`mt-1 block w-full max-w-xs ${CONTROL_CLASS}`}
+              >
+                {WEEKDAY_HOLIDAY_LABELS.map((label, idx) => (
+                  <option key={idx} value={idx}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm text-slate-700">
+              送信時刻（JST・整時）
+              <select
+                value={weeklyReportTime}
+                onChange={(e) => setWeeklyReportTime(e.target.value)}
+                className={`mt-1 block w-full max-w-xs ${CONTROL_CLASS}`}
+              >
+                {REMIND_TIME_OPTIONS.map((v) => (
+                  <option key={`wr-${v}`} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </section>
+
           <section className="app-card border-amber-200 bg-amber-50/40 p-4 space-y-3 text-slate-900">
             <h2 className="text-sm font-semibold text-slate-900">運用テスト・デバッグ</h2>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -764,6 +869,25 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 <p className="mt-1 text-sm text-red-500">
                   ⚠️ 送信失敗: {broadcastFailedCastNames.join(", ")}
                 </p>
+              ) : null}
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-white/70 p-3">
+              <p className="text-xs font-medium text-slate-700">週間レポートのテスト送信</p>
+              <p className="mt-1 text-xs text-slate-600">
+                設定した曜日・時刻に関係なく、いまの集計で管理者宛に送信します（本番の冪等フラグは更新しません）。
+              </p>
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => void handleWeeklyReportTest()}
+                  disabled={testingWeeklyReport}
+                  className="btn-secondary"
+                >
+                  {testingWeeklyReport ? "送信中..." : "今すぐ送信"}
+                </button>
+              </div>
+              {weeklyReportTestDetail ? (
+                <p className="mt-2 text-xs text-slate-700">{weeklyReportTestDetail}</p>
               ) : null}
             </div>
           </section>

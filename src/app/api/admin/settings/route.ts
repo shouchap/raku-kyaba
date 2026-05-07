@@ -571,6 +571,46 @@ export async function GET(request: Request) {
       }
     }
 
+    let weeklyReportEnabled = false;
+    let weeklyReportDay = 1;
+    let weeklyReportTime = "09:00";
+    const wrRes = await admin
+      .from("stores")
+      .select("weekly_report_enabled, weekly_report_day, weekly_report_time")
+      .eq("id", storeId)
+      .maybeSingle();
+    if (wrRes.error) {
+      if (!isUndefinedColumnError(wrRes.error, "weekly_report_enabled")) {
+        logPostgrestError("GET stores weekly_report_*", wrRes.error);
+        return NextResponse.json(
+          {
+            error: "Failed to load store",
+            details: wrRes.error.message,
+            code: wrRes.error.code,
+          },
+          { status: 500 }
+        );
+      }
+      console.warn(
+        "[api/admin/settings] GET: stores.weekly_report_* 未適用。マイグレーション 049 を適用してください。"
+      );
+    } else {
+      const wr = wrRes.data as {
+        weekly_report_enabled?: boolean | null;
+        weekly_report_day?: number | null;
+        weekly_report_time?: string | null;
+      } | null;
+      weeklyReportEnabled = wr?.weekly_report_enabled === true;
+      const wd = wr?.weekly_report_day;
+      if (typeof wd === "number" && Number.isInteger(wd) && wd >= 0 && wd <= 6) {
+        weeklyReportDay = wd;
+      }
+      const wt = typeof wr?.weekly_report_time === "string" ? wr.weekly_report_time.trim() : "";
+      if (REMIND_TIME_RE.test(wt)) {
+        weeklyReportTime = wt;
+      }
+    }
+
     return NextResponse.json({
       business_type: businessType,
       welfare_message_morning,
@@ -597,6 +637,9 @@ export async function GET(request: Request) {
         settingsRow?.value && typeof settingsRow.value === "object"
           ? settingsRow.value
           : {},
+      weekly_report_enabled: weeklyReportEnabled,
+      weekly_report_day: weeklyReportDay,
+      weekly_report_time: weeklyReportTime,
     });
   } catch (e) {
     logPostgrestError("GET unexpected", e);
@@ -650,6 +693,11 @@ type PatchBody = {
     term_attendance?: string;
     term_cast?: string;
   };
+  weekly_report_enabled?: boolean;
+  /** 0=日曜〜6=土曜（049） */
+  weekly_report_day?: number;
+  /** HH:00（049） */
+  weekly_report_time?: string;
 };
 
 /**
@@ -930,6 +978,25 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "custom_terms must be an object" }, { status: 400 });
   }
 
+  const weeklyReportProvided =
+    typeof body.weekly_report_enabled === "boolean" &&
+    typeof body.weekly_report_day === "number" &&
+    typeof body.weekly_report_time === "string";
+  if (
+    (body.weekly_report_enabled !== undefined ||
+      body.weekly_report_day !== undefined ||
+      body.weekly_report_time !== undefined) &&
+    !weeklyReportProvided
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "weekly_report_enabled, weekly_report_day (0-6), and weekly_report_time (HH:00) must be sent together",
+      },
+      { status: 400 }
+    );
+  }
+
   if (preOpenReportHourProvided) {
     const v = body.pre_open_report_hour_jst;
     if (v !== null && (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 23)) {
@@ -944,6 +1011,22 @@ export async function PATCH(request: Request) {
       { error: "remind_time must be HH:00 with hour 00–23" },
       { status: 400 }
     );
+  }
+  if (weeklyReportProvided) {
+    const wd = body.weekly_report_day as number;
+    if (!Number.isInteger(wd) || wd < 0 || wd > 6) {
+      return NextResponse.json(
+        { error: "weekly_report_day must be an integer from 0 (Sunday) to 6 (Saturday)" },
+        { status: 400 }
+      );
+    }
+    const wrt = String(body.weekly_report_time).trim();
+    if (!REMIND_TIME_RE.test(wrt)) {
+      return NextResponse.json(
+        { error: "weekly_report_time must be HH:00 with hour 00–23" },
+        { status: 400 }
+      );
+    }
   }
   if (!reminderConfig || typeof reminderConfig !== "object" || Array.isArray(reminderConfig)) {
     return NextResponse.json({ error: "reminder_config must be an object" }, { status: 400 });
@@ -1187,11 +1270,45 @@ export async function PATCH(request: Request) {
     if (customTermsProvided) {
       storePayload.custom_terms = serializeCustomTerms(resolveCustomTerms(body.custom_terms));
     }
+    if (weeklyReportProvided) {
+      storePayload.weekly_report_enabled = body.weekly_report_enabled as boolean;
+      storePayload.weekly_report_day = body.weekly_report_day as number;
+      storePayload.weekly_report_time = String(body.weekly_report_time).trim();
+    }
 
     const storeRes = await admin.from("stores").update(storePayload).eq("id", storeId);
 
     if (storeRes.error) {
       logPostgrestError("PATCH stores", storeRes.error);
+      if (weeklyReportProvided && isUndefinedColumnError(storeRes.error, "weekly_report_enabled")) {
+        console.warn(
+          "[api/admin/settings] PATCH: stores.weekly_report_* 未適用。049 を適用してください。週間レポート以外を再試行します。"
+        );
+        const retryPayload = { ...storePayload };
+        delete retryPayload.weekly_report_enabled;
+        delete retryPayload.weekly_report_day;
+        delete retryPayload.weekly_report_time;
+        const retryRes = await admin.from("stores").update(retryPayload).eq("id", storeId);
+        if (retryRes.error) {
+          logPostgrestError("PATCH stores retry without weekly_report_*", retryRes.error);
+          return NextResponse.json(
+            {
+              error: "Failed to update store",
+              details: retryRes.error.message,
+              code: retryRes.error.code,
+              hint: retryRes.error.hint,
+            },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json({
+          ok: true,
+          remind_time: remindTime,
+          weekly_report_persisted: false,
+          warning:
+            "その他の設定は保存しましたが、stores.weekly_report_* カラムがありません。マイグレーション 049 を Supabase に適用してください。",
+        });
+      }
       if (
         enableReservationCheckProvided &&
         isUndefinedColumnError(storeRes.error, "enable_reservation_check")

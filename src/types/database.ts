@@ -75,6 +75,14 @@ export interface Database {
           is_dohan_sabaki_enabled: boolean;
           /** 店舗ごとの画面表示用語（出勤/キャスト など） */
           custom_terms: Json;
+          /** 週間レポート自動送信（LINEテキスト）を有効にするか（049） */
+          weekly_report_enabled: boolean;
+          /** 送信曜日（JST）0=日〜6=土（049） */
+          weekly_report_day: number;
+          /** 送信時刻 JST HH:mm（049） */
+          weekly_report_time: string;
+          /** 最後に週間レポートを自動送信した JST 暦日（049・冪等性） */
+          last_weekly_report_sent_date: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -106,6 +114,10 @@ export interface Database {
           | "is_guide_enabled"
           | "is_dohan_sabaki_enabled"
           | "custom_terms"
+          | "weekly_report_enabled"
+          | "weekly_report_day"
+          | "weekly_report_time"
+          | "last_weekly_report_sent_date"
           | "ask_guest_name"
           | "ask_guest_time"
           | "attendance_flow_type"
@@ -136,6 +148,10 @@ export interface Database {
           is_guide_enabled?: boolean;
           is_dohan_sabaki_enabled?: boolean;
           custom_terms?: Json;
+          weekly_report_enabled?: boolean;
+          weekly_report_day?: number;
+          weekly_report_time?: string;
+          last_weekly_report_sent_date?: string | null;
           ask_guest_name?: boolean;
           ask_guest_time?: boolean;
           attendance_flow_type?: string;
