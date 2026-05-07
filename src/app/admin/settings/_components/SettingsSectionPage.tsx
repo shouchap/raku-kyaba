@@ -125,6 +125,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [individualTestDetail, setIndividualTestDetail] = useState<string | null>(null);
   const [barSummaryTestDetail, setBarSummaryTestDetail] = useState<string | null>(null);
   const [broadcastRemindDetail, setBroadcastRemindDetail] = useState<string | null>(null);
+  const [broadcastFailedCastNames, setBroadcastFailedCastNames] = useState<string[]>([]);
 
   const createSnapshotObj = useCallback((): SnapshotShape => {
     return {
@@ -455,6 +456,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const handleBroadcastRemind = useCallback(async () => {
     setBroadcastingRemind(true);
     setBroadcastRemindDetail(null);
+    setBroadcastFailedCastNames([]);
     try {
       const res = await fetch("/api/admin/remind/broadcast", {
         method: "POST",
@@ -467,6 +469,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
         successCount?: number;
         failureCount?: number;
         totalCandidates?: number;
+        failedCastNames?: string[];
       };
       if (!res.ok) throw new Error(data.error ?? "一斉送信に失敗しました");
       if (data.skipped) {
@@ -478,8 +481,10 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           data.totalCandidates ?? 0
         }`
       );
+      setBroadcastFailedCastNames(Array.isArray(data.failedCastNames) ? data.failedCastNames : []);
     } catch (e) {
       setBroadcastRemindDetail(e instanceof Error ? e.message : "一斉送信に失敗しました");
+      setBroadcastFailedCastNames([]);
     } finally {
       setBroadcastingRemind(false);
     }
@@ -751,6 +756,11 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               </div>
               {broadcastRemindDetail ? (
                 <p className="mt-2 text-xs text-slate-700">{broadcastRemindDetail}</p>
+              ) : null}
+              {broadcastFailedCastNames.length > 0 ? (
+                <p className="mt-1 text-sm text-red-500">
+                  ⚠️ 送信失敗: {broadcastFailedCastNames.join(", ")}
+                </p>
               ) : null}
             </div>
           </section>

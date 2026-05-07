@@ -99,7 +99,14 @@ export async function POST(request: Request) {
   const token = await fetchResolvedLineChannelAccessTokenForStore(admin, storeId, "[AdminRemindBroadcast]");
   if (!token?.token) {
     return NextResponse.json(
-      { ok: false, skipped: "no_line_token", successCount: 0, failureCount: 0, totalCandidates: 0 },
+      {
+        ok: false,
+        skipped: "no_line_token",
+        successCount: 0,
+        failureCount: 0,
+        totalCandidates: 0,
+        failedCastNames: [],
+      },
       { status: 400 }
     );
   }
@@ -165,6 +172,7 @@ export async function POST(request: Request) {
       successCount: 0,
       failureCount: 0,
       totalCandidates: 0,
+      failedCastNames: [],
     });
   }
 
@@ -252,6 +260,21 @@ export async function POST(request: Request) {
 
   const successCount = lineResults.filter((r) => r.status === "fulfilled").length;
   const failureCount = lineResults.filter((r) => r.status === "rejected").length;
+  const failedCastNames = Array.from(
+    new Set(
+      lineResults
+        .map((result, idx) => {
+          if (result.status !== "rejected") return null;
+          if (idx < schedules.length) {
+            const cast = parseCastJoin(schedules[idx]);
+            return cast?.name ?? "キャスト";
+          }
+          const regularIdx = idx - schedules.length;
+          return regularNoSchedule[regularIdx]?.name ?? "キャスト";
+        })
+        .filter((name): name is string => Boolean(name))
+    )
+  );
 
   return NextResponse.json({
     ok: true,
@@ -261,5 +284,6 @@ export async function POST(request: Request) {
     failureCount,
     totalCandidates,
     skipped: null,
+    failedCastNames,
   });
 }
