@@ -99,6 +99,20 @@ export function sumDeclaredReservationGroupsForAttending(rows: PreOpenScheduleRo
   return sum;
 }
 
+/**
+ * 出勤確定キャストのうち、同伴シフトは合計予定組数に 1 組として加算する。
+ *（`is_dohan` または表示ラベルに「同伴」が含まれる場合）
+ */
+export function countCompanionGroupBonusForAttending(rows: PreOpenScheduleRow[]): number {
+  let n = 0;
+  for (const r of rows) {
+    if (sectionForRow(r) !== "attending") continue;
+    const label = formatScheduleTimeLabel(r.scheduled_time, r.is_dohan, r.is_sabaki);
+    if (r.is_dohan === true || label.includes("同伴")) n++;
+  }
+  return n;
+}
+
 function blockAttending(row: PreOpenScheduleRow): string {
   const name = castName(row);
   const time = formatScheduleTimeLabel(row.scheduled_time, row.is_dohan, row.is_sabaki);
@@ -177,7 +191,9 @@ export function buildPreOpenReportMessage(storeName: string, todayJst: string, r
 
   const offSorted = sortOffRows(off);
 
-  const totalReservationGroups = sumDeclaredReservationGroupsForAttending(attending);
+  const totalReservationGroups =
+    sumDeclaredReservationGroupsForAttending(attending) +
+    countCompanionGroupBonusForAttending(attending);
 
   const out: string[] = [];
 

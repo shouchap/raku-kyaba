@@ -55,6 +55,20 @@ export type ReservationFields = {
   reservation_details: string | null;
 };
 
+/** サマリーでは出さない予約サブ行（空・確認中のみ・プレースホルダー） */
+function isNoiseReservationDisplayLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return true;
+  if (t === "確認中") return true;
+  if (t === "（詳細あり・未入力）") return true;
+  if (/^予約：\s*確認中\s*$/u.test(t)) return true;
+  return false;
+}
+
+function filterReservationDisplayLines(lines: string[]): string[] {
+  return lines.filter((l) => !isNoiseReservationDisplayLine(l));
+}
+
 /**
  * 1 キャスト分の「予約・来客」サブ行（名前行の直下に並べる・絵文字なし）
  */
@@ -79,7 +93,7 @@ export function formatReservationSubLines(row: ReservationFields): string[] {
     return ["予約：来店時間選択待ち（移行）"];
   }
   if (flow) {
-    return ["予約：確認中"];
+    return [];
   }
   if (row.has_reservation === true) {
     const d = (row.reservation_details ?? "").trim();
@@ -89,13 +103,15 @@ export function formatReservationSubLines(row: ReservationFields): string[] {
         if (p && p.records.length > 0) {
           const plain = formatReservationStoredPlainText(p);
           if (plain) {
-            return wrapAndIndentLines(plain, { prefix: "" });
+            return filterReservationDisplayLines(wrapAndIndentLines(plain, { prefix: "" }));
           }
+          return [];
         }
+        return [];
       }
-      return wrapAndIndentLines(d, { prefix: "" });
+      return filterReservationDisplayLines(wrapAndIndentLines(d, { prefix: "" }));
     }
-    return ["（詳細あり・未入力）"];
+    return [];
   }
   /** has_reservation が false / null: 予約サブ行なし（false 時も「予約なし」は出さず、名前行＋出勤時刻のみ） */
   return [];
