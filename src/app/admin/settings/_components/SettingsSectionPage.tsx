@@ -318,11 +318,14 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     void fetchConfig();
   }, [fetchConfig]);
 
+  // 取得完了時だけベースラインを保存する。`createSnapshot` を deps に入れると
+  // 入力のたびに effect が走り initial が上書きされ、isDirty が常に false になる。
   useEffect(() => {
     if (!loading) {
       setInitialSnapshot(createSnapshot());
     }
-  }, [loading, createSnapshot]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ロード完了の1回だけ（createSnapshot はそのレンダーのスナップショット）
+  }, [loading]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
