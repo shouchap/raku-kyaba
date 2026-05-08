@@ -312,6 +312,8 @@ async function processWebhookEvent(
   channelAccessToken?: string,
   welfareStoreContext?: WelfareStoreContext | null
 ): Promise<void> {
+  await handleGroupSourceEvent(event, resolvedStoreId, supabase);
+
   const userId = event.source?.userId;
   if (!userId) {
     console.log("[Webhook] userId なし（グループ等）のためスキップ");
@@ -561,6 +563,45 @@ async function processWebhookEvent(
     default:
       console.log("[Webhook] 未対応イベント:", event.type);
   }
+}
+
+async function handleGroupSourceEvent(
+  event: LineWebhookBody["events"][number],
+  resolvedStoreId: string | null,
+  supabase: ReturnType<typeof createSupabaseClient>
+): Promise<void> {
+  if (event.source?.type !== "group") return;
+  const groupId = event.source.groupId?.trim();
+  if (!groupId) {
+    console.log("[Webhook][group] groupId なし");
+    return;
+  }
+
+  console.log(
+    `[Webhook][group] event=${event.type} groupId=${groupId} resolvedStoreId=${resolvedStoreId ?? "none"}`
+  );
+
+  if (!resolvedStoreId) return;
+
+  const { error } = await supabase
+    .from("stores")
+    .update({ line_group_id: groupId })
+    .eq("id", resolvedStoreId);
+
+  if (error) {
+    if (isUndefinedColumnError(error, "line_group_id")) {
+      console.warn(
+        "[Webhook][group] stores.line_group_id 未適用。マイグレーション 050 を適用してください。"
+      );
+      return;
+    }
+    console.warn("[Webhook][group] line_group_id 保存失敗:", error.message);
+    return;
+  }
+
+  console.log(
+    `[Webhook][group] line_group_id を更新しました store_id=${resolvedStoreId} groupId=${groupId}`
+  );
 }
 
 async function validateGuideReporter(params: {

@@ -11,7 +11,8 @@ export type Cast = {
   id: string;
   name: string;
   store_id: string;
-  line_user_id?: string;
+  line_user_id?: string | null;
+  display_name?: string | null;
   is_active?: boolean;
   is_admin?: boolean;
   employment_type?: CastEmploymentType;

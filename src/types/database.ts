@@ -32,6 +32,7 @@ export interface Database {
           line_channel_secret: string;
           line_channel_access_token: string | null;
           line_bot_user_id: string | null;
+          line_group_id: string | null;
           admin_line_user_id: string | null;
           /** JST リマインド送信時刻 HH:00 */
           remind_time: string;
@@ -124,6 +125,7 @@ export interface Database {
           | "ask_guest_name"
           | "ask_guest_time"
           | "attendance_flow_type"
+          | "line_group_id"
         > & {
           id?: string;
           created_at?: string;
@@ -159,6 +161,7 @@ export interface Database {
           ask_guest_name?: boolean;
           ask_guest_time?: boolean;
           attendance_flow_type?: string;
+          line_group_id?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["stores"]["Insert"]>;
       };
@@ -214,7 +217,9 @@ export interface Database {
           id: string;
           store_id: string;
           name: string;
-          line_user_id: string;
+          line_user_id: string | null;
+          /** 表示名（源氏名等）。NULL の場合は name を表示 */
+          display_name: string | null;
           is_active: boolean;
           is_admin: boolean;
           /** 勤務形態: admin / regular / part_time（NULL はバイト扱い） */
@@ -230,13 +235,14 @@ export interface Database {
         };
         Insert: Omit<
           Database["public"]["Tables"]["casts"]["Row"],
-          "id" | "created_at" | "updated_at" | "default_hospital_names" | "is_guide_target"
+          "id" | "created_at" | "updated_at" | "default_hospital_names" | "is_guide_target" | "display_name"
         > & {
           id?: string;
           is_active?: boolean;
           is_guide_target?: boolean;
           /** 省略時は DB 既定で {} */
           default_hospital_names?: string[];
+          display_name?: string | null;
           created_at?: string;
           updated_at?: string;
         };

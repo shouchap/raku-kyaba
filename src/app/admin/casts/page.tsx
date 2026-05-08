@@ -9,8 +9,9 @@ import type { CastEmploymentType } from "@/types/entities";
 type Cast = {
   id: string;
   name: string;
+  display_name?: string | null;
   store_id: string;
-  line_user_id?: string;
+  line_user_id?: string | null;
   is_admin?: boolean;
   employment_type?: CastEmploymentType | null;
   is_guide_target?: boolean;
@@ -40,6 +41,7 @@ export default function AdminCastsPage() {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [editDisplayName, setEditDisplayName] = useState("");
   const [editIsAdmin, setEditIsAdmin] = useState(false);
   const [editEmployment, setEditEmployment] = useState<CastEmploymentType>("part_time");
   const [editIsGuideTarget, setEditIsGuideTarget] = useState(false);
@@ -47,6 +49,10 @@ export default function AdminCastsPage() {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState<"success" | "error" | null>(null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newDisplayName, setNewDisplayName] = useState("");
 
   const fetchCasts = useCallback(async () => {
     setLoading(true);
@@ -55,13 +61,30 @@ export default function AdminCastsPage() {
       const [castsRes, storesRes] = await Promise.all([
         supabase
           .from("casts")
-          .select("id, name, store_id, line_user_id, is_admin, employment_type, is_guide_target, default_hospital_names")
+          .select("id, name, display_name, store_id, line_user_id, is_admin, employment_type, is_guide_target, default_hospital_names")
           .eq("store_id", storeId)
           .eq("is_active", true)
           .order("name"),
         supabase.from("stores").select("id, name, business_type").eq("id", storeId).single(),
       ]);
-      if (castsRes.data) setCasts(castsRes.data as Cast[]);
+      if (castsRes.error && String(castsRes.error.message).includes("display_name")) {
+        const fallback = await supabase
+          .from("casts")
+          .select("id, name, store_id, line_user_id, is_admin, employment_type, is_guide_target, default_hospital_names")
+          .eq("store_id", storeId)
+          .eq("is_active", true)
+          .order("name");
+        if (fallback.data) {
+          setCasts(
+            (fallback.data as Cast[]).map((c) => ({
+              ...c,
+              display_name: null,
+            }))
+          );
+        }
+      } else if (castsRes.data) {
+        setCasts(castsRes.data as Cast[]);
+      }
       if (storesRes.data) setStore(storesRes.data as Store);
     } catch (err) {
       console.error(err);
@@ -78,6 +101,7 @@ export default function AdminCastsPage() {
   const handleStartEdit = (cast: Cast) => {
     setEditingId(cast.id);
     setEditName(cast.name.trim());
+    setEditDisplayName(String(cast.display_name ?? "").trim());
     setEditIsAdmin(cast.is_admin ?? false);
     const em = cast.employment_type;
     setEditEmployment(
@@ -91,6 +115,7 @@ export default function AdminCastsPage() {
   const handleCancelEdit = () => {
     setEditingId(null);
     setEditName("");
+    setEditDisplayName("");
     setEditIsAdmin(false);
     setEditEmployment("part_time");
     setEditIsGuideTarget(false);
@@ -109,6 +134,7 @@ export default function AdminCastsPage() {
     try {
       const payload: Record<string, unknown> = {
         name: newName,
+        display_name: editDisplayName.trim() || null,
         is_admin: editIsAdmin,
         employment_type: editEmployment,
         is_guide_target: editIsGuideTarget,
@@ -128,6 +154,7 @@ export default function AdminCastsPage() {
             ? {
                 ...c,
                 name: newName,
+                display_name: editDisplayName.trim() || null,
                 is_admin: editIsAdmin,
                 employment_type: editEmployment,
                 is_guide_target: editIsGuideTarget,
@@ -148,10 +175,61 @@ export default function AdminCastsPage() {
       setSaving(false);
       setEditingId(null);
       setEditName("");
+      setEditDisplayName("");
       setEditIsAdmin(false);
       setEditEmployment("part_time");
       setEditIsGuideTarget(false);
       setEditHospitalNames([""]);
+    }
+  };
+
+  const handleCreateManualCast = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    setCreating(true);
+    setMessage(null);
+    try {
+      const payload: Record<string, unknown> = {
+        store_id: activeStoreId,
+        name,
+        display_name: newDisplayName.trim() || null,
+        line_user_id: null,
+        is_active: true,
+      };
+      let { data, error } = await supabase
+        .from("casts")
+        .insert(payload)
+        .select("id, name, display_name, store_id, line_user_id, is_admin, employment_type, is_guide_target, default_hospital_names")
+        .single();
+      if (error && String(error.message).includes("display_name")) {
+        const retry = await supabase
+          .from("casts")
+          .insert({
+            store_id: activeStoreId,
+            name,
+            line_user_id: null,
+            is_active: true,
+          })
+          .select("id, name, store_id, line_user_id, is_admin, employment_type, is_guide_target, default_hospital_names")
+          .single();
+        data = retry.data ? ({ ...retry.data, display_name: null } as typeof data) : data;
+        error = retry.error;
+      }
+      if (error) throw error;
+      if (data) {
+        setCasts((prev) =>
+          [...prev, data as Cast].sort((a, b) => a.name.localeCompare(b.name, "ja"))
+        );
+      }
+      setCreateModalOpen(false);
+      setNewName("");
+      setNewDisplayName("");
+      setMessage("success");
+    } catch (err) {
+      console.error(err);
+      setMessage("error");
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -211,6 +289,15 @@ export default function AdminCastsPage() {
           {isWelfare ? "利用者管理" : "キャスト管理"}
         </h1>
         <p className="text-xs sm:text-sm text-gray-600">{store?.name ?? "店舗"}</p>
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setCreateModalOpen(true)}
+            className="min-h-[40px] rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 touch-manipulation"
+          >
+            手動でキャストを追加
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-8">
@@ -244,7 +331,9 @@ export default function AdminCastsPage() {
                     }`}
                   >
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900 sm:text-base">
-                      {cast.name}
+                      {cast.display_name?.trim()
+                        ? `${cast.display_name}（${cast.name}）`
+                        : cast.name}
                     </span>
                     {!isWelfare && (
                       <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
@@ -329,6 +418,16 @@ export default function AdminCastsPage() {
                       className="w-full min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                       placeholder={isWelfare ? "利用者名" : "名前"}
                       autoFocus
+                    />
+                  </label>
+                  <label className="block w-full">
+                    <span className="mb-1.5 block text-xs font-medium text-gray-600">表示名（源氏名）</span>
+                    <input
+                      type="text"
+                      value={editDisplayName}
+                      onChange={(e) => setEditDisplayName(e.target.value)}
+                      className="w-full min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      placeholder="未入力時は名前を表示"
                     />
                   </label>
 
@@ -452,6 +551,62 @@ export default function AdminCastsPage() {
       )}
       {message === "error" && (
         <p className="mt-6 text-sm text-red-600">処理に失敗しました。再度お試しください。</p>
+      )}
+
+      {createModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-5 shadow-xl">
+            <h2 className="text-base font-semibold text-gray-900">キャストを手動追加</h2>
+            <p className="mt-1 text-xs text-gray-500">
+              LINE未連携のキャストを登録します。後からLINE連携された場合は自動更新されます。
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-gray-600">キャスト名（本名/管理用）</span>
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="w-full min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="例: 山田 太郎"
+                  autoFocus
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-gray-600">表示名（源氏名）</span>
+                <input
+                  type="text"
+                  value={newDisplayName}
+                  onChange={(e) => setNewDisplayName(e.target.value)}
+                  className="w-full min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="例: タロウ（任意）"
+                />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (creating) return;
+                  setCreateModalOpen(false);
+                  setNewName("");
+                  setNewDisplayName("");
+                }}
+                className="min-h-[40px] rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCreateManualCast()}
+                disabled={creating || !newName.trim()}
+                className="min-h-[40px] rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {creating ? "追加中..." : "追加"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
