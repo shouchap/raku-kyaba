@@ -975,6 +975,10 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               </select>
             </label>
             <label className="block text-sm text-slate-700">
+              レギュラーメッセージ
+              <textarea value={regularRemindMessage} onChange={(e) => setRegularRemindMessage(e.target.value)} rows={3} className={`mt-1 w-full ${CONTROL_CLASS}`} />
+            </label>
+            <label className="block text-sm text-slate-700">
               営業前サマリー時刻
               <select value={preOpenReportHourJst} onChange={(e) => setPreOpenReportHourJst(e.target.value)} className={`mt-1 block w-full max-w-xs ${CONTROL_CLASS}`}>
                 <option value="">送信しない</option>
@@ -982,10 +986,6 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                   <option key={v} value={String(v)}>{v}時</option>
                 ))}
               </select>
-            </label>
-            <label className="block text-sm text-slate-700">
-              レギュラーメッセージ
-              <textarea value={regularRemindMessage} onChange={(e) => setRegularRemindMessage(e.target.value)} rows={3} className={`mt-1 w-full ${CONTROL_CLASS}`} />
             </label>
           </section>
 
