@@ -11,7 +11,7 @@ import { canonicalGuideHearingTime } from "@/lib/guide-hearing";
 import { DEFAULT_CUSTOM_TERMS, resolveCustomTerms, serializeCustomTerms } from "@/lib/custom-terms";
 
 type Section = "store" | "line" | "features" | "admins";
-type BusinessType = "cabaret" | "welfare_b" | "bar";
+type BusinessType = "cabaret" | "welfare_b" | "bar" | "fuzoku";
 
 type ReminderConfig = {
   enabled: boolean;
@@ -92,6 +92,15 @@ const MENU_PRESET_BY_BUSINESS: Record<BusinessType, MenuPreset[]> = {
     { id: "cast-manage", label: "利用者管理" },
     { id: "report", label: "日報・実績" },
     { id: "settings", label: "事業所設定" },
+  ],
+  fuzoku: [
+    { id: "shift-input", label: "シフト入力" },
+    { id: "shift-list", label: "シフト一覧" },
+    { id: "shift-single", label: "単日登録" },
+    { id: "special-shift", label: "特別シフト募集" },
+    { id: "cast-manage", label: "キャスト管理" },
+    { id: "report", label: "月間レポート" },
+    { id: "settings", label: "システム設定" },
   ],
 };
 
@@ -311,6 +320,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           ? "welfare_b"
           : data.business_type === "bar"
             ? "bar"
+            : data.business_type === "fuzoku"
+              ? "fuzoku"
             : "cabaret"
       );
       setRemindTime(
@@ -763,7 +774,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               店舗種別 <Tip text="業態によりナビゲーションやレポート表示が切り替わります。" />
             </h2>
             <div className="mt-3 flex flex-wrap gap-4">
-              {(["cabaret", "bar", "welfare_b"] as BusinessType[]).map((bt) => (
+              {(["cabaret", "bar", "welfare_b", "fuzoku"] as BusinessType[]).map((bt) => (
                 <label key={bt} className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
                     type="radio"
@@ -771,7 +782,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                     onChange={() => setBusinessType(bt)}
                     className="h-4 w-4 accent-blue-600 disabled:accent-slate-400"
                   />
-                  {bt === "cabaret" ? "キャバクラ" : bt === "bar" ? "BAR" : "福祉"}
+                  {bt === "cabaret" ? "キャバクラ" : bt === "bar" ? "BAR" : bt === "welfare_b" ? "福祉" : "風俗"}
                 </label>
               ))}
             </div>

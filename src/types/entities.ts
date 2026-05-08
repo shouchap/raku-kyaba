@@ -2,8 +2,8 @@
  * アプリ共通の店舗・キャスト型（UI・API で共有）
  */
 
-/** 店舗業態（stores.business_type）。Webhook / Cron で早期分岐に利用。bar = BAR、welfare_b = 福祉施設（B型等） */
-export type StoreBusinessType = "cabaret" | "welfare_b" | "bar";
+/** 店舗業態（stores.business_type）。Webhook / Cron で早期分岐に利用。bar = BAR、welfare_b = 福祉施設（B型等）、fuzoku = 風俗 */
+export type StoreBusinessType = "cabaret" | "welfare_b" | "bar" | "fuzoku";
 
 export type CastEmploymentType = "admin" | "regular" | "part_time" | "employee";
 

@@ -490,7 +490,7 @@ function AdminReportContent() {
   }, [dayDate, setDayParams]);
 
   const [store, setStore] = useState<Store | null>(null);
-  const [businessType, setBusinessType] = useState<"cabaret" | "welfare_b" | "bar">("cabaret");
+  const [businessType, setBusinessType] = useState<"cabaret" | "welfare_b" | "bar" | "fuzoku">("cabaret");
   const [welfareRows, setWelfareRows] = useState<WelfareReportRow[]>([]);
   /** キャバクラ・BAR: GET /api/admin/report の cast_reports */
   const [cabaretReports, setCabaretReports] = useState<CastReport[]>([]);
@@ -581,6 +581,8 @@ function AdminReportContent() {
           ? "welfare_b"
           : st.business_type === "bar"
             ? "bar"
+            : st.business_type === "fuzoku"
+              ? "fuzoku"
             : "cabaret";
       setBusinessType(bt);
 

@@ -1,8 +1,9 @@
-export type BusinessType = "cabaret" | "welfare_b" | "bar";
+export type BusinessType = "cabaret" | "welfare_b" | "bar" | "fuzoku";
 
 export function normalizeBusinessType(raw: string | null | undefined): BusinessType {
   if (raw === "welfare_b") return "welfare_b";
   if (raw === "bar") return "bar";
+  if (raw === "fuzoku") return "fuzoku";
   return "cabaret";
 }
 
@@ -51,5 +52,16 @@ export const BUSINESS_THEME: Record<BusinessType, BusinessTheme> = {
     cardAccentClass: "border-emerald-200 bg-gradient-to-br from-emerald-50 to-sky-50 text-slate-900",
     reportStatCardClass: "border-emerald-200 bg-white text-slate-900",
     reportStatLabelClass: "text-emerald-700",
+  },
+  fuzoku: {
+    key: "fuzoku",
+    label: "風俗",
+    headerClass: "border-fuchsia-200/80 bg-fuchsia-50/85 text-fuchsia-950",
+    navActiveClass: "bg-fuchsia-100 text-fuchsia-900 border-fuchsia-300",
+    navMutedClass: "bg-white text-slate-700 border-slate-200 hover:bg-fuchsia-50/70",
+    pageBackgroundClass: "bg-fuchsia-50/40 text-slate-900",
+    cardAccentClass: "border-fuchsia-200 bg-gradient-to-br from-fuchsia-50 to-rose-50 text-slate-900",
+    reportStatCardClass: "border-fuchsia-200 bg-white text-slate-900",
+    reportStatLabelClass: "text-fuchsia-700",
   },
 };

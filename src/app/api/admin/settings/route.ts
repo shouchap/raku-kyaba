@@ -411,7 +411,7 @@ export async function GET(request: Request) {
       regularStartTime = n || null;
     }
 
-    let businessType: "cabaret" | "welfare_b" | "bar" = "cabaret";
+    let businessType: "cabaret" | "welfare_b" | "bar" | "fuzoku" = "cabaret";
     let welfare_message_morning: string | null = null;
     let welfare_message_midday: string | null = null;
     let welfare_message_evening: string | null = null;
@@ -446,6 +446,7 @@ export async function GET(request: Request) {
               const bt = (btRes.data as { business_type?: string | null }).business_type;
               if (bt === "welfare_b") businessType = "welfare_b";
               else if (bt === "bar") businessType = "bar";
+              else if (bt === "fuzoku") businessType = "fuzoku";
             }
           } else {
             logPostgrestError("GET stores business_type / welfare messages (no welcome)", w2.error);
@@ -468,6 +469,7 @@ export async function GET(request: Request) {
           } | null;
           if (w?.business_type === "welfare_b") businessType = "welfare_b";
           else if (w?.business_type === "bar") businessType = "bar";
+          else if (w?.business_type === "fuzoku") businessType = "fuzoku";
           welfare_message_morning =
             typeof w?.welfare_message_morning === "string" ? w.welfare_message_morning : null;
           welfare_message_midday =
@@ -490,6 +492,7 @@ export async function GET(request: Request) {
           const bt = (btRes.data as { business_type?: string | null }).business_type;
           if (bt === "welfare_b") businessType = "welfare_b";
           else if (bt === "bar") businessType = "bar";
+          else if (bt === "fuzoku") businessType = "fuzoku";
         }
       } else {
         logPostgrestError("GET stores business_type / welfare messages", welfareRes.error);
@@ -513,6 +516,7 @@ export async function GET(request: Request) {
       } | null;
       if (w?.business_type === "welfare_b") businessType = "welfare_b";
       else if (w?.business_type === "bar") businessType = "bar";
+      else if (w?.business_type === "fuzoku") businessType = "fuzoku";
       welfare_message_morning =
         typeof w?.welfare_message_morning === "string" ? w.welfare_message_morning : null;
       welfare_message_midday =
@@ -737,7 +741,7 @@ type PatchBody = {
   /** カンマ区切り作業項目。未指定なら更新しない */
   welfare_work_items?: string | null;
   /** キャバクラ / BAR / 福祉（welfare_b） */
-  business_type?: "cabaret" | "welfare_b" | "bar";
+  business_type?: "cabaret" | "welfare_b" | "bar" | "fuzoku";
   ask_guest_name?: boolean;
   ask_guest_time?: boolean;
   attendance_flow_type?: "default" | "bar_extended";
@@ -1019,7 +1023,8 @@ export async function PATCH(request: Request) {
   const businessTypeProvided =
     body.business_type === "cabaret" ||
     body.business_type === "welfare_b" ||
-    body.business_type === "bar";
+    body.business_type === "bar" ||
+    body.business_type === "fuzoku";
   const askGuestNameProvided = typeof body.ask_guest_name === "boolean";
   const askGuestTimeProvided = typeof body.ask_guest_time === "boolean";
   const attendanceFlowTypeProvided =
@@ -1321,7 +1326,7 @@ export async function PATCH(request: Request) {
       }
     }
     if (businessTypeProvided) {
-      storePayload.business_type = body.business_type as "cabaret" | "welfare_b" | "bar";
+      storePayload.business_type = body.business_type as "cabaret" | "welfare_b" | "bar" | "fuzoku";
     }
     if (askGuestNameProvided) {
       storePayload.ask_guest_name = body.ask_guest_name as boolean;

@@ -50,7 +50,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   let stores: { id: string; name: string }[] = [];
   let isSuperAdmin = false;
-  let businessType: "cabaret" | "welfare_b" | "bar" = "cabaret";
+  let businessType: "cabaret" | "welfare_b" | "bar" | "fuzoku" = "cabaret";
   let customTerms = resolveCustomTerms(null);
   let menuSettings: MenuSettingsMap = {};
   try {

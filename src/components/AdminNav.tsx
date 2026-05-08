@@ -58,6 +58,15 @@ const NAV_ITEMS_BY_BUSINESS: Record<BusinessType, NavItem[]> = {
     { id: "report", href: "/admin/report", label: "日報・実績", icon: BarChart3 },
     { id: "settings", href: "/admin/settings", label: "事業所設定", icon: Settings },
   ],
+  fuzoku: [
+    { id: "shift-input", href: "/admin/weekly", label: "シフト入力", icon: CalendarDays },
+    { id: "shift-list", href: "/admin/view", label: "シフト一覧", icon: ClipboardList },
+    { id: "shift-single", href: "/admin/schedule", label: "単日登録", icon: CalendarPlus2 },
+    { id: "special-shift", href: "/admin/shifts/special", label: "特別シフト募集", icon: Megaphone },
+    { id: "cast-manage", href: "/admin/casts", label: "キャスト管理", icon: Users },
+    { id: "report", href: "/admin/report", label: "月間レポート", icon: BarChart3 },
+    { id: "settings", href: "/admin/settings", label: "システム設定", icon: Settings },
+  ],
 };
 
 type StoreOption = { id: string; name: string };
