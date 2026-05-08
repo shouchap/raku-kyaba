@@ -75,6 +75,8 @@ export interface Database {
           is_dohan_sabaki_enabled: boolean;
           /** 店舗ごとの画面表示用語（出勤/キャスト など） */
           custom_terms: Json;
+          /** 管理画面メニューの表示名 / 表示・非表示設定（JSONB） */
+          menu_settings: Json;
           /** 週間レポート自動送信（LINEテキスト）を有効にするか（049） */
           weekly_report_enabled: boolean;
           /** 送信曜日（JST）0=日〜6=土（049） */
@@ -114,6 +116,7 @@ export interface Database {
           | "is_guide_enabled"
           | "is_dohan_sabaki_enabled"
           | "custom_terms"
+          | "menu_settings"
           | "weekly_report_enabled"
           | "weekly_report_day"
           | "weekly_report_time"
@@ -148,6 +151,7 @@ export interface Database {
           is_guide_enabled?: boolean;
           is_dohan_sabaki_enabled?: boolean;
           custom_terms?: Json;
+          menu_settings?: Json;
           weekly_report_enabled?: boolean;
           weekly_report_day?: number;
           weekly_report_time?: string;

@@ -14,6 +14,26 @@ export const dynamic = "force-dynamic";
 const REMIND_TIME_RE = /^([01][0-9]|2[0-3]):00$/;
 const REMINDER_CONFIG_KEY = "reminder_config" as const;
 
+type MenuSettingsEntry = { label: string; isHidden: boolean };
+type MenuSettingsMap = Record<string, MenuSettingsEntry>;
+
+function normalizeMenuSettings(raw: unknown): MenuSettingsMap {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const rec = raw as Record<string, unknown>;
+  const out: MenuSettingsMap = {};
+  for (const [key, value] of Object.entries(rec)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const entry = value as Record<string, unknown>;
+    if (typeof entry.label !== "string") continue;
+    if (typeof entry.isHidden !== "boolean") continue;
+    const k = key.trim();
+    const label = entry.label.trim();
+    if (!k || !label) continue;
+    out[k] = { label, isHidden: entry.isHidden };
+  }
+  return out;
+}
+
 function parsePreOpenReportHourJst(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   if (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 23) return v;
@@ -506,9 +526,12 @@ export async function GET(request: Request) {
     let askGuestTime = false;
     let isGuideEnabled = true;
     let isDohanSabakiEnabled = true;
+    let menuSettings: MenuSettingsMap = {};
     const barFlagsRes = await admin
       .from("stores")
-      .select("ask_guest_name, ask_guest_time, is_guide_enabled, is_dohan_sabaki_enabled, custom_terms")
+      .select(
+        "ask_guest_name, ask_guest_time, is_guide_enabled, is_dohan_sabaki_enabled, custom_terms, menu_settings"
+      )
       .eq("id", storeId)
       .maybeSingle();
     if (!barFlagsRes.error && barFlagsRes.data) {
@@ -518,12 +541,14 @@ export async function GET(request: Request) {
         is_guide_enabled?: boolean | null;
         is_dohan_sabaki_enabled?: boolean | null;
         custom_terms?: unknown;
+        menu_settings?: unknown;
       };
       askGuestName = bf.ask_guest_name !== false;
       askGuestTime = bf.ask_guest_time === true;
       isGuideEnabled = bf.is_guide_enabled !== false;
       isDohanSabakiEnabled = bf.is_dohan_sabaki_enabled !== false;
       customTerms = serializeCustomTerms(resolveCustomTerms(bf.custom_terms));
+      menuSettings = normalizeMenuSettings(bf.menu_settings);
     } else if (
       barFlagsRes.error &&
       isUndefinedColumnError(barFlagsRes.error, "is_guide_enabled")
@@ -546,11 +571,36 @@ export async function GET(request: Request) {
       console.warn(
         "[api/admin/settings] GET: stores.is_guide_enabled 未適用。マイグレーション 043 を適用してください。"
       );
+    } else if (barFlagsRes.error && isUndefinedColumnError(barFlagsRes.error, "menu_settings")) {
+      const bfNoMenu = await admin
+        .from("stores")
+        .select("ask_guest_name, ask_guest_time, is_guide_enabled, is_dohan_sabaki_enabled, custom_terms")
+        .eq("id", storeId)
+        .maybeSingle();
+      if (!bfNoMenu.error && bfNoMenu.data) {
+        const bf = bfNoMenu.data as {
+          ask_guest_name?: boolean | null;
+          ask_guest_time?: boolean | null;
+          is_guide_enabled?: boolean | null;
+          is_dohan_sabaki_enabled?: boolean | null;
+          custom_terms?: unknown;
+        };
+        askGuestName = bf.ask_guest_name !== false;
+        askGuestTime = bf.ask_guest_time === true;
+        isGuideEnabled = bf.is_guide_enabled !== false;
+        isDohanSabakiEnabled = bf.is_dohan_sabaki_enabled !== false;
+        customTerms = serializeCustomTerms(resolveCustomTerms(bf.custom_terms));
+      } else if (bfNoMenu.error && !isUndefinedColumnError(bfNoMenu.error, "ask_guest_name")) {
+        logPostgrestError("GET stores fallback without menu_settings", bfNoMenu.error);
+      }
+      console.warn(
+        "[api/admin/settings] GET: stores.menu_settings 未適用。マイグレーションを適用してください。"
+      );
     } else if (barFlagsRes.error && !isUndefinedColumnError(barFlagsRes.error, "ask_guest_name")) {
       if (isUndefinedColumnError(barFlagsRes.error, "is_dohan_sabaki_enabled")) {
         const bfLegacy = await admin
           .from("stores")
-          .select("ask_guest_name, ask_guest_time, is_guide_enabled")
+          .select("ask_guest_name, ask_guest_time, is_guide_enabled, menu_settings")
           .eq("id", storeId)
           .maybeSingle();
         if (!bfLegacy.error && bfLegacy.data) {
@@ -558,10 +608,12 @@ export async function GET(request: Request) {
             ask_guest_name?: boolean | null;
             ask_guest_time?: boolean | null;
             is_guide_enabled?: boolean | null;
+            menu_settings?: unknown;
           };
           askGuestName = bf.ask_guest_name !== false;
           askGuestTime = bf.ask_guest_time === true;
           isGuideEnabled = bf.is_guide_enabled !== false;
+          menuSettings = normalizeMenuSettings(bf.menu_settings);
         }
         console.warn(
           "[api/admin/settings] GET: stores.is_dohan_sabaki_enabled 未適用。マイグレーション 044 を適用してください。"
@@ -637,6 +689,7 @@ export async function GET(request: Request) {
         settingsRow?.value && typeof settingsRow.value === "object"
           ? settingsRow.value
           : {},
+      menu_settings: menuSettings,
       weekly_report_enabled: weeklyReportEnabled,
       weekly_report_day: weeklyReportDay,
       weekly_report_time: weeklyReportTime,
@@ -693,6 +746,7 @@ type PatchBody = {
     term_attendance?: string;
     term_cast?: string;
   };
+  menu_settings?: Record<string, { label: string; isHidden: boolean }>;
   weekly_report_enabled?: boolean;
   /** 0=日曜〜6=土曜（049） */
   weekly_report_day?: number;
@@ -976,6 +1030,20 @@ export async function PATCH(request: Request) {
     !Array.isArray(body.custom_terms);
   if (body.custom_terms !== undefined && !customTermsProvided) {
     return NextResponse.json({ error: "custom_terms must be an object" }, { status: 400 });
+  }
+  const menuSettingsProvided = Object.prototype.hasOwnProperty.call(body, "menu_settings");
+  if (menuSettingsProvided) {
+    const normalized = normalizeMenuSettings(body.menu_settings);
+    const rawCount =
+      body.menu_settings && typeof body.menu_settings === "object" && !Array.isArray(body.menu_settings)
+        ? Object.keys(body.menu_settings as Record<string, unknown>).length
+        : -1;
+    if (rawCount < 0 || Object.keys(normalized).length !== rawCount) {
+      return NextResponse.json(
+        { error: "menu_settings must be an object map: { [key]: { label: string, isHidden: boolean } }" },
+        { status: 400 }
+      );
+    }
   }
 
   const weeklyReportProvided =
@@ -1270,6 +1338,9 @@ export async function PATCH(request: Request) {
     if (customTermsProvided) {
       storePayload.custom_terms = serializeCustomTerms(resolveCustomTerms(body.custom_terms));
     }
+    if (menuSettingsProvided) {
+      storePayload.menu_settings = normalizeMenuSettings(body.menu_settings);
+    }
     if (weeklyReportProvided) {
       storePayload.weekly_report_enabled = body.weekly_report_enabled as boolean;
       storePayload.weekly_report_day = body.weekly_report_day as number;
@@ -1280,6 +1351,33 @@ export async function PATCH(request: Request) {
 
     if (storeRes.error) {
       logPostgrestError("PATCH stores", storeRes.error);
+      if (menuSettingsProvided && isUndefinedColumnError(storeRes.error, "menu_settings")) {
+        console.warn(
+          "[api/admin/settings] PATCH: stores.menu_settings 未適用。menu_settings を除いて再試行します。"
+        );
+        const retryPayload = { ...storePayload };
+        delete retryPayload.menu_settings;
+        const retryRes = await admin.from("stores").update(retryPayload).eq("id", storeId);
+        if (retryRes.error) {
+          logPostgrestError("PATCH stores retry without menu_settings", retryRes.error);
+          return NextResponse.json(
+            {
+              error: "Failed to update store",
+              details: retryRes.error.message,
+              code: retryRes.error.code,
+              hint: retryRes.error.hint,
+            },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json({
+          ok: true,
+          remind_time: remindTime,
+          menu_settings_persisted: false,
+          warning:
+            "その他の設定は保存しましたが、stores.menu_settings カラムがありません。マイグレーションを Supabase に適用してください。",
+        });
+      }
       if (weeklyReportProvided && isUndefinedColumnError(storeRes.error, "weekly_report_enabled")) {
         console.warn(
           "[api/admin/settings] PATCH: stores.weekly_report_* 未適用。049 を適用してください。週間レポート以外を再試行します。"
