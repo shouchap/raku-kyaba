@@ -4,12 +4,22 @@
  * - 風俗（fuzoku）: シフト時刻ベースの簡易フォーマットのみ
  */
 import { formatScheduleTimeLabel } from "@/lib/attendance-remind-flex";
+import { getWeekdayJst } from "@/lib/date-utils";
 import {
   RULE_THICK,
   formatReasonSubLines,
   formatReservationSubLines,
 } from "@/lib/pre-open-report-utils";
 import { extractDeclaredGroupCountFromReservationDetails } from "@/lib/reservation-progress";
+
+/** 営業前サマリー見出し用: YYYY-MM-DD + 日本語1文字曜日（LINE・サーバー環境で英語曜日にならないよう固定） */
+const WEEKDAY_JA_SHORT = ["日", "月", "火", "水", "木", "金", "土"] as const;
+
+function formatPreOpenReportCalendarLine(ymd: string): string {
+  const w = getWeekdayJst(ymd.trim());
+  const dayJa = WEEKDAY_JA_SHORT[w] ?? "";
+  return `${ymd.trim()}（${dayJa}）`;
+}
 
 type CastJoin =
   | { name?: string; display_name?: string | null; role?: "cast" | "nakai" | null }
@@ -221,7 +231,7 @@ export function buildFuzokuPreOpenReportMessage(
   const parts: string[] = [];
   parts.push("【本日の営業前サマリー】");
   parts.push(`🏢 ${storeName.trim() || "店舗"}`);
-  parts.push(`📅 ${todayJst} (JST)`);
+  parts.push(`📅 ${formatPreOpenReportCalendarLine(todayJst)} (JST)`);
   parts.push(FUZOKU_RULE_LINE);
   parts.push("");
   parts.push("【出勤予定】");
@@ -310,7 +320,7 @@ function sectionBlock(title: string, subtitle: string | null, body: string): str
 function pushSummaryHeader(out: string[], storeName: string, todayJst: string, totalReservationGroups: number): void {
   out.push("【本日の営業前サマリー】");
   out.push(`🏢 ${storeName.trim() || "店舗"}`);
-  out.push(`📅 ${todayJst} (JST)`);
+  out.push(`📅 ${formatPreOpenReportCalendarLine(todayJst)} (JST)`);
   out.push(RULE_THICK);
   out.push(RULE_THICK);
   out.push(`本日の合計予定組数：${totalReservationGroups}組`);
