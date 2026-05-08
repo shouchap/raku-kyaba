@@ -5,7 +5,6 @@ import Link from "next/link";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { getTodayJst } from "@/lib/date-utils";
-import { formatScheduleTimeLabel } from "@/lib/attendance-remind-flex";
 import { SubmitSuccessToast } from "./SubmitSuccessToast";
 
 /** 未返信アラートを出すまでの経過時間（時間） */
@@ -72,6 +71,24 @@ function isOverAlertHours(lastRemindedAt: string | null): boolean {
   const reminded = new Date(lastRemindedAt).getTime();
   const now = Date.now();
   return now - reminded >= ALERT_HOURS * 60 * 60 * 1000;
+}
+
+/** TIME/TIMESTRING を HH:mm に正規化 */
+function formatHm(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const m = String(raw).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return "";
+  return `${m[1].padStart(2, "0")}:${m[2]}`;
+}
+
+/** 開始・終了時刻を一覧表示向けに整形 */
+function formatShiftRangeLabel(startRaw: string | null | undefined, endRaw: string | null | undefined): string {
+  const start = formatHm(startRaw);
+  const end = formatHm(endRaw);
+  if (start && end) return `${start} - ${end}`;
+  if (start) return start;
+  if (end) return `- ${end}`;
+  return "—";
 }
 
 /**
@@ -172,7 +189,7 @@ export default function AdminViewPage() {
     async (storeId: string) => {
       const { data: schedulesData } = await supabase
         .from("attendance_schedules")
-        .select("cast_id, scheduled_date, scheduled_time, is_dohan, is_sabaki, last_reminded_at, response_status")
+        .select("cast_id, scheduled_date, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, last_reminded_at, response_status")
         .eq("store_id", storeId)
         .in("scheduled_date", dates);
 
@@ -182,6 +199,7 @@ export default function AdminViewPage() {
         cast_id: string;
         scheduled_date: string;
         scheduled_time?: string | null;
+        scheduled_end_time?: string | null;
         is_dohan?: boolean | null;
         is_sabaki?: boolean | null;
         last_reminded_at?: string | null;
@@ -218,7 +236,7 @@ export default function AdminViewPage() {
               ? row.response_status
               : null;
           next[row.cast_id][row.scheduled_date] = {
-            time: formatScheduleTimeLabel(row.scheduled_time, row.is_dohan, row.is_sabaki),
+            time: formatShiftRangeLabel(row.scheduled_time, row.scheduled_end_time),
             lastRemindedAt: row.last_reminded_at ?? null,
             responseStatus: status,
           };
