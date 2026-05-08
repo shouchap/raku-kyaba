@@ -118,6 +118,7 @@ export default function AdminViewPage() {
   const [store, setStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingImage, setSavingImage] = useState(false);
+  const [sendingLineTest, setSendingLineTest] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [matrix, setMatrix] = useState<Record<string, Record<string, CellData>>>({});
   const captureRef = useRef<HTMLDivElement>(null);
@@ -297,6 +298,32 @@ export default function AdminViewPage() {
     }
   }, [baseDate, dates]);
 
+  const handleSendTodayShiftTest = useCallback(async () => {
+    setSendingLineTest(true);
+    try {
+      const res = await fetch(
+        `/api/remind/pre-open-report?storeId=${encodeURIComponent(activeStoreId)}`,
+        { method: "GET" }
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        details?: string;
+        processedCount?: number;
+      };
+      if (!res.ok || data.ok !== true) {
+        throw new Error(data.error ?? data.details ?? "手動送信に失敗しました");
+      }
+      alert(
+        `LINE送信テストを実行しました（送信店舗数: ${typeof data.processedCount === "number" ? data.processedCount : 0}）`
+      );
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "手動送信に失敗しました");
+    } finally {
+      setSendingLineTest(false);
+    }
+  }, [activeStoreId]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
@@ -360,6 +387,16 @@ export default function AdminViewPage() {
             className="min-h-[44px] px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation flex items-center gap-2"
           >
             {savingImage ? "保存中..." : "画像で保存"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSendTodayShiftTest()}
+            disabled={sendingLineTest}
+            className="min-h-[44px] px-4 py-2 rounded-lg border border-emerald-300 bg-emerald-50 text-sm font-medium text-emerald-700 hover:bg-emerald-100 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+          >
+            {sendingLineTest
+              ? "送信中..."
+              : "LINEへ本日シフトを手動送信（テスト）"}
           </button>
         </div>
 

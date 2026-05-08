@@ -20,6 +20,7 @@ import {
   type PreOpenScheduleRow,
 } from "@/lib/pre-open-report-message";
 import { isValidStoreId } from "@/lib/current-store";
+import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -319,15 +320,31 @@ function settledToResult(
 
 export async function GET(request: Request) {
   try {
+    const paramStoreIdRaw = safeSearchParams(request).get("storeId")?.trim() ?? "";
+    const paramStoreId = paramStoreIdRaw ? paramStoreIdRaw.toLowerCase() : "";
+
     const cronSecret = process.env.CRON_SECRET;
     if (cronSecret && cronSecret.trim() !== "") {
       const authHeader = request.headers.get("authorization");
       const expected = `Bearer ${cronSecret.trim()}`;
       if (authHeader?.trim() !== expected) {
-        return NextResponse.json(
-          { error: "Unauthorized", message: "Invalid or missing Authorization header" },
-          { status: 401 }
-        );
+        // 管理画面の手動テスト（storeId指定時）はセッション認証で許可
+        if (!paramStoreId) {
+          return NextResponse.json(
+            { error: "Unauthorized", message: "Invalid or missing Authorization header" },
+            { status: 401 }
+          );
+        }
+        const { user, error } = await getAuthedUserForAdminApi();
+        if (error === "config") {
+          return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
+        }
+        if (!user || !canUserEditStore(user, paramStoreId)) {
+          return NextResponse.json(
+            { error: "Unauthorized", message: "Invalid or missing Authorization header" },
+            { status: 401 }
+          );
+        }
       }
     }
 
@@ -355,9 +372,6 @@ export async function GET(request: Request) {
     const supabase = createClient(url, key);
     const todayJst = getTodayJst();
     const hourJst = getCurrentTimeJst().hour;
-
-    const paramStoreIdRaw = safeSearchParams(request).get("storeId")?.trim() ?? "";
-    const paramStoreId = paramStoreIdRaw ? paramStoreIdRaw.toLowerCase() : "";
 
     if (paramStoreId) {
       if (!isValidStoreId(paramStoreId)) {
