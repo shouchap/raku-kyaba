@@ -186,13 +186,20 @@ function sortFuzokuShiftRows(rows: PreOpenScheduleRow[]): PreOpenScheduleRow[] {
   });
 }
 
+/** LINE OS の時間リンク誤検知回避（風俗フォーマットのみ） */
+function fuzokuTimeForDisplay(hmFromFormatHm: string): string {
+  return hmFromFormatHm.replace(/:/g, "：");
+}
+
 /** `scheduled_time` / `scheduled_end_time` のみで括弧内を組み立て（同伴・捌きは含めない） */
 function fuzokuShiftParen(row: PreOpenScheduleRow): string {
   const start = formatHm(row.scheduled_time);
   const end = formatHm(row.scheduled_end_time);
-  if (start && end) return `(${start} - ${end})`;
-  if (start) return `(${start})`;
-  return `(${end})`;
+  const sd = start ? fuzokuTimeForDisplay(start) : "";
+  const ed = end ? fuzokuTimeForDisplay(end) : "";
+  if (sd && ed) return `(${sd} 〜 ${ed})`;
+  if (sd) return `(${sd})`;
+  return `(${ed})`;
 }
 
 function fuzokuShiftLine(row: PreOpenScheduleRow): string {
