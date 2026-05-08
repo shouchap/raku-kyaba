@@ -17,6 +17,7 @@ type CastJoin =
   | null;
 
 export type PreOpenScheduleRow = {
+  cast_id?: string | null;
   scheduled_time: string | null;
   scheduled_end_time?: string | null;
   is_dohan: boolean | null;
@@ -97,7 +98,7 @@ function sectionForRow(row: PreOpenScheduleRow): "attending" | "late" | "off" | 
   return "unanswered";
 }
 
-/** 出勤確定（予約ヒアリング中含む）または遅刻の人数。送信スキップ判定用 */
+/** 出勤確定（予約ヒアリング中含む）または遅刻の人数。送信スキップ判定用（通常業態） */
 export function countPreOpenWorkingCasts(rows: PreOpenScheduleRow[]): number {
   let n = 0;
   for (const r of rows) {
@@ -105,6 +106,27 @@ export function countPreOpenWorkingCasts(rows: PreOpenScheduleRow[]): number {
     if (s === "attending" || s === "late") n++;
   }
   return n;
+}
+
+/**
+ * 営業前サマリー送信スキップ判定用の人数。
+ * - fuzoku: 対象日の attendance_schedules 行について、`response_status` は無視し `cast_id` のユニーク人数（未取得時は行数）
+ * - それ以外: {@link countPreOpenWorkingCasts}
+ */
+export function countPreOpenWorkingCastsByBusinessType(
+  businessType: string | null | undefined,
+  rows: PreOpenScheduleRow[]
+): number {
+  if (businessType !== "fuzoku") {
+    return countPreOpenWorkingCasts(rows);
+  }
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const cid = row.cast_id?.trim();
+    if (cid) ids.add(cid);
+  }
+  if (ids.size > 0) return ids.size;
+  return rows.length;
 }
 
 /**

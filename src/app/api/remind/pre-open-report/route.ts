@@ -16,7 +16,7 @@ import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-
 import { getTodayJst, getCurrentTimeJst, getWeekdayJst } from "@/lib/date-utils";
 import {
   buildPreOpenReportMessageByBusinessType,
-  countPreOpenWorkingCasts,
+  countPreOpenWorkingCastsByBusinessType,
   type PreOpenScheduleRow,
 } from "@/lib/pre-open-report-message";
 import { isValidStoreId } from "@/lib/current-store";
@@ -114,10 +114,10 @@ async function fetchSchedulesForPreOpenReport(
   targetDate: string
 ): Promise<{ data: PreOpenScheduleRow[] | null; error: { message: string; code?: string } | null }> {
   const fullSelect =
-    "id, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow, casts(name, display_name, role)";
+    "id, cast_id, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow, casts(name, display_name, role)";
 
   const minSelect =
-    "id, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow";
+    "id, cast_id, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow";
 
   const first = await supabase
     .from("attendance_schedules")
@@ -245,7 +245,7 @@ async function processPreOpenReportForStore(
 
     const schedules = rawSchedules ?? [];
 
-    if (!force && countPreOpenWorkingCasts(schedules) === 0) {
+    if (!force && countPreOpenWorkingCastsByBusinessType(store.business_type, schedules) === 0) {
       console.info(`${LOG_PREFIX} 出勤者0人のためサマリー送信をスキップ storeId=${sid}`);
       return { storeId: sid, skipped: "no_working_casts" };
     }
