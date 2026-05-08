@@ -7,7 +7,9 @@ import { isSuperAdminUser } from "@/lib/super-admin";
 import { sendPushMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { getTodayJst } from "@/lib/date-utils";
-import { generateDailyBarSummaryForStore } from "@/lib/daily-bar-summary";
+import { chunkDailyBarSummaryBody, generateDailyBarSummaryForStore } from "@/lib/daily-bar-summary";
+import { fetchSchedulesForPreOpenReport } from "@/lib/pre-open-report-fetch";
+import { buildPreOpenReportMessageByBusinessType } from "@/lib/pre-open-report-message";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +24,9 @@ function rejectStoreMismatch(request: Request, user: User, storeId: string): Nex
 
 /**
  * POST /api/admin/daily-bar-summary/individual-test
- * body: { storeId, castId } — 本日分の営業前サマリー（日報）テキストを1名のLINEにテスト送信
+ * body: { storeId, castId } — 本日分のサマリーを1名のLINEにテスト送信
+ * - business_type === fuzoku: `/api/remind/pre-open-report` と同一の buildPreOpenReportMessageByBusinessType（シフトベース）
+ * - それ以外: BAR向け日報形式（attendance_logs）generateDailyBarSummaryForStore
  */
 export async function POST(request: Request) {
   const { user, error } = await getAuthedUserForAdminApi();
@@ -58,6 +62,25 @@ export async function POST(request: Request) {
 
   const today = getTodayJst();
 
+  const { data: storeRow, error: storeErr } = await admin
+    .from("stores")
+    .select("name, business_type")
+    .eq("id", storeId)
+    .maybeSingle();
+
+  if (storeErr) {
+    return NextResponse.json(
+      { error: "Failed to load store", details: storeErr.message },
+      { status: 500 }
+    );
+  }
+  if (!storeRow) {
+    return NextResponse.json({ error: "Store not found" }, { status: 404 });
+  }
+
+  const businessType = String((storeRow as { business_type?: string | null }).business_type ?? "").trim() || null;
+  const storeName = String((storeRow as { name?: string | null }).name ?? "").trim() || "店舗";
+
   const { data: cast, error: castErr } = await admin
     .from("casts")
     .select("id, name, line_user_id")
@@ -77,9 +100,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "選択したキャストはLINE未連携です" }, { status: 400 });
   }
 
-  const generated = await generateDailyBarSummaryForStore(admin, storeId, today);
-  if (!generated.ok) {
-    return NextResponse.json({ error: "サマリー生成に失敗しました", details: generated.error }, { status: 500 });
+  let chunks: string[];
+  if (businessType === "fuzoku") {
+    const { data: schedules, error: schedErr } = await fetchSchedulesForPreOpenReport(
+      admin,
+      storeId,
+      today,
+      "[daily-bar-summary-individual-test]"
+    );
+    if (schedErr) {
+      return NextResponse.json(
+        { error: "シフト取得に失敗しました", details: schedErr.message },
+        { status: 500 }
+      );
+    }
+    const body = buildPreOpenReportMessageByBusinessType(businessType, storeName, today, schedules ?? []);
+    chunks = chunkDailyBarSummaryBody(body);
+  } else {
+    const generated = await generateDailyBarSummaryForStore(admin, storeId, today);
+    if (!generated.ok) {
+      return NextResponse.json({ error: "サマリー生成に失敗しました", details: generated.error }, { status: 500 });
+    }
+    chunks = generated.chunks;
   }
 
   const tokenPack = await fetchResolvedLineChannelAccessTokenForStore(
@@ -92,7 +134,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    for (const chunk of generated.chunks) {
+    for (const chunk of chunks) {
       await sendPushMessage(lineUserId, tokenPack.token, [{ type: "text", text: chunk }]);
     }
   } catch (e) {
@@ -106,7 +148,7 @@ export async function POST(request: Request) {
     ok: true,
     castName,
     date: today,
-    chunkCount: generated.chunks.length,
+    chunkCount: chunks.length,
     tokenSource: tokenPack.source,
   });
 }

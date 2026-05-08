@@ -17,8 +17,8 @@ import { getTodayJst, getCurrentTimeJst, getWeekdayJst } from "@/lib/date-utils"
 import {
   buildPreOpenReportMessageByBusinessType,
   countPreOpenWorkingCastsByBusinessType,
-  type PreOpenScheduleRow,
 } from "@/lib/pre-open-report-message";
+import { fetchSchedulesForPreOpenReport } from "@/lib/pre-open-report-fetch";
 import { isValidStoreId } from "@/lib/current-store";
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 
@@ -107,56 +107,6 @@ async function getStoreLineGroupId(
   return gid && gid.trim() ? gid.trim() : null;
 }
 
-/** ネスト casts 付き（失敗時はフォールバック） */
-async function fetchSchedulesForPreOpenReport(
-  supabase: SupabaseClient,
-  storeId: string,
-  targetDate: string
-): Promise<{ data: PreOpenScheduleRow[] | null; error: { message: string; code?: string } | null }> {
-  const fullSelect =
-    "id, cast_id, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow, casts(name, display_name, role)";
-
-  const minSelect =
-    "id, cast_id, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow";
-
-  const first = await supabase
-    .from("attendance_schedules")
-    .select(fullSelect)
-    .eq("store_id", storeId)
-    .eq("scheduled_date", targetDate);
-
-  if (first.error) {
-    console.error(`${LOG_PREFIX} schedules select (with casts)`, storeId, {
-      message: first.error.message,
-      code: first.error.code,
-      details: first.error.details,
-      hint: first.error.hint,
-    });
-    const second = await supabase
-      .from("attendance_schedules")
-      .select(minSelect)
-      .eq("store_id", storeId)
-      .eq("scheduled_date", targetDate);
-    if (second.error) {
-      console.error(`${LOG_PREFIX} schedules select (minimal)`, storeId, {
-        message: second.error.message,
-        code: second.error.code,
-      });
-      return { data: null, error: { message: second.error.message, code: second.error.code } };
-    }
-    console.warn(`${LOG_PREFIX} using schedule rows without casts(name); names may show as 不明`);
-    return {
-      data: (second.data ?? []) as PreOpenScheduleRow[],
-      error: null,
-    };
-  }
-
-  return {
-    data: (first.data ?? []) as PreOpenScheduleRow[],
-    error: null,
-  };
-}
-
 type StoreRow = {
   id: string;
   name: string | null;
@@ -236,7 +186,8 @@ async function processPreOpenReportForStore(
     const { data: rawSchedules, error: schedErr } = await fetchSchedulesForPreOpenReport(
       supabase,
       sid,
-      targetDate
+      targetDate,
+      LOG_PREFIX
     );
 
     if (schedErr) {
