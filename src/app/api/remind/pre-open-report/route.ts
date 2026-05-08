@@ -11,7 +11,7 @@
 
 import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { sendMulticastMessage } from "@/lib/line-reply";
+import { sendMulticastMessage, sendPushMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { getTodayJst, getCurrentTimeJst, getWeekdayJst } from "@/lib/date-utils";
 import {
@@ -89,6 +89,23 @@ async function getAdminLineUserIds(supabase: SupabaseClient, storeId: string): P
   return [];
 }
 
+async function getStoreLineGroupId(
+  supabase: SupabaseClient,
+  storeId: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("stores")
+    .select("line_group_id")
+    .eq("id", storeId)
+    .maybeSingle();
+  if (error) {
+    console.error(`${LOG_PREFIX} stores line_group_id`, storeId, error.message, error.code);
+    return null;
+  }
+  const gid = (data as { line_group_id?: string | null } | null)?.line_group_id;
+  return gid && gid.trim() ? gid.trim() : null;
+}
+
 /** ネスト casts 付き（失敗時はフォールバック） */
 async function fetchSchedulesForPreOpenReport(
   supabase: SupabaseClient,
@@ -96,10 +113,10 @@ async function fetchSchedulesForPreOpenReport(
   todayJst: string
 ): Promise<{ data: PreOpenScheduleRow[] | null; error: { message: string; code?: string } | null }> {
   const fullSelect =
-    "id, scheduled_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow, casts(name)";
+    "id, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow, casts(name, display_name, role)";
 
   const minSelect =
-    "id, scheduled_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow";
+    "id, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow";
 
   const first = await supabase
     .from("attendance_schedules")
@@ -208,9 +225,12 @@ async function processPreOpenReportForStore(
       return { storeId: sid, skipped: "no_line_token" };
     }
 
-    const adminIds = await getAdminLineUserIds(supabase, sid);
-    if (adminIds.length === 0) {
-      return { storeId: sid, skipped: "no_admin_recipients" };
+    const [adminIds, lineGroupId] = await Promise.all([
+      getAdminLineUserIds(supabase, sid),
+      getStoreLineGroupId(supabase, sid),
+    ]);
+    if (adminIds.length === 0 && !lineGroupId) {
+      return { storeId: sid, skipped: "no_line_recipients" };
     }
 
     const { data: rawSchedules, error: schedErr } = await fetchSchedulesForPreOpenReport(
@@ -241,14 +261,23 @@ async function processPreOpenReportForStore(
       };
     }
 
-    try {
-      await sendMulticastMessage(adminIds, resolved.token, [{ type: "text", text: body }]);
-    } catch (e) {
-      console.error(`${LOG_PREFIX} sendMulticastMessage`, sid, e);
-      return {
-        storeId: sid,
-        skipped: `line_send_failed:${e instanceof Error ? e.message : String(e)}`,
-      };
+    if (lineGroupId) {
+      try {
+        await sendPushMessage(lineGroupId, resolved.token, [{ type: "text", text: body }]);
+      } catch (e) {
+        console.error(`${LOG_PREFIX} sendPushMessage(group)`, sid, e);
+      }
+    }
+    if (adminIds.length > 0) {
+      try {
+        await sendMulticastMessage(adminIds, resolved.token, [{ type: "text", text: body }]);
+      } catch (e) {
+        console.error(`${LOG_PREFIX} sendMulticastMessage(admins)`, sid, e);
+        return {
+          storeId: sid,
+          skipped: `line_send_failed:${e instanceof Error ? e.message : String(e)}`,
+        };
+      }
     }
 
     if (!force) {

@@ -68,6 +68,7 @@ export async function POST(request: Request) {
     castId?: string;
     scheduledDate?: string;
     scheduledTime?: string;
+    scheduledEndTime?: string | null;
     isDohan?: boolean;
     isSabaki?: boolean;
     sendImmediateLine?: boolean;
@@ -84,6 +85,7 @@ export async function POST(request: Request) {
     castId,
     scheduledDate,
     scheduledTime,
+    scheduledEndTime,
     isDohan,
     isSabaki,
     sendImmediateLine,
@@ -140,6 +142,7 @@ export async function POST(request: Request) {
     cast_id: castId,
     scheduled_date: scheduledDate,
     scheduled_time: scheduledTime,
+    scheduled_end_time: scheduledEndTime ? `${scheduledEndTime}:00` : null,
     is_dohan: Boolean(isDohan),
     is_sabaki: Boolean(isSabaki),
   };

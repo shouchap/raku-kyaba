@@ -79,6 +79,8 @@ export default function AdminWeeklyPage() {
 
   // マトリックスデータ: matrix[castId][dateStr] = "HH:mm" | ""
   const [matrix, setMatrix] = useState<Record<string, Record<string, string>>>({});
+  // 退勤時刻: endMatrix[castId][dateStr] = "HH:mm" | ""
+  const [endMatrix, setEndMatrix] = useState<Record<string, Record<string, string>>>({});
   // 同伴フラグ: dohan[castId][dateStr] = boolean（出勤時間がある場合のみ意味を持つ）
   const [dohan, setDohan] = useState<Record<string, Record<string, boolean>>>({});
   const [sabaki, setSabaki] = useState<Record<string, Record<string, boolean>>>({});
@@ -152,24 +154,27 @@ export default function AdminWeeklyPage() {
     }
   }, [supabase, activeStoreId]);
 
-  // 既存シフトの読み込み（scheduled_time・is_dohan・is_sabaki を取得）
+  // 既存シフトの読み込み（scheduled_time・scheduled_end_time・is_dohan・is_sabaki を取得）
   const loadExistingSchedules = useCallback(
     async (storeId: string) => {
       const { data } = await supabase
         .from("attendance_schedules")
-        .select("cast_id, scheduled_date, scheduled_time, is_dohan, is_sabaki")
+        .select("cast_id, scheduled_date, scheduled_time, scheduled_end_time, is_dohan, is_sabaki")
         .eq("store_id", storeId)
         .in("scheduled_date", dates);
 
       const nextMatrix: Record<string, Record<string, string>> = {};
+      const nextEndMatrix: Record<string, Record<string, string>> = {};
       const nextDohan: Record<string, Record<string, boolean>> = {};
       const nextSabaki: Record<string, Record<string, boolean>> = {};
       casts.forEach((c) => {
         nextMatrix[c.id] = {};
+        nextEndMatrix[c.id] = {};
         nextDohan[c.id] = {};
         nextSabaki[c.id] = {};
         dates.forEach((d) => {
           nextMatrix[c.id][d] = "";
+          nextEndMatrix[c.id][d] = "";
           nextDohan[c.id][d] = false;
           nextSabaki[c.id][d] = false;
         });
@@ -179,17 +184,22 @@ export default function AdminWeeklyPage() {
           cast_id: string;
           scheduled_date: string;
           scheduled_time?: string;
+          scheduled_end_time?: string;
           is_dohan?: boolean;
           is_sabaki?: boolean;
         }) => {
           if (nextMatrix[row.cast_id]) {
             nextMatrix[row.cast_id][row.scheduled_date] = formatTimeForInput(row.scheduled_time);
+            nextEndMatrix[row.cast_id][row.scheduled_date] = formatTimeForInput(
+              row.scheduled_end_time
+            );
             nextDohan[row.cast_id][row.scheduled_date] = Boolean(row.is_dohan);
             nextSabaki[row.cast_id][row.scheduled_date] = Boolean(row.is_sabaki);
           }
         }
       );
       setMatrix(nextMatrix);
+      setEndMatrix(nextEndMatrix);
       setDohan(nextDohan);
       setSabaki(nextSabaki);
     },
@@ -206,19 +216,23 @@ export default function AdminWeeklyPage() {
     } else if (casts.length > 0 && dates.length === 7) {
       // 店舗がまだ無い場合の空マトリックス初期化
       const next: Record<string, Record<string, string>> = {};
+      const nextEnd: Record<string, Record<string, string>> = {};
       const nextDohan: Record<string, Record<string, boolean>> = {};
       const nextSabaki: Record<string, Record<string, boolean>> = {};
       casts.forEach((c) => {
         next[c.id] = {};
+        nextEnd[c.id] = {};
         nextDohan[c.id] = {};
         nextSabaki[c.id] = {};
         dates.forEach((d) => {
           next[c.id][d] = "";
+          nextEnd[c.id][d] = "";
           nextDohan[c.id][d] = false;
           nextSabaki[c.id][d] = false;
         });
       });
       setMatrix(next);
+      setEndMatrix(nextEnd);
       setDohan(nextDohan);
       setSabaki(nextSabaki);
     }
@@ -243,6 +257,16 @@ export default function AdminWeeklyPage() {
         [castId]: { ...(prev[castId] ?? {}), [dateStr]: false },
       }));
     }
+  };
+
+  const updateEndCell = (castId: string, dateStr: string, value: string) => {
+    setEndMatrix((prev) => ({
+      ...prev,
+      [castId]: {
+        ...(prev[castId] ?? {}),
+        [dateStr]: value,
+      },
+    }));
   };
 
   /** 同伴トグル。出勤時間があるセルのみ有効 */
@@ -406,6 +430,9 @@ export default function AdminWeeklyPage() {
               cast_id: cast.id,
               scheduled_date: dateStr,
               scheduled_time: time.length === 5 ? `${time}:00` : time,
+              scheduled_end_time: (endMatrix[cast.id]?.[dateStr] ?? "").trim()
+                ? `${(endMatrix[cast.id]?.[dateStr] ?? "").trim()}:00`
+                : null,
               is_dohan: dohan[cast.id]?.[dateStr] ?? false,
               is_sabaki: sabaki[cast.id]?.[dateStr] ?? false,
             },
@@ -616,17 +643,31 @@ export default function AdminWeeklyPage() {
                     return (
                       <td key={dateStr} className="border-b border-r border-gray-200 p-0.5 sm:p-1">
                         <div className="flex flex-col gap-0.5">
-                          <select
-                            value={matrix[cast.id]?.[dateStr] ?? ""}
-                            onChange={(e) => updateCell(cast.id, dateStr, e.target.value)}
-                            className="w-full min-w-[56px] sm:w-20 min-h-[36px] sm:h-9 px-1 sm:px-1.5 text-[10px] sm:text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
-                          >
-                            {TIME_OPTIONS.map((opt) => (
-                              <option key={opt.value || "empty"} value={opt.value}>
-                                {opt.label}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="flex items-center gap-1">
+                            <select
+                              value={matrix[cast.id]?.[dateStr] ?? ""}
+                              onChange={(e) => updateCell(cast.id, dateStr, e.target.value)}
+                              className="w-full min-w-[52px] sm:w-20 min-h-[36px] sm:h-9 px-1 sm:px-1.5 text-[10px] sm:text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                            >
+                              {TIME_OPTIONS.map((opt) => (
+                                <option key={opt.value || "empty"} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                            <span className="text-[10px] text-slate-400">-</span>
+                            <select
+                              value={endMatrix[cast.id]?.[dateStr] ?? ""}
+                              onChange={(e) => updateEndCell(cast.id, dateStr, e.target.value)}
+                              className="w-full min-w-[52px] sm:w-20 min-h-[36px] sm:h-9 px-1 sm:px-1.5 text-[10px] sm:text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                            >
+                              {TIME_OPTIONS.map((opt) => (
+                                <option key={`end-${opt.value || "empty"}`} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                           {/* 同伴・捌き: 出勤時間がある場合のみ */}
                           {hasTime && store?.is_dohan_sabaki_enabled !== false && (
                             <div className="flex gap-0.5">

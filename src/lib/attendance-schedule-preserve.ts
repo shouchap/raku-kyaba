@@ -18,6 +18,7 @@ export function mergeScheduleRowForWeeklyUpsert(
     cast_id: string;
     scheduled_date: string;
     scheduled_time: string;
+    scheduled_end_time?: string | null;
     is_dohan: boolean;
     is_sabaki: boolean;
   },

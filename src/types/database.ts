@@ -13,6 +13,16 @@ export type AttendanceStatus =
   | "public_holiday"
   | "half_holiday";
 
+/** attendance_schedules の参照で使う簡易型 */
+export type AttendanceScheduleRow = {
+  id: string;
+  store_id: string;
+  cast_id: string;
+  scheduled_date: string;
+  scheduled_time: string | null;
+  scheduled_end_time: string | null;
+};
+
 export interface Database {
   public: {
     Tables: {
@@ -220,6 +230,8 @@ export interface Database {
           line_user_id: string | null;
           /** 表示名（源氏名等）。NULL の場合は name を表示 */
           display_name: string | null;
+          /** 役職: cast=キャスト / nakai=仲居 */
+          role: "cast" | "nakai";
           is_active: boolean;
           is_admin: boolean;
           /** 勤務形態: admin / regular / part_time（NULL はバイト扱い） */
@@ -235,7 +247,13 @@ export interface Database {
         };
         Insert: Omit<
           Database["public"]["Tables"]["casts"]["Row"],
-          "id" | "created_at" | "updated_at" | "default_hospital_names" | "is_guide_target" | "display_name"
+          | "id"
+          | "created_at"
+          | "updated_at"
+          | "default_hospital_names"
+          | "is_guide_target"
+          | "display_name"
+          | "role"
         > & {
           id?: string;
           is_active?: boolean;
@@ -243,6 +261,7 @@ export interface Database {
           /** 省略時は DB 既定で {} */
           default_hospital_names?: string[];
           display_name?: string | null;
+          role?: "cast" | "nakai";
           created_at?: string;
           updated_at?: string;
         };

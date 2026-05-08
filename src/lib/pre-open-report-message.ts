@@ -1,18 +1,15 @@
 /**
  * 営業前サマリー用のプレーンテキスト組み立て（LINE 送信向け）
+ * 風俗運用向けに「キャスト」「仲居」の2区分で出力する。
  */
-import { formatScheduleTimeLabel } from "@/lib/attendance-remind-flex";
-import {
-  RULE_THICK,
-  formatReasonSubLines,
-  formatReservationSubLines,
-} from "@/lib/pre-open-report-utils";
-import { extractDeclaredGroupCountFromReservationDetails } from "@/lib/reservation-progress";
-
-type CastJoin = { name?: string } | { name?: string }[] | null;
+type CastJoin =
+  | { name?: string; display_name?: string | null; role?: "cast" | "nakai" | null }
+  | Array<{ name?: string; display_name?: string | null; role?: "cast" | "nakai" | null }>
+  | null;
 
 export type PreOpenScheduleRow = {
   scheduled_time: string | null;
+  scheduled_end_time?: string | null;
   is_dohan: boolean | null;
   is_sabaki?: boolean | null;
   response_status: string | null;
@@ -30,7 +27,13 @@ function castName(row: PreOpenScheduleRow): string {
   const raw = row.casts;
   if (!raw) return "不明";
   const c = Array.isArray(raw) ? raw[0] : raw;
-  return c?.name?.trim() || "不明";
+  return c?.display_name?.trim() || c?.name?.trim() || "不明";
+}
+
+function castRole(row: PreOpenScheduleRow): "cast" | "nakai" {
+  const raw = row.casts;
+  const c = Array.isArray(raw) ? raw[0] : raw;
+  return c?.role === "nakai" ? "nakai" : "cast";
 }
 
 function minutesFromScheduledTime(time: string | null | undefined): number {
@@ -42,25 +45,6 @@ function minutesFromScheduledTime(time: string | null | undefined): number {
 
 function sortRows(rows: PreOpenScheduleRow[]): PreOpenScheduleRow[] {
   return [...rows].sort((a, b) => {
-    const ma = minutesFromScheduledTime(a.scheduled_time);
-    const mb = minutesFromScheduledTime(b.scheduled_time);
-    if (ma !== mb) return ma - mb;
-    return castName(a).localeCompare(castName(b), "ja");
-  });
-}
-
-function offKindOrder(rs: string | null): number {
-  if (rs === "absent") return 0;
-  if (rs === "half_holiday") return 1;
-  if (rs === "public_holiday") return 2;
-  return 99;
-}
-
-function sortOffRows(rows: PreOpenScheduleRow[]): PreOpenScheduleRow[] {
-  return [...rows].sort((a, b) => {
-    const oa = offKindOrder(a.response_status);
-    const ob = offKindOrder(b.response_status);
-    if (oa !== ob) return oa - ob;
     const ma = minutesFromScheduledTime(a.scheduled_time);
     const mb = minutesFromScheduledTime(b.scheduled_time);
     if (ma !== mb) return ma - mb;
@@ -87,141 +71,45 @@ export function countPreOpenWorkingCasts(rows: PreOpenScheduleRow[]): number {
   return n;
 }
 
-/**
- * 【出勤予定】に載る行のみ、申告済み reservation_details から予定組数を合算。
- */
-export function sumDeclaredReservationGroupsForAttending(rows: PreOpenScheduleRow[]): number {
-  let sum = 0;
-  for (const r of rows) {
-    if (sectionForRow(r) !== "attending") continue;
-    sum += extractDeclaredGroupCountFromReservationDetails(r.reservation_details);
-  }
-  return sum;
+function formatHm(time: string | null | undefined): string {
+  if (!time) return "";
+  const m = String(time).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return "";
+  return `${m[1].padStart(2, "0")}:${m[2]}`;
 }
 
-/**
- * 出勤確定キャストのうち、同伴シフトは合計予定組数に 1 組として加算する。
- *（`is_dohan` または表示ラベルに「同伴」が含まれる場合）
- */
-export function countCompanionGroupBonusForAttending(rows: PreOpenScheduleRow[]): number {
-  let n = 0;
-  for (const r of rows) {
-    if (sectionForRow(r) !== "attending") continue;
-    const label = formatScheduleTimeLabel(r.scheduled_time, r.is_dohan, r.is_sabaki);
-    if (r.is_dohan === true || label.includes("同伴")) n++;
-  }
-  return n;
-}
-
-function blockAttending(row: PreOpenScheduleRow): string {
+function formatMemberShift(row: PreOpenScheduleRow): string {
   const name = castName(row);
-  const time = formatScheduleTimeLabel(row.scheduled_time, row.is_dohan, row.is_sabaki);
-  const head = `${name} (${time})`;
-  const subs = formatReservationSubLines(row);
-  if (subs.length === 0) return head;
-  return [head, ...subs].join("\n");
-}
-
-function blockLate(row: PreOpenScheduleRow): string {
-  const name = castName(row);
-  const time = formatScheduleTimeLabel(row.scheduled_time, row.is_dohan, row.is_sabaki);
-  const head = `${name} (${time})`;
-  const reason = (row.late_reason ?? "").trim();
-  if (!reason) {
-    return `${head}\n遅刻`;
-  }
-  return [head, ...formatReasonSubLines("遅刻", reason)].join("\n");
-}
-
-function blockOff(row: PreOpenScheduleRow): string {
-  const name = castName(row);
-  const head = name;
-  const rs = row.response_status;
-  if (rs === "absent") {
-    const r = (row.absent_reason ?? "").trim();
-    if (r) return [head, ...formatReasonSubLines("欠勤", r)].join("\n");
-    return `${head}\n欠勤`;
-  }
-  if (rs === "half_holiday") {
-    const r = (row.half_holiday_reason ?? "").trim();
-    if (r) return [head, ...formatReasonSubLines("半休", r)].join("\n");
-    return `${head}\n半休`;
-  }
-  if (rs === "public_holiday") {
-    const r = (row.public_holiday_reason ?? "").trim();
-    if (r) return [head, ...formatReasonSubLines("公休", r)].join("\n");
-    return `${head}\n公休`;
-  }
-  return head;
-}
-
-function blockUnanswered(row: PreOpenScheduleRow): string {
-  const name = castName(row);
-  const time = formatScheduleTimeLabel(row.scheduled_time, row.is_dohan, row.is_sabaki);
-  return `${name} (${time})`;
-}
-
-function sectionBlock(title: string, subtitle: string | null, body: string): string[] {
-  const lines: string[] = [];
-  lines.push(`【${title}】`);
-  if (subtitle) lines.push(subtitle);
-  lines.push(RULE_THICK);
-  lines.push("");
-  lines.push(body);
-  return lines;
+  const start = formatHm(row.scheduled_time);
+  const end = formatHm(row.scheduled_end_time);
+  if (start && end) return `${name}${start}-${end}`;
+  if (start) return `${name}${start}`;
+  if (end) return `${name}-${end}`;
+  return name;
 }
 
 /**
  * 店舗名・JST 日付・当日シフト行から営業前サマリー本文を生成する。
  */
 export function buildPreOpenReportMessage(storeName: string, todayJst: string, rows: PreOpenScheduleRow[]): string {
+  void storeName;
+  void todayJst;
   const sorted = sortRows(rows);
-  const attending: PreOpenScheduleRow[] = [];
-  const late: PreOpenScheduleRow[] = [];
-  const off: PreOpenScheduleRow[] = [];
-  const unanswered: PreOpenScheduleRow[] = [];
+  const working: PreOpenScheduleRow[] = [];
 
   for (const r of sorted) {
     const s = sectionForRow(r);
-    if (s === "attending") attending.push(r);
-    else if (s === "late") late.push(r);
-    else if (s === "off") off.push(r);
-    else unanswered.push(r);
+    if (s === "attending" || s === "late") working.push(r);
   }
 
-  const offSorted = sortOffRows(off);
+  const castMembers = working.filter((r) => castRole(r) === "cast").map(formatMemberShift);
+  const nakaiMembers = working.filter((r) => castRole(r) === "nakai").map(formatMemberShift);
+  const sep = "　";
 
-  const totalReservationGroups =
-    sumDeclaredReservationGroupsForAttending(attending) +
-    countCompanionGroupBonusForAttending(attending);
-
-  const out: string[] = [];
-
-  out.push("【本日の営業前サマリー】");
-  out.push(`🏢 ${storeName.trim() || "店舗"}`);
-  out.push(`📅 ${todayJst} (JST)`);
-  out.push(RULE_THICK);
-  out.push(`本日の合計予定組数：${totalReservationGroups}組`);
-  out.push(RULE_THICK);
-  out.push("");
-
-  const attendingBody = attending.length ? attending.map(blockAttending).join("\n\n") : "（なし）";
-  out.push(...sectionBlock("出勤予定", null, attendingBody));
-  out.push("");
-  out.push("");
-
-  const lateBody = late.length ? late.map(blockLate).join("\n\n") : "（なし）";
-  out.push(...sectionBlock("遅刻", null, lateBody));
-  out.push("");
-  out.push("");
-
-  const offBody = offSorted.length ? offSorted.map(blockOff).join("\n\n") : "（なし）";
-  out.push(...sectionBlock("お休み", "欠勤・半休・公休", offBody));
-  out.push("");
-  out.push("");
-
-  const unansweredBody = unanswered.length ? unanswered.map(blockUnanswered).join("\n\n") : "（なし）";
-  out.push(...sectionBlock("未回答", "出勤確認が未完了の方", unansweredBody));
-
-  return out.join("\n");
+  return [
+    "本日出勤",
+    castMembers.length > 0 ? castMembers.join(sep) : "（なし）",
+    "仲居",
+    nakaiMembers.length > 0 ? nakaiMembers.join(sep) : "（なし）",
+  ].join("\n");
 }

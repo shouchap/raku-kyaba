@@ -29,6 +29,7 @@ export default function AdminSchedulePage() {
   const [castId, setCastId] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("20:00");
+  const [scheduledEndTime, setScheduledEndTime] = useState("");
   const [isDohan, setIsDohan] = useState(false);
   const [isSabaki, setIsSabaki] = useState(false);
   /** 登録と同時に Cron と同一の出勤確認 Flex を Push 送信 */
@@ -83,6 +84,7 @@ export default function AdminSchedulePage() {
     setCastId("");
     setScheduledDate("");
     setScheduledTime("20:00");
+    setScheduledEndTime("");
     setIsDohan(false);
     setIsSabaki(false);
     setSendImmediateLine(false);
@@ -105,6 +107,7 @@ export default function AdminSchedulePage() {
           castId,
           scheduledDate,
           scheduledTime,
+          scheduledEndTime: scheduledEndTime || null,
           isDohan,
           isSabaki,
           sendImmediateLine,
@@ -219,19 +222,35 @@ export default function AdminSchedulePage() {
             >
               出勤予定時間
             </label>
-            <select
-              id="time"
-              value={scheduledTime}
-              onChange={(e) => setScheduledTime(e.target.value)}
-              required
-              className="w-full min-h-[48px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
-            >
-              {TIME_OPTIONS_REQUIRED.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <select
+                id="time"
+                value={scheduledTime}
+                onChange={(e) => setScheduledTime(e.target.value)}
+                required
+                className="w-full min-h-[48px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+              >
+                {TIME_OPTIONS_REQUIRED.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-sm text-gray-400">-</span>
+              <select
+                id="end-time"
+                value={scheduledEndTime}
+                onChange={(e) => setScheduledEndTime(e.target.value)}
+                className="w-full min-h-[48px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+              >
+                <option value="">退勤未定</option>
+                {TIME_OPTIONS_REQUIRED.map((opt) => (
+                  <option key={`end-${opt.value}`} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             {store?.is_dohan_sabaki_enabled !== false && (
               <div className="mt-2 flex gap-2">
                 <button

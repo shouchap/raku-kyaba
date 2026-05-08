@@ -6,6 +6,7 @@
 export type StoreBusinessType = "cabaret" | "welfare_b" | "bar" | "fuzoku";
 
 export type CastEmploymentType = "admin" | "regular" | "part_time" | "employee";
+export type CastRole = "cast" | "nakai";
 
 export type Cast = {
   id: string;
@@ -16,8 +17,18 @@ export type Cast = {
   is_active?: boolean;
   is_admin?: boolean;
   employment_type?: CastEmploymentType;
+  role?: CastRole;
   is_guide_target?: boolean;
   created_at?: string;
+};
+
+export type AttendanceSchedule = {
+  id: string;
+  store_id: string;
+  cast_id: string;
+  scheduled_date: string;
+  scheduled_time: string | null;
+  scheduled_end_time?: string | null;
 };
 
 export type Store = {
