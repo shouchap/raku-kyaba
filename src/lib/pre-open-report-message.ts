@@ -21,6 +21,13 @@ function formatPreOpenReportCalendarLine(ymd: string): string {
   return `${ymd.trim()}（${dayJa}）`;
 }
 
+/** 風俗サマリー見出し用: `YYYY-MM-DD (土)`（半角括弧・仕様見本どおり） */
+function formatFuzokuPreOpenReportDateLine(ymd: string): string {
+  const w = getWeekdayJst(ymd.trim());
+  const dayJa = WEEKDAY_JA_SHORT[w] ?? "";
+  return `${ymd.trim()} (${dayJa})`;
+}
+
 type CastJoin =
   | { name?: string; display_name?: string | null; role?: "cast" | "nakai" | null }
   | Array<{ name?: string; display_name?: string | null; role?: "cast" | "nakai" | null }>
@@ -172,8 +179,8 @@ function formatHm(time: string | null | undefined): string {
   return `${m[1].padStart(2, "0")}:${m[2]}`;
 }
 
-/** 風俗向け: 単一行の短い罫線（RULE_THICK は使わない） */
-const FUZOKU_RULE_LINE = "━━━━━━━━━━━━━━━";
+/** 風俗向け: 見出し直下の罫線（全角10文字固定。RULE_THICK 等は使わない） */
+const FUZOKU_HEADER_RULE = "━━━━━━━━━━";
 
 function rowHasFuzokuShiftTime(row: PreOpenScheduleRow): boolean {
   return formatHm(row.scheduled_time) !== "" || formatHm(row.scheduled_end_time) !== "";
@@ -231,8 +238,8 @@ export function buildFuzokuPreOpenReportMessage(
   const parts: string[] = [];
   parts.push("【本日の営業前サマリー】");
   parts.push(`🏢 ${storeName.trim() || "店舗"}`);
-  parts.push(`📅 ${formatPreOpenReportCalendarLine(todayJst)} (JST)`);
-  parts.push(FUZOKU_RULE_LINE);
+  parts.push(`📅 ${formatFuzokuPreOpenReportDateLine(todayJst)}`);
+  parts.push(FUZOKU_HEADER_RULE);
   parts.push("");
   parts.push("【出勤予定】");
 
