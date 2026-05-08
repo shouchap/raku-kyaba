@@ -301,8 +301,9 @@ export default function AdminViewPage() {
   const handleSendTodayShiftTest = useCallback(async () => {
     setSendingLineTest(true);
     try {
+      const targetDate = baseDate || today;
       const res = await fetch(
-        `/api/remind/pre-open-report?storeId=${encodeURIComponent(activeStoreId)}`,
+        `/api/remind/pre-open-report?storeId=${encodeURIComponent(activeStoreId)}&targetDate=${encodeURIComponent(targetDate)}`,
         { method: "GET" }
       );
       const data = (await res.json().catch(() => ({}))) as {
@@ -310,19 +311,20 @@ export default function AdminViewPage() {
         error?: string;
         details?: string;
         processedCount?: number;
+        targetDate?: string;
       };
       if (!res.ok || data.ok !== true) {
         throw new Error(data.error ?? data.details ?? "手動送信に失敗しました");
       }
       alert(
-        `LINE送信テストを実行しました（送信店舗数: ${typeof data.processedCount === "number" ? data.processedCount : 0}）`
+        `LINE送信テストを実行しました（対象日: ${data.targetDate ?? targetDate} / 送信店舗数: ${typeof data.processedCount === "number" ? data.processedCount : 0}）`
       );
     } catch (e) {
       alert(e instanceof Error ? e.message : "手動送信に失敗しました");
     } finally {
       setSendingLineTest(false);
     }
-  }, [activeStoreId]);
+  }, [activeStoreId, baseDate, today]);
 
   if (loading) {
     return (

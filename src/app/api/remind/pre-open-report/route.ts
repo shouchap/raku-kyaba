@@ -4,7 +4,7 @@
  * GET /api/remind/pre-open-report
  * - Cloud Scheduler: storeId なし → 全店舗のうち、JST の「時」が店舗の pre_open_report_hour_jst と一致し、
  *   かつ「送信しない」でない（NULL でない）店のみ。二重送信防止: stores.last_pre_open_report_date
- * - テスト: ?storeId=uuid → 上記の時刻・当日重複チェックを無視し、その店のみ送信（last_pre_open_report_date は更新しない）
+ * - テスト: ?storeId=uuid[&targetDate=YYYY-MM-DD] → 上記の時刻・当日重複チェックを無視し、その店のみ送信（last_pre_open_report_date は更新しない）
  * - 認証: CRON_SECRET 設定時は Authorization: Bearer <CRON_SECRET>（/api/remind と同様）
  * - 送信先: is_admin のキャストの line_user_id を優先、なければ stores.admin_line_user_id
  */
@@ -15,7 +15,7 @@ import { sendMulticastMessage, sendPushMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { getTodayJst, getCurrentTimeJst, getWeekdayJst } from "@/lib/date-utils";
 import {
-  buildPreOpenReportMessage,
+  buildPreOpenReportMessageByBusinessType,
   countPreOpenWorkingCasts,
   type PreOpenScheduleRow,
 } from "@/lib/pre-open-report-message";
@@ -111,7 +111,7 @@ async function getStoreLineGroupId(
 async function fetchSchedulesForPreOpenReport(
   supabase: SupabaseClient,
   storeId: string,
-  todayJst: string
+  targetDate: string
 ): Promise<{ data: PreOpenScheduleRow[] | null; error: { message: string; code?: string } | null }> {
   const fullSelect =
     "id, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow, casts(name, display_name, role)";
@@ -123,8 +123,7 @@ async function fetchSchedulesForPreOpenReport(
     .from("attendance_schedules")
     .select(fullSelect)
     .eq("store_id", storeId)
-    .eq("scheduled_date", todayJst)
-    .or("scheduled_time.not.is.null,is_sabaki.eq.true");
+    .eq("scheduled_date", targetDate);
 
   if (first.error) {
     console.error(`${LOG_PREFIX} schedules select (with casts)`, storeId, {
@@ -137,8 +136,7 @@ async function fetchSchedulesForPreOpenReport(
       .from("attendance_schedules")
       .select(minSelect)
       .eq("store_id", storeId)
-      .eq("scheduled_date", todayJst)
-      .or("scheduled_time.not.is.null,is_sabaki.eq.true");
+      .eq("scheduled_date", targetDate);
     if (second.error) {
       console.error(`${LOG_PREFIX} schedules select (minimal)`, storeId, {
         message: second.error.message,
@@ -162,6 +160,7 @@ async function fetchSchedulesForPreOpenReport(
 type StoreRow = {
   id: string;
   name: string | null;
+  business_type?: string | null;
   pre_open_report_hour_jst: number | null;
   last_pre_open_report_date: string | null;
   regular_holidays?: number[] | null;
@@ -190,7 +189,7 @@ type ProcessResult = {
 async function processPreOpenReportForStore(
   supabase: SupabaseClient,
   store: StoreRow,
-  ctx: { todayJst: string; hourJst: number; force: boolean }
+  ctx: { targetDate: string; hourJst: number; force: boolean }
 ): Promise<ProcessResult> {
   const sid = String(store?.id ?? "").trim();
   if (!sid) {
@@ -198,7 +197,7 @@ async function processPreOpenReportForStore(
     return { storeId: "(unknown)", skipped: "invalid_store_row" };
   }
 
-  const { todayJst, hourJst, force } = ctx;
+  const { targetDate, hourJst, force } = ctx;
 
   try {
     if (!force) {
@@ -209,13 +208,13 @@ async function processPreOpenReportForStore(
         return { storeId: sid, skipped: "hour_mismatch" };
       }
       const sentDate = store.last_pre_open_report_date?.trim() ?? null;
-      if (sentDate === todayJst) {
+      if (sentDate === targetDate) {
         return { storeId: sid, skipped: "already_sent_today" };
       }
 
-      if (isRegularHolidayDay(store.regular_holidays, todayJst)) {
+      if (isRegularHolidayDay(store.regular_holidays, targetDate)) {
         console.info(
-          `${LOG_PREFIX} 定休日のためサマリー送信をスキップ storeId=${sid} todayJst=${todayJst} weekday=${getWeekdayJst(todayJst)}`
+          `${LOG_PREFIX} 定休日のためサマリー送信をスキップ storeId=${sid} targetDate=${targetDate} weekday=${getWeekdayJst(targetDate)}`
         );
         return { storeId: sid, skipped: "regular_holiday" };
       }
@@ -237,7 +236,7 @@ async function processPreOpenReportForStore(
     const { data: rawSchedules, error: schedErr } = await fetchSchedulesForPreOpenReport(
       supabase,
       sid,
-      todayJst
+      targetDate
     );
 
     if (schedErr) {
@@ -253,7 +252,12 @@ async function processPreOpenReportForStore(
 
     let body: string;
     try {
-      body = buildPreOpenReportMessage(store.name ?? "店舗", todayJst, schedules);
+      body = buildPreOpenReportMessageByBusinessType(
+        store.business_type,
+        store.name ?? "店舗",
+        targetDate,
+        schedules
+      );
     } catch (buildErr) {
       console.error(`${LOG_PREFIX} buildPreOpenReportMessage failed`, sid, buildErr);
       return {
@@ -285,7 +289,7 @@ async function processPreOpenReportForStore(
       const { error: updErr } = await supabase
         .from("stores")
         .update({
-          last_pre_open_report_date: todayJst,
+          last_pre_open_report_date: targetDate,
           updated_at: new Date().toISOString(),
         })
         .eq("id", sid);
@@ -320,8 +324,14 @@ function settledToResult(
 
 export async function GET(request: Request) {
   try {
-    const paramStoreIdRaw = safeSearchParams(request).get("storeId")?.trim() ?? "";
+    const params = safeSearchParams(request);
+    const paramStoreIdRaw = params.get("storeId")?.trim() ?? "";
     const paramStoreId = paramStoreIdRaw ? paramStoreIdRaw.toLowerCase() : "";
+    const targetDateParam = params.get("targetDate")?.trim() ?? "";
+    const isValidTargetDate = /^\d{4}-\d{2}-\d{2}$/.test(targetDateParam);
+    if (targetDateParam && !isValidTargetDate) {
+      return NextResponse.json({ error: "Invalid targetDate format. Use YYYY-MM-DD." }, { status: 400 });
+    }
 
     const cronSecret = process.env.CRON_SECRET;
     if (cronSecret && cronSecret.trim() !== "") {
@@ -371,6 +381,7 @@ export async function GET(request: Request) {
 
     const supabase = createClient(url, key);
     const todayJst = getTodayJst();
+    const targetDate = isValidTargetDate ? targetDateParam : todayJst;
     const hourJst = getCurrentTimeJst().hour;
 
     if (paramStoreId) {
@@ -381,7 +392,7 @@ export async function GET(request: Request) {
       /** テスト用: pre_open 系カラム未適用でも 500 にしないよう id / name のみ取得 */
       const { data: oneStore, error: oneErr } = await supabase
         .from("stores")
-        .select("id, name")
+        .select("id, name, business_type")
         .eq("id", paramStoreId)
         .maybeSingle();
 
@@ -405,6 +416,7 @@ export async function GET(request: Request) {
       const storeRow: StoreRow = {
         id: oneStore.id,
         name: oneStore.name ?? null,
+        business_type: (oneStore as { business_type?: string | null }).business_type ?? null,
         pre_open_report_hour_jst: null,
         last_pre_open_report_date: null,
       };
@@ -413,7 +425,7 @@ export async function GET(request: Request) {
       try {
         settled = await Promise.allSettled([
           processPreOpenReportForStore(supabase, storeRow, {
-            todayJst,
+            targetDate,
             hourJst,
             force: true,
           }),
@@ -441,6 +453,7 @@ export async function GET(request: Request) {
         storeId: paramStoreId,
         processedCount,
         todayJst,
+        targetDate,
         hourJst,
         results,
       });
@@ -448,7 +461,7 @@ export async function GET(request: Request) {
 
     const { data: stores, error: storesErr } = await supabase
       .from("stores")
-      .select("id, name, pre_open_report_hour_jst, last_pre_open_report_date, regular_holidays");
+      .select("id, name, business_type, pre_open_report_hour_jst, last_pre_open_report_date, regular_holidays");
 
     if (storesErr) {
       console.error(`${LOG_PREFIX} batch fetch stores`, {
@@ -469,7 +482,7 @@ export async function GET(request: Request) {
       settled = await Promise.allSettled(
         list.map((store) =>
           processPreOpenReportForStore(supabase, store, {
-            todayJst,
+            targetDate,
             hourJst,
             force: false,
           })
@@ -496,6 +509,7 @@ export async function GET(request: Request) {
       mode: "batch_all_stores" as const,
       processedCount,
       todayJst,
+      targetDate,
       hourJst,
       results,
     });
