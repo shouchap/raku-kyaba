@@ -1,6 +1,7 @@
 /**
  * 営業前サマリー用のプレーンテキスト組み立て（LINE 送信向け）
- * 全業態共通テンプレート。退勤時間・仲居セクションはデータがある場合のみ拡張表示する。
+ * - 通常業態: 共通テンプレート（合計予定組数・遅刻・お休み・未回答など）
+ * - 風俗（fuzoku）: シフト時刻ベースの簡易フォーマットのみ
  */
 import { formatScheduleTimeLabel } from "@/lib/attendance-remind-flex";
 import {
@@ -137,6 +138,77 @@ function formatHm(time: string | null | undefined): string {
   const m = String(time).match(/^(\d{1,2}):(\d{2})/);
   if (!m) return "";
   return `${m[1].padStart(2, "0")}:${m[2]}`;
+}
+
+/** 風俗向け: 単一行の短い罫線（RULE_THICK は使わない） */
+const FUZOKU_RULE_LINE = "━━━━━━━━━━━━━━━";
+
+function rowHasFuzokuShiftTime(row: PreOpenScheduleRow): boolean {
+  return formatHm(row.scheduled_time) !== "" || formatHm(row.scheduled_end_time) !== "";
+}
+
+/** 開始が無い行は終了時刻で並べ替えキーにフォールバック */
+function sortFuzokuShiftRows(rows: PreOpenScheduleRow[]): PreOpenScheduleRow[] {
+  const key = (row: PreOpenScheduleRow): number => {
+    const sm = minutesFromScheduledTime(row.scheduled_time);
+    if (sm !== Number.MAX_SAFE_INTEGER) return sm;
+    const em = minutesFromScheduledTime(row.scheduled_end_time);
+    if (em !== Number.MAX_SAFE_INTEGER) return em;
+    return Number.MAX_SAFE_INTEGER;
+  };
+  return [...rows].sort((a, b) => {
+    const ka = key(a);
+    const kb = key(b);
+    if (ka !== kb) return ka - kb;
+    return castDisplayName(a).localeCompare(castDisplayName(b), "ja");
+  });
+}
+
+/** `scheduled_time` / `scheduled_end_time` のみで括弧内を組み立て（同伴・捌きは含めない） */
+function fuzokuShiftParen(row: PreOpenScheduleRow): string {
+  const start = formatHm(row.scheduled_time);
+  const end = formatHm(row.scheduled_end_time);
+  if (start && end) return `(${start} - ${end})`;
+  if (start) return `(${start})`;
+  return `(${end})`;
+}
+
+function fuzokuShiftLine(row: PreOpenScheduleRow): string {
+  return `${castDisplayName(row)} ${fuzokuShiftParen(row)}`;
+}
+
+/**
+ * 風俗業態向け・営業前サマリー（仕様どおりの固定レイアウト）
+ */
+export function buildFuzokuPreOpenReportMessage(
+  storeName: string,
+  todayJst: string,
+  rows: PreOpenScheduleRow[]
+): string {
+  const working = sortFuzokuShiftRows(rows.filter(rowHasFuzokuShiftTime));
+  const nakaiRows = working.filter((r) => castRoleIsNakai(r));
+  const castRows = working.filter((r) => !castRoleIsNakai(r));
+
+  const parts: string[] = [];
+  parts.push("【本日の営業前サマリー】");
+  parts.push(`🏢 ${storeName.trim() || "店舗"}`);
+  parts.push(`📅 ${todayJst} (JST)`);
+  parts.push(FUZOKU_RULE_LINE);
+  parts.push("");
+  parts.push("【出勤予定】");
+
+  if (nakaiRows.length > 0) {
+    parts.push("【仲居】");
+    nakaiRows.forEach((r) => parts.push(fuzokuShiftLine(r)));
+  }
+
+  if (castRows.length > 0) {
+    parts.push("");
+    parts.push("【キャスト】");
+    castRows.forEach((r) => parts.push(fuzokuShiftLine(r)));
+  }
+
+  return parts.join("\n");
 }
 
 /** 開始ラベル（同伴・捌き含む）に、終了時刻があれば ` - HH:mm` を連結 */
@@ -281,12 +353,15 @@ export function buildPreOpenReportMessage(storeName: string, todayJst: string, r
   return buildUnifiedPreOpenReportMessage(storeName, todayJst, rows);
 }
 
-/** API 互換: business_type は共通フォーマットのため未使用 */
+/** API から渡される `stores.business_type` でフォーマットを切り替え */
 export function buildPreOpenReportMessageByBusinessType(
-  _businessType: string | null | undefined,
+  businessType: string | null | undefined,
   storeName: string,
   todayJst: string,
   rows: PreOpenScheduleRow[]
 ): string {
+  if (businessType === "fuzoku") {
+    return buildFuzokuPreOpenReportMessage(storeName, todayJst, rows);
+  }
   return buildUnifiedPreOpenReportMessage(storeName, todayJst, rows);
 }
