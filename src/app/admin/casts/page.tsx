@@ -343,58 +343,62 @@ export default function AdminCastsPage() {
                 return (
                   <li
                     key={cast.id}
-                    className={`flex flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 ${
+                    className={`flex min-w-0 items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 ${
                       selected
                         ? "bg-sky-50/90 border-l-4 border-sky-300"
                         : "hover:bg-gray-50/90"
                     }`}
                   >
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900 sm:text-base">
-                      {cast.display_name?.trim()
-                        ? `${cast.display_name}（${cast.name}）`
-                        : cast.name}
-                    </span>
-                    <span className="shrink-0 rounded-full bg-fuchsia-50 px-2 py-0.5 text-xs font-medium text-fuchsia-700">
-                      {cast.role === "nakai" ? "仲居" : "キャスト"}
-                    </span>
-                    {!isWelfare && (
-                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                        {employmentLabel(cast)}
+                    <div className="min-w-0 flex-1 basis-0">
+                      <span className="block min-w-0 truncate text-sm font-medium text-gray-900 sm:text-base">
+                        {cast.display_name?.trim()
+                          ? `${cast.display_name}（${cast.name}）`
+                          : cast.name}
                       </span>
-                    )}
-                    {!cast.line_user_id && (
-                      <span
-                        className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
-                        title="LINE未連携のため、定時の自動一斉送信（出勤確認リマインド）の対象外です"
-                      >
-                        ⚠️ LINE未連携
+                    </div>
+                    <div className="flex flex-none shrink-0 flex-wrap items-center justify-end gap-2">
+                      <span className="flex-none shrink-0 rounded-full bg-fuchsia-50 px-2 py-0.5 text-xs font-medium text-fuchsia-700">
+                        {cast.role === "nakai" ? "仲居" : "キャスト"}
                       </span>
-                    )}
-                    {cast.is_admin && (
-                      <span
-                        className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800"
-                        title="管理者向け通知の受信対象です（キャスト本人への出勤確認送信可否とは別設定）"
-                      >
-                        👑 管理通知先
-                      </span>
-                    )}
-                    <div className="ml-auto flex shrink-0 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleStartEdit(cast)}
-                        disabled={deletingId !== null}
-                        className="min-h-[40px] rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-800 hover:bg-white disabled:opacity-50 sm:text-sm touch-manipulation"
-                      >
-                        編集
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(cast)}
-                        disabled={deletingId !== null}
-                        className="min-h-[40px] rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 sm:text-sm touch-manipulation"
-                      >
-                        {deletingId === cast.id ? "削除中..." : "削除"}
-                      </button>
+                      {!isWelfare && (
+                        <span className="flex-none shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                          {employmentLabel(cast)}
+                        </span>
+                      )}
+                      {!cast.line_user_id && (
+                        <span
+                          className="flex-none shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                          title="LINE未連携のため、定時の自動一斉送信（出勤確認リマインド）の対象外です"
+                        >
+                          ⚠️ LINE未連携
+                        </span>
+                      )}
+                      {cast.is_admin && (
+                        <span
+                          className="flex-none shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800"
+                          title="管理者向け通知の受信対象です（キャスト本人への出勤確認送信可否とは別設定）"
+                        >
+                          👑 管理通知先
+                        </span>
+                      )}
+                      <div className="flex flex-none shrink-0 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(cast)}
+                          disabled={deletingId !== null}
+                          className="min-h-[40px] rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-800 hover:bg-white disabled:opacity-50 sm:text-sm touch-manipulation"
+                        >
+                          編集
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(cast)}
+                          disabled={deletingId !== null}
+                          className="min-h-[40px] rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 sm:text-sm touch-manipulation"
+                        >
+                          {deletingId === cast.id ? "削除中..." : "削除"}
+                        </button>
+                      </div>
                     </div>
                   </li>
                 );
