@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 const REMIND_TIME_RE = /^([01][0-9]|2[0-3]):00$/;
 const REMINDER_CONFIG_KEY = "reminder_config" as const;
 
-type MenuSettingsEntry = { label: string; isHidden: boolean };
+type MenuSettingsEntry = { label: string; isHidden: boolean; order?: number };
 type MenuSettingsMap = Record<string, MenuSettingsEntry>;
 
 function normalizeMenuSettings(raw: unknown): MenuSettingsMap {
@@ -29,7 +29,10 @@ function normalizeMenuSettings(raw: unknown): MenuSettingsMap {
     const k = key.trim();
     const label = entry.label.trim();
     if (!k || !label) continue;
-    out[k] = { label, isHidden: entry.isHidden };
+    const orderRaw = entry.order;
+    const order =
+      typeof orderRaw === "number" && Number.isFinite(orderRaw) ? Math.trunc(orderRaw) : undefined;
+    out[k] = order === undefined ? { label, isHidden: entry.isHidden } : { label, isHidden: entry.isHidden, order };
   }
   return out;
 }
@@ -746,7 +749,7 @@ type PatchBody = {
     term_attendance?: string;
     term_cast?: string;
   };
-  menu_settings?: Record<string, { label: string; isHidden: boolean }>;
+  menu_settings?: Record<string, { label: string; isHidden: boolean; order?: number }>;
   weekly_report_enabled?: boolean;
   /** 0=日曜〜6=土曜（049） */
   weekly_report_day?: number;
@@ -1040,7 +1043,7 @@ export async function PATCH(request: Request) {
         : -1;
     if (rawCount < 0 || Object.keys(normalized).length !== rawCount) {
       return NextResponse.json(
-        { error: "menu_settings must be an object map: { [key]: { label: string, isHidden: boolean } }" },
+        { error: "menu_settings must be an object map: { [key]: { label: string, isHidden: boolean, order?: number } }" },
         { status: 400 }
       );
     }

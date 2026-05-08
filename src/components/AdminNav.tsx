@@ -28,7 +28,7 @@ type NavItem = {
   icon: typeof ClipboardList;
 };
 
-type MenuSettingsMap = Record<string, { label: string; isHidden: boolean }>;
+type MenuSettingsMap = Record<string, { label: string; isHidden: boolean; order?: number }>;
 
 // NOTE: 微調整や差し戻しが必要な場合は、この定数だけ変更すればOK。
 const NAV_ICON_CLASS = "h-4 w-4 shrink-0 transition-opacity";
@@ -96,7 +96,7 @@ export default function AdminNav({
 }: Props) {
   const theme = BUSINESS_THEME[businessType];
   const navEntries = NAV_ITEMS_BY_BUSINESS[businessType]
-    .map((item) => {
+    .map((item, idx) => {
       let label = item.label;
       if (item.href === "/admin/casts") label = `${customTerms.term_cast}管理`;
       if (item.href === "/admin/report") label = `${customTerms.term_cast}${customTerms.term_attendance}レポート`;
@@ -104,9 +104,12 @@ export default function AdminNav({
       const setting = menuSettings?.[item.id];
       if (setting?.isHidden === true) return null;
       const overrideLabel = setting?.label?.trim();
-      return { ...item, label: overrideLabel || label };
+      const order = typeof setting?.order === "number" && Number.isFinite(setting.order) ? setting.order : idx;
+      return { ...item, label: overrideLabel || label, _order: order, _idx: idx };
     })
-    .filter((item): item is NavItem => item !== null);
+    .filter((item): item is NavItem & { _order: number; _idx: number } => item !== null)
+    .sort((a, b) => (a._order === b._order ? a._idx - b._idx : a._order - b._order))
+    .map(({ _order: _dropOrder, _idx: _dropIdx, ...item }) => item);
   const homeHref = businessType === "welfare_b" ? "/admin/casts" : "/admin/weekly";
   const pathname = usePathname();
   const router = useRouter();

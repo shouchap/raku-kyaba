@@ -13,7 +13,7 @@ import { isUndefinedColumnError } from "@/lib/postgrest-error";
 
 export const dynamic = "force-dynamic";
 
-type MenuSettingsMap = Record<string, { label: string; isHidden: boolean }>;
+type MenuSettingsMap = Record<string, { label: string; isHidden: boolean; order?: number }>;
 
 function normalizeMenuSettings(raw: unknown): MenuSettingsMap {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
@@ -26,7 +26,10 @@ function normalizeMenuSettings(raw: unknown): MenuSettingsMap {
     const id = key.trim();
     const label = entry.label.trim();
     if (!id || !label) continue;
-    out[id] = { label, isHidden: entry.isHidden };
+    const orderRaw = entry.order;
+    const order =
+      typeof orderRaw === "number" && Number.isFinite(orderRaw) ? Math.trunc(orderRaw) : undefined;
+    out[id] = order === undefined ? { label, isHidden: entry.isHidden } : { label, isHidden: entry.isHidden, order };
   }
   return out;
 }

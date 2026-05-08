@@ -31,6 +31,14 @@ type GuideReporterCandidate = {
   line_user_id: string | null;
 };
 
+type MenuSettingEntry = {
+  label: string;
+  isHidden: boolean;
+  order?: number;
+};
+type MenuSettingsMap = Record<string, MenuSettingEntry>;
+type MenuPreset = { id: string; label: string };
+
 type SnapshotShape = {
   businessType: BusinessType;
   config: ReminderConfig;
@@ -54,6 +62,7 @@ type SnapshotShape = {
   weeklyReportEnabled: boolean;
   weeklyReportDay: number;
   weeklyReportTime: string;
+  menuSettings: MenuSettingsMap;
   termAttendance: string;
   termCast: string;
 };
@@ -61,6 +70,48 @@ type SnapshotShape = {
 const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
 const PRE_OPEN_HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => h);
 const WEEKDAY_HOLIDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"] as const;
+const MENU_PRESET_BY_BUSINESS: Record<BusinessType, MenuPreset[]> = {
+  cabaret: [
+    { id: "shift-input", label: "シフト入力" },
+    { id: "shift-list", label: "シフト一覧" },
+    { id: "shift-single", label: "単日登録" },
+    { id: "special-shift", label: "特別シフト募集" },
+    { id: "cast-manage", label: "キャスト管理" },
+    { id: "report", label: "月間レポート" },
+    { id: "settings", label: "システム設定" },
+  ],
+  bar: [
+    { id: "shift-input", label: "出勤入力" },
+    { id: "shift-list", label: "出勤一覧" },
+    { id: "shift-single", label: "単日登録" },
+    { id: "cast-manage", label: "キャスト管理" },
+    { id: "report", label: "BARレポート" },
+    { id: "settings", label: "BAR設定" },
+  ],
+  welfare_b: [
+    { id: "cast-manage", label: "利用者管理" },
+    { id: "report", label: "日報・実績" },
+    { id: "settings", label: "事業所設定" },
+  ],
+};
+
+function normalizeMenuSettings(raw: unknown): MenuSettingsMap {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const rec = raw as Record<string, unknown>;
+  const out: MenuSettingsMap = {};
+  for (const [key, value] of Object.entries(rec)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const entry = value as Record<string, unknown>;
+    if (typeof entry.label !== "string" || typeof entry.isHidden !== "boolean") continue;
+    const id = key.trim();
+    const label = entry.label.trim();
+    if (!id || !label) continue;
+    const orderRaw = entry.order;
+    const order = typeof orderRaw === "number" && Number.isFinite(orderRaw) ? Math.trunc(orderRaw) : undefined;
+    out[id] = order === undefined ? { label, isHidden: entry.isHidden } : { label, isHidden: entry.isHidden, order };
+  }
+  return out;
+}
 
 const DEFAULT_CONFIG: ReminderConfig = {
   enabled: true,
@@ -125,6 +176,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [weeklyReportEnabled, setWeeklyReportEnabled] = useState(false);
   const [weeklyReportDay, setWeeklyReportDay] = useState(1);
   const [weeklyReportTime, setWeeklyReportTime] = useState("09:00");
+  const [menuSettings, setMenuSettings] = useState<MenuSettingsMap>({});
 
   const [individualTestCastId, setIndividualTestCastId] = useState("");
   const [barSummaryTestCastId, setBarSummaryTestCastId] = useState("");
@@ -162,6 +214,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       weeklyReportEnabled,
       weeklyReportDay,
       weeklyReportTime,
+      menuSettings,
       termAttendance,
       termCast,
     };
@@ -188,6 +241,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     weeklyReportEnabled,
     weeklyReportDay,
     weeklyReportTime,
+    menuSettings,
     termAttendance,
     termCast,
   ]);
@@ -222,6 +276,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     weeklyReportEnabled: "週間レポート自動送信（ON/OFF）",
     weeklyReportDay: "週間レポート送信曜日",
     weeklyReportTime: "週間レポート送信時刻",
+    menuSettings: "メニューカスタマイズ",
     termAttendance: "出勤ラベル",
     termCast: "キャストラベル",
   };
@@ -297,6 +352,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       );
       const wtime = typeof data.weekly_report_time === "string" ? data.weekly_report_time.trim() : "";
       setWeeklyReportTime(REMIND_TIME_OPTIONS.includes(wtime) ? wtime : "09:00");
+      setMenuSettings(normalizeMenuSettings(data.menu_settings));
 
       if (data.reminder_config && typeof data.reminder_config === "object") {
         const rc = data.reminder_config as Record<string, unknown>;
@@ -399,6 +455,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           weekly_report_enabled: weeklyReportEnabled,
           weekly_report_day: weeklyReportDay,
           weekly_report_time: weeklyReportTime,
+          menu_settings: menuSettings,
         }),
       });
       if (!res.ok) throw new Error("設定保存に失敗しました");
@@ -447,6 +504,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     weeklyReportEnabled,
     weeklyReportDay,
     weeklyReportTime,
+    menuSettings,
     guideHearingEnabled,
     guideHearingTime,
     guideHearingReporterId,
@@ -555,6 +613,101 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     }
   }, [activeStoreId]);
 
+  const menuEditorItems = useMemo(() => {
+    const base = MENU_PRESET_BY_BUSINESS[businessType].map((item, idx) => {
+      let defaultLabel = item.label;
+      if (item.id === "cast-manage") defaultLabel = `${termCast}管理`;
+      if (item.id === "report") defaultLabel = `${termCast}${termAttendance}レポート`;
+      const setting = menuSettings[item.id];
+      const label = setting?.label?.trim() || defaultLabel;
+      const isHidden = setting?.isHidden === true;
+      const order = typeof setting?.order === "number" && Number.isFinite(setting.order) ? setting.order : idx;
+      return { id: item.id, defaultLabel, label, isHidden, order, idx };
+    });
+    return base
+      .sort((a, b) => (a.order === b.order ? a.idx - b.idx : a.order - b.order))
+      .map(({ idx: _dropIdx, ...row }) => row);
+  }, [businessType, termAttendance, termCast, menuSettings]);
+
+  const applyMenuOrder = useCallback(
+    (orderedIds: string[]) => {
+      setMenuSettings((prev) => {
+        const next: MenuSettingsMap = {};
+        orderedIds.forEach((id, index) => {
+          const existing = prev[id];
+          const base = MENU_PRESET_BY_BUSINESS[businessType].find((x) => x.id === id);
+          let fallbackLabel = base?.label ?? id;
+          if (id === "cast-manage") fallbackLabel = `${termCast}管理`;
+          if (id === "report") fallbackLabel = `${termCast}${termAttendance}レポート`;
+          next[id] = {
+            label: existing?.label?.trim() || fallbackLabel,
+            isHidden: existing?.isHidden === true,
+            order: index,
+          };
+        });
+        return next;
+      });
+    },
+    [businessType, termAttendance, termCast]
+  );
+
+  const moveMenuItem = useCallback(
+    (id: string, delta: -1 | 1) => {
+      const ordered = menuEditorItems.map((x) => x.id);
+      const currentIndex = ordered.indexOf(id);
+      if (currentIndex < 0) return;
+      const nextIndex = currentIndex + delta;
+      if (nextIndex < 0 || nextIndex >= ordered.length) return;
+      const swapped = [...ordered];
+      const tmp = swapped[currentIndex];
+      swapped[currentIndex] = swapped[nextIndex];
+      swapped[nextIndex] = tmp;
+      applyMenuOrder(swapped);
+    },
+    [menuEditorItems, applyMenuOrder]
+  );
+
+  const updateMenuLabel = useCallback(
+    (id: string, value: string) => {
+      setMenuSettings((prev) => {
+        const existing = prev[id];
+        const fallback = menuEditorItems.find((x) => x.id === id)?.defaultLabel ?? id;
+        return {
+          ...prev,
+          [id]: {
+            label: value.trim() || existing?.label || fallback,
+            isHidden: existing?.isHidden === true,
+            order: typeof existing?.order === "number" ? existing.order : menuEditorItems.findIndex((x) => x.id === id),
+          },
+        };
+      });
+    },
+    [menuEditorItems]
+  );
+
+  const updateMenuHidden = useCallback(
+    (id: string, hidden: boolean) => {
+      setMenuSettings((prev) => {
+        const existing = prev[id];
+        const fallback = menuEditorItems.find((x) => x.id === id)?.defaultLabel ?? id;
+        return {
+          ...prev,
+          [id]: {
+            label: existing?.label?.trim() || fallback,
+            isHidden: hidden,
+            order: typeof existing?.order === "number" ? existing.order : menuEditorItems.findIndex((x) => x.id === id),
+          },
+        };
+      });
+    },
+    [menuEditorItems]
+  );
+
+  const handleResetMenuSettings = useCallback(() => {
+    if (!window.confirm("メニューの設定を初期状態に戻しますか？")) return;
+    setMenuSettings({});
+  }, []);
+
   if (loading) {
     return <div className="app-card p-6 text-sm text-slate-500">設定を読み込み中...</div>;
   }
@@ -647,6 +800,65 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                   className={`mt-1 w-full ${CONTROL_CLASS}`}
                 />
               </label>
+            </div>
+          </section>
+          <section className="app-card p-4 text-slate-900">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1.5">
+                ナビゲーションメニュー設定
+                <Tip text="表示名・表示/非表示・並び順をカスタマイズできます。" />
+              </h2>
+              <button
+                type="button"
+                onClick={handleResetMenuSettings}
+                className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+              >
+                初期設定に戻す
+              </button>
+            </div>
+            <div className="mt-3 space-y-2">
+              {menuEditorItems.map((item, index) => (
+                <div
+                  key={item.id}
+                  className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+                >
+                  <div className="space-y-2">
+                    <div className="text-xs text-slate-500">ID: {item.id}</div>
+                    <input
+                      value={item.label}
+                      onChange={(e) => updateMenuLabel(item.id, e.target.value)}
+                      className={`w-full ${CONTROL_CLASS}`}
+                    />
+                    <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={item.isHidden}
+                        onChange={(e) => updateMenuHidden(item.id, e.target.checked)}
+                        className="h-4 w-4 accent-blue-600 disabled:accent-slate-400"
+                      />
+                      この項目を非表示にする
+                    </label>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => moveMenuItem(item.id, -1)}
+                      disabled={index === 0}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm disabled:opacity-40"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveMenuItem(item.id, 1)}
+                      disabled={index === menuEditorItems.length - 1}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm disabled:opacity-40"
+                    >
+                      ↓
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
           <section className="app-card p-4 text-slate-900">
