@@ -22,10 +22,13 @@ import { BUSINESS_THEME, type BusinessType } from "@/lib/business-ui";
 import type { CustomTerms } from "@/lib/custom-terms";
 
 type NavItem = {
+  id: string;
   href: string;
   label: string;
   icon: typeof ClipboardList;
 };
+
+type MenuSettingsMap = Record<string, { label: string; isHidden: boolean }>;
 
 // NOTE: 微調整や差し戻しが必要な場合は、この定数だけ変更すればOK。
 const NAV_ICON_CLASS = "h-4 w-4 shrink-0 transition-opacity";
@@ -34,26 +37,26 @@ const NAV_ICON_IDLE_CLASS = "opacity-65";
 
 const NAV_ITEMS_BY_BUSINESS: Record<BusinessType, NavItem[]> = {
   cabaret: [
-    { href: "/admin/weekly", label: "シフト入力", icon: CalendarDays },
-    { href: "/admin/view", label: "シフト一覧", icon: ClipboardList },
-    { href: "/admin/schedule", label: "単日登録", icon: CalendarPlus2 },
-    { href: "/admin/shifts/special", label: "特別シフト募集", icon: Megaphone },
-    { href: "/admin/casts", label: "キャスト管理", icon: Users },
-    { href: "/admin/report", label: "月間レポート", icon: BarChart3 },
-    { href: "/admin/settings", label: "システム設定", icon: Settings },
+    { id: "shift-input", href: "/admin/weekly", label: "シフト入力", icon: CalendarDays },
+    { id: "shift-list", href: "/admin/view", label: "シフト一覧", icon: ClipboardList },
+    { id: "shift-single", href: "/admin/schedule", label: "単日登録", icon: CalendarPlus2 },
+    { id: "special-shift", href: "/admin/shifts/special", label: "特別シフト募集", icon: Megaphone },
+    { id: "cast-manage", href: "/admin/casts", label: "キャスト管理", icon: Users },
+    { id: "report", href: "/admin/report", label: "月間レポート", icon: BarChart3 },
+    { id: "settings", href: "/admin/settings", label: "システム設定", icon: Settings },
   ],
   bar: [
-    { href: "/admin/weekly", label: "出勤入力", icon: CalendarDays },
-    { href: "/admin/view", label: "出勤一覧", icon: ClipboardList },
-    { href: "/admin/schedule", label: "単日登録", icon: CalendarPlus2 },
-    { href: "/admin/casts", label: "キャスト管理", icon: Users },
-    { href: "/admin/report", label: "BARレポート", icon: BarChart3 },
-    { href: "/admin/settings", label: "BAR設定", icon: Settings },
+    { id: "shift-input", href: "/admin/weekly", label: "出勤入力", icon: CalendarDays },
+    { id: "shift-list", href: "/admin/view", label: "出勤一覧", icon: ClipboardList },
+    { id: "shift-single", href: "/admin/schedule", label: "単日登録", icon: CalendarPlus2 },
+    { id: "cast-manage", href: "/admin/casts", label: "キャスト管理", icon: Users },
+    { id: "report", href: "/admin/report", label: "BARレポート", icon: BarChart3 },
+    { id: "settings", href: "/admin/settings", label: "BAR設定", icon: Settings },
   ],
   welfare_b: [
-    { href: "/admin/casts", label: "利用者管理", icon: UserRound },
-    { href: "/admin/report", label: "日報・実績", icon: BarChart3 },
-    { href: "/admin/settings", label: "事業所設定", icon: Settings },
+    { id: "cast-manage", href: "/admin/casts", label: "利用者管理", icon: UserRound },
+    { id: "report", href: "/admin/report", label: "日報・実績", icon: BarChart3 },
+    { id: "settings", href: "/admin/settings", label: "事業所設定", icon: Settings },
   ],
 };
 
@@ -66,6 +69,7 @@ type Props = {
   /** アクティブ店舗の業態（就労B型ではシフト系メニューを隠す） */
   businessType: BusinessType;
   customTerms: CustomTerms;
+  menuSettings?: MenuSettingsMap;
 };
 
 function navLinkClass(isActive: boolean, vertical: boolean, businessType: BusinessType): string {
@@ -88,14 +92,21 @@ export default function AdminNav({
   isSuperAdmin,
   businessType,
   customTerms,
+  menuSettings,
 }: Props) {
   const theme = BUSINESS_THEME[businessType];
-  const navEntries = NAV_ITEMS_BY_BUSINESS[businessType].map((item) => {
-    if (item.href === "/admin/casts") return { ...item, label: `${customTerms.term_cast}管理` };
-    if (item.href === "/admin/report")
-      return { ...item, label: `${customTerms.term_cast}${customTerms.term_attendance}レポート` };
-    return item;
-  });
+  const navEntries = NAV_ITEMS_BY_BUSINESS[businessType]
+    .map((item) => {
+      let label = item.label;
+      if (item.href === "/admin/casts") label = `${customTerms.term_cast}管理`;
+      if (item.href === "/admin/report") label = `${customTerms.term_cast}${customTerms.term_attendance}レポート`;
+
+      const setting = menuSettings?.[item.id];
+      if (setting?.isHidden === true) return null;
+      const overrideLabel = setting?.label?.trim();
+      return { ...item, label: overrideLabel || label };
+    })
+    .filter((item): item is NavItem => item !== null);
   const homeHref = businessType === "welfare_b" ? "/admin/casts" : "/admin/weekly";
   const pathname = usePathname();
   const router = useRouter();

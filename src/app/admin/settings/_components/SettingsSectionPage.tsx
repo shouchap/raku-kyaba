@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { DEFAULT_REGULAR_REMIND_BODY } from "@/lib/remind-employment";
@@ -91,6 +92,7 @@ function Tip({ text }: { text: string }) {
 
 export default function SettingsSectionPage({ section }: { section: Section }) {
   const activeStoreId = useActiveStoreId();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -416,6 +418,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
 
       setInitialSnapshot(createSnapshot());
       setMessage("保存しました");
+      router.refresh();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {
@@ -448,6 +451,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     guideHearingTime,
     guideHearingReporterId,
     createSnapshot,
+    router,
   ]);
 
   const handleIndividualTest = useCallback(async () => {

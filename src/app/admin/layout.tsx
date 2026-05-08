@@ -13,6 +13,24 @@ import { isUndefinedColumnError } from "@/lib/postgrest-error";
 
 export const dynamic = "force-dynamic";
 
+type MenuSettingsMap = Record<string, { label: string; isHidden: boolean }>;
+
+function normalizeMenuSettings(raw: unknown): MenuSettingsMap {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const rec = raw as Record<string, unknown>;
+  const out: MenuSettingsMap = {};
+  for (const [key, value] of Object.entries(rec)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const entry = value as Record<string, unknown>;
+    if (typeof entry.label !== "string" || typeof entry.isHidden !== "boolean") continue;
+    const id = key.trim();
+    const label = entry.label.trim();
+    if (!id || !label) continue;
+    out[id] = { label, isHidden: entry.isHidden };
+  }
+  return out;
+}
+
 export default async function AdminLayout({ children }: { children: ReactNode }) {
   const h = await headers();
   const pathname = h.get("x-pathname") ?? "";
@@ -31,6 +49,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   let isSuperAdmin = false;
   let businessType: "cabaret" | "welfare_b" | "bar" = "cabaret";
   let customTerms = resolveCustomTerms(null);
+  let menuSettings: MenuSettingsMap = {};
   try {
     const supabase = await createSupabaseServerClient();
     const {
@@ -53,21 +72,41 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     if (activeStoreId) {
       const btWithTerms = await admin
         .from("stores")
-      .select("business_type, custom_terms")
+        .select("business_type, custom_terms, menu_settings")
         .eq("id", activeStoreId)
         .maybeSingle();
-      let btRow = btWithTerms.data as { business_type?: string | null; custom_terms?: unknown } | null;
+      let btRow = btWithTerms.data as {
+        business_type?: string | null;
+        custom_terms?: unknown;
+        menu_settings?: unknown;
+      } | null;
       if (btWithTerms.error && isUndefinedColumnError(btWithTerms.error, "custom_terms")) {
         const legacy = await admin
           .from("stores")
           .select("business_type")
           .eq("id", activeStoreId)
           .maybeSingle();
-        btRow = legacy.data as { business_type?: string | null; custom_terms?: unknown } | null;
+        btRow = legacy.data as {
+          business_type?: string | null;
+          custom_terms?: unknown;
+          menu_settings?: unknown;
+        } | null;
+      } else if (btWithTerms.error && isUndefinedColumnError(btWithTerms.error, "menu_settings")) {
+        const noMenu = await admin
+          .from("stores")
+          .select("business_type, custom_terms")
+          .eq("id", activeStoreId)
+          .maybeSingle();
+        btRow = noMenu.data as {
+          business_type?: string | null;
+          custom_terms?: unknown;
+          menu_settings?: unknown;
+        } | null;
       }
       const bt = btRow?.business_type;
       businessType = normalizeBusinessType(bt);
       customTerms = resolveCustomTerms(btRow?.custom_terms);
+      menuSettings = normalizeMenuSettings(btRow?.menu_settings);
     }
   } catch {
     // SUPABASE_SERVICE_ROLE_KEY 未設定時など
@@ -95,6 +134,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           isSuperAdmin={isSuperAdmin}
           businessType={businessType}
           customTerms={customTerms}
+          menuSettings={menuSettings}
         />
         <main className="flex-1 w-full px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pt-6 lg:px-8 lg:pt-8 print:p-0 print:pb-0">
           <div
