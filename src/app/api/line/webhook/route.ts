@@ -365,7 +365,8 @@ async function processWebhookEvent(
         rawData,
         supabase,
         postbackEvent.replyToken,
-        channelAccessToken
+        channelAccessToken,
+        postbackEvent.postback.params
       );
       if (barExtendedHandled) break;
 

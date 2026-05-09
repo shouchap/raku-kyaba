@@ -332,14 +332,10 @@ function padHm(h: number, min: number): string {
   return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 }
 
-/** 配信開始・終了の Quick Reply と同一形式（例: 18:00 / 0:00）のみ受理 */
-function parseBarDistributionHourMessage(raw: string): string | null {
+/** 配信開始・終了: `HH:mm`（datetimepicker の params.time および終了用 Quick Reply ラベル）を正規化 */
+function parseBarDistributionHm(raw: string): string | null {
   const t = String(raw ?? "").trim().replace(/\s+/g, "");
-  const allowed = new Set<string>(
-    BAR_DISTRIBUTION_HOUR_LABELS as unknown as readonly string[]
-  );
-  if (!allowed.has(t)) return null;
-  const m = t.match(/^(\d{1,2}):(\d{2})$/);
+  const m = /^(\d{1,2}):(\d{2})$/.exec(t);
   if (!m) return null;
   const hh = Number.parseInt(m[1], 10);
   const mm = Number.parseInt(m[2], 10);
@@ -356,17 +352,24 @@ function parseBarDistributionHourMessage(raw: string): string | null {
   return padHm(hh, mm);
 }
 
+/** 配信開始は Quick Reply 13 件制限のため datetimepicker（mode=time）1 件のみ */
 function buildBarDistributionStartPromptMessage(): LineReplyMessage {
-  const items: LineTextQuickReplyItem[] = BAR_DISTRIBUTION_HOUR_LABELS.map((label) =>
-    barQuickReplyPostback(
-      label,
-      `action=${BAR_PB_SET_DIST_HOUR}&phase=start&hour=${encodeURIComponent(label)}`
-    )
-  );
+  const data = `action=${BAR_PB_SET_DIST_HOUR}&phase=start`;
+  const item: LineTextQuickReplyItem = {
+    type: "action",
+    action: {
+      type: "datetimepicker",
+      label: "🕒 時間を選択する",
+      data,
+      mode: "time",
+      min: "00:00",
+      max: "23:59",
+    },
+  };
   return {
     type: "text",
     text: "配信の【開始時間】を選んでください。",
-    quickReply: { items },
+    quickReply: { items: [item] },
   };
 }
 
@@ -1337,12 +1340,12 @@ export async function tryHandleBarExtendedText(
     let detailStr: string | null = null;
 
     if (kind === BAR_DETAIL_KIND_DIST_START) {
-      const hm = parseBarDistributionHourMessage(text);
+      const hm = parseBarDistributionHm(text);
       if (!hm) {
         await sendReply(replyToken, channelAccessToken, [
           {
             type: "text",
-            text: "下のボタンから開始時間を選んでください。",
+            text: "下の「🕒 時間を選択する」から開始時間を選んでください。",
           },
           buildBarDistributionStartPromptMessage(),
         ]);
@@ -1368,7 +1371,7 @@ export async function tryHandleBarExtendedText(
     }
 
     if (kind === BAR_DETAIL_KIND_DIST_END) {
-      const endHm = parseBarDistributionHourMessage(text);
+      const endHm = parseBarDistributionHm(text);
       const startHm =
         draft.distribution_pick_start && draft.distribution_pick_start.trim().length > 0
           ? draft.distribution_pick_start.trim()
@@ -1568,15 +1571,22 @@ async function processBarActionPickChoice(
 }
 
 /**
- * bar_extended の Quick Reply はすべて postback。
+ * bar_extended の Quick Reply は主に postback（配信開始のみ datetimepicker の PostbackEvent）。
  * テキスト入力ハンドラ（tryHandleBarExtendedText）と同じ状態遷移になるようブリッジする。
  */
+export type BarExtendedPostbackParams = {
+  time?: string;
+  date?: string;
+  datetime?: string;
+};
+
 export async function handleBarExtendedPostback(
   lineUserId: string,
   rawData: string,
   supabase: ReturnType<typeof createSupabaseClient>,
   replyToken: string | undefined,
-  channelAccessToken: string | undefined
+  channelAccessToken: string | undefined,
+  postbackParams?: BarExtendedPostbackParams | null
 ): Promise<boolean> {
   const trimmed = String(rawData ?? "").trim();
   if (!replyToken || !channelAccessToken) return false;
@@ -1716,8 +1726,22 @@ export async function handleBarExtendedPostback(
 
     if (pbAction === BAR_PB_SET_DIST_HOUR) {
       const phase = params.get("phase");
-      const hourRaw = params.get("hour")?.trim() ?? "";
-      if (!hourRaw || (phase !== "start" && phase !== "end")) return false;
+      if (phase !== "start" && phase !== "end") return false;
+      /** datetimepicker（mode=time）は postback.params.time に HH:mm。旧 Quick Reply は data の hour= */
+      const hourRaw =
+        (postbackParams?.time && String(postbackParams.time).trim()) ||
+        (params.get("hour")?.trim() ?? "");
+      if (!hourRaw) {
+        await sendReply(replyToken, channelAccessToken, [
+          { type: "text", text: "時間を取得できませんでした。もう一度お試しください。" },
+          pk === BAR_DETAIL_KIND_DIST_START
+            ? buildBarDistributionStartPromptMessage()
+            : pk === BAR_DETAIL_KIND_DIST_END
+              ? buildBarDistributionEndPromptMessage()
+              : buildBarActionPromptMessage(),
+        ]);
+        return true;
+      }
       if (pk === BAR_DETAIL_KIND_DIST_START && phase === "start") {
         return tryHandleBarExtendedText(lineUserId, hourRaw, supabase, replyToken, channelAccessToken);
       }

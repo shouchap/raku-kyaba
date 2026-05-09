@@ -149,6 +149,18 @@ export type LineTextQuickReplyItem =
         label: string;
         text: string;
       };
+    }
+  | {
+      type: "action";
+      action: {
+        type: "datetimepicker";
+        label: string;
+        data: string;
+        mode: "time" | "date" | "datetime";
+        initial?: string;
+        min?: string;
+        max?: string;
+      };
     };
 
 export type LineReplyMessage =
