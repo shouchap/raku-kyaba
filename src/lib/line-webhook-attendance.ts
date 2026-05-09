@@ -168,22 +168,6 @@ const BAR_PLANNED_GROUP_LABELS = [
   "10組",
 ] as const;
 
-/** Quick Reply は最大13項目（配信の開始・終了で共通利用） */
-const BAR_DISTRIBUTION_HOUR_LABELS = [
-  "18:00",
-  "19:00",
-  "20:00",
-  "21:00",
-  "22:00",
-  "23:00",
-  "0:00",
-  "1:00",
-  "2:00",
-  "3:00",
-  "4:00",
-  "5:00",
-] as const;
-
 const BAR_CONTACT_EXCHANGE_LABELS = [
   "0人",
   "1人",
@@ -352,10 +336,10 @@ function parseBarDistributionHm(raw: string): string | null {
   return padHm(hh, mm);
 }
 
-/** 配信開始は Quick Reply 13 件制限のため datetimepicker（mode=time）1 件のみ */
-function buildBarDistributionStartPromptMessage(): LineReplyMessage {
-  const data = `action=${BAR_PB_SET_DIST_HOUR}&phase=start`;
-  const item: LineTextQuickReplyItem = {
+/** 配信開始・終了とも Quick Reply 13 件制限のため datetimepicker（mode=time）1 件のみ */
+function barDistributionTimePickerQuickReplyItem(phase: "start" | "end"): LineTextQuickReplyItem {
+  const data = `action=${BAR_PB_SET_DIST_HOUR}&phase=${phase}`;
+  return {
     type: "action",
     action: {
       type: "datetimepicker",
@@ -366,24 +350,21 @@ function buildBarDistributionStartPromptMessage(): LineReplyMessage {
       max: "23:59",
     },
   };
+}
+
+function buildBarDistributionStartPromptMessage(): LineReplyMessage {
   return {
     type: "text",
     text: "配信の【開始時間】を選んでください。",
-    quickReply: { items: [item] },
+    quickReply: { items: [barDistributionTimePickerQuickReplyItem("start")] },
   };
 }
 
 function buildBarDistributionEndPromptMessage(): LineReplyMessage {
-  const items: LineTextQuickReplyItem[] = BAR_DISTRIBUTION_HOUR_LABELS.map((label) =>
-    barQuickReplyPostback(
-      label,
-      `action=${BAR_PB_SET_DIST_HOUR}&phase=end&hour=${encodeURIComponent(label)}`
-    )
-  );
   return {
     type: "text",
     text: "配信の【終了時間】を選んでください。",
-    quickReply: { items },
+    quickReply: { items: [barDistributionTimePickerQuickReplyItem("end")] },
   };
 }
 
@@ -1392,7 +1373,7 @@ export async function tryHandleBarExtendedText(
     if (!detailStr || !actionKindForEntry) {
       const hint =
         kind === BAR_DETAIL_KIND_DIST_END
-          ? "下のボタンから終了時間を選んでください。"
+          ? "下の「🕒 時間を選択する」から終了時間を選んでください。"
           : "人数は下のボタンから選択してください。";
       if (
         kind === BAR_DETAIL_KIND_DIST_END ||
@@ -1727,9 +1708,12 @@ export async function handleBarExtendedPostback(
     if (pbAction === BAR_PB_SET_DIST_HOUR) {
       const phase = params.get("phase");
       if (phase !== "start" && phase !== "end") return false;
-      /** datetimepicker（mode=time）は postback.params.time に HH:mm。旧 Quick Reply は data の hour= */
+      /**
+       * datetimepicker（mode=time）は postback.params.time に HH:mm（開始・終了とも同一）。
+       * 旧クライアント互換: data に hour= が付いていた postback のみ URL から取得。
+       */
       const hourRaw =
-        (postbackParams?.time && String(postbackParams.time).trim()) ||
+        (postbackParams?.time != null && String(postbackParams.time).trim()) ||
         (params.get("hour")?.trim() ?? "");
       if (!hourRaw) {
         await sendReply(replyToken, channelAccessToken, [
@@ -1751,7 +1735,7 @@ export async function handleBarExtendedPostback(
       await sendReply(replyToken, channelAccessToken, [
         {
           type: "text",
-          text: "いまお選びいただける時間帯とボタンが一致していません。表示されている時間ボタンから選び直してください。",
+          text: "いまお選びいただける内容と一致しません。案内に沿って選び直してください。",
         },
         pk === BAR_DETAIL_KIND_DIST_START
           ? buildBarDistributionStartPromptMessage()
