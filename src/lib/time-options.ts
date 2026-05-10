@@ -35,10 +35,26 @@ export function isAllowedShiftTime(value: string): boolean {
   return SHIFT_TIME_VALUE_SET.has(value);
 }
 
-/** DB の time や "HH:mm:ss" を週間シフト用の "HH:mm" に正規化（候補に無い場合は空） */
+/**
+ * DB の time / "HH:mm:ss" / ISO 風 "…T18:30:00…" を週間シフト用の "HH:mm" に正規化（候補に無い場合は空）。
+ * 秒以下は無視し、時は2桁ゼロ埋めしてプルダウン value と一致させる。
+ */
 export function normalizeDbTimeToShiftOption(raw: string | null | undefined): string {
-  if (raw == null || String(raw).trim() === "") return "";
-  const m = String(raw).match(/^(\d{1,2}):(\d{2})/);
+  if (raw == null) return "";
+  let s = String(raw).trim();
+  if (s === "") return "";
+
+  const tIdx = s.indexOf("T");
+  if (tIdx >= 0) {
+    s = s.slice(tIdx + 1);
+    const zoneIdx = s.search(/[Z+-]/);
+    if (zoneIdx >= 0) s = s.slice(0, zoneIdx);
+  }
+  const dotIdx = s.indexOf(".");
+  if (dotIdx >= 0) s = s.slice(0, dotIdx);
+  s = s.trim();
+
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
   if (!m) return "";
   const hh = m[1].padStart(2, "0");
   const mm = m[2];

@@ -51,13 +51,6 @@ function isRegularHolidayJst(regularHolidays: number[] | undefined, dateYmd: str
   return closed.includes(getWeekdayJst(dateYmd));
 }
 
-/** "20:00:00" → "20:00" に変換 */
-function formatTimeForInput(time: string | null | undefined): string {
-  if (!time) return "";
-  const match = String(time).match(/^(\d{1,2}):(\d{2})/);
-  return match ? `${match[1]}:${match[2]}` : "";
-}
-
 export default function AdminWeeklyPage() {
   const activeStoreId = useActiveStoreId();
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
@@ -189,9 +182,11 @@ export default function AdminWeeklyPage() {
           is_sabaki?: boolean;
         }) => {
           if (nextMatrix[row.cast_id]) {
-            nextMatrix[row.cast_id][row.scheduled_date] = formatTimeForInput(row.scheduled_time);
-            nextEndMatrix[row.cast_id][row.scheduled_date] = formatTimeForInput(
-              row.scheduled_end_time
+            nextMatrix[row.cast_id][row.scheduled_date] = normalizeDbTimeToShiftOption(
+              row.scheduled_time ?? null
+            );
+            nextEndMatrix[row.cast_id][row.scheduled_date] = normalizeDbTimeToShiftOption(
+              row.scheduled_end_time ?? null
             );
             nextDohan[row.cast_id][row.scheduled_date] = Boolean(row.is_dohan);
             nextSabaki[row.cast_id][row.scheduled_date] = Boolean(row.is_sabaki);
