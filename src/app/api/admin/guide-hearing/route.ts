@@ -201,6 +201,10 @@ export async function PATCH(request: Request) {
 
 type PostBody = {
   storeId?: string;
+  /** 指定時はそのキャストの LINE 宛に起点メッセージを送る（本番の担当者以外のテスト用） */
+  targetCastId?: string | null;
+  /** true のとき stores.line_group_id 宛に送信 */
+  sendToLineGroup?: boolean;
 };
 
 /**
@@ -226,20 +230,37 @@ export async function POST(request: Request) {
   const mismatch = rejectStoreMismatch(request, user, storeId);
   if (mismatch) return mismatch;
 
+  const targetCastIdRaw = body.targetCastId?.trim() ?? "";
+  const sendToLineGroup = body.sendToLineGroup === true;
+  const hasDirectedTarget = sendToLineGroup || !!targetCastIdRaw;
+
   const admin = createServiceRoleClient();
 
   const { data: store, error: storeErr } = await admin
     .from("stores")
-    .select("id, name, guide_hearing_enabled, guide_hearing_reporter_id, guide_staff_names")
+    .select(
+      "id, name, business_type, guide_hearing_enabled, guide_hearing_reporter_id, guide_staff_names, is_guide_enabled, line_group_id"
+    )
     .eq("id", storeId)
     .maybeSingle();
   if (storeErr) return NextResponse.json({ error: storeErr.message }, { status: 500 });
   if (!store?.id) return NextResponse.json({ error: "Store not found" }, { status: 404 });
-  if (store.guide_hearing_enabled !== true) {
-    return badRequest("案内数ヒアリングがOFFです。システム設定でONにしてから実行してください。");
+
+  const businessType = String((store as { business_type?: string | null }).business_type ?? "cabaret").trim();
+  if (businessType !== "cabaret") {
+    return badRequest("案内数入力のテスト送信はキャバクラ店舗のみ利用できます。");
   }
-  if (!store.guide_hearing_reporter_id) {
-    return badRequest("LINE受取担当者が未設定です。システム設定で選択してください。");
+  if ((store as { is_guide_enabled?: boolean | null }).is_guide_enabled === false) {
+    return badRequest("案内数機能がOFFです。業態別設定で案内ヒアリングを有効にしてください。");
+  }
+
+  if (!hasDirectedTarget) {
+    if (store.guide_hearing_enabled !== true) {
+      return badRequest("案内数ヒアリングがOFFです。LINE設定で自動送信をONにしてから実行してください。");
+    }
+    if (!store.guide_hearing_reporter_id) {
+      return badRequest("LINE受取担当者が未設定です。LINE設定で選択してください。");
+    }
   }
 
   const token = await fetchResolvedLineChannelAccessTokenForStore(admin, storeId, "[GuideTest]");
@@ -251,56 +272,80 @@ export async function POST(request: Request) {
     ? store.guide_staff_names.map((v: unknown) => String(v ?? "").trim()).filter(Boolean)
     : [];
   if (staffNames.length === 0) {
-    return badRequest("入力対象スタッフ名が未設定です。システム設定で登録してください。");
+    return badRequest("入力対象スタッフ名が未設定です。LINE設定または案内数レポートで登録してください。");
   }
 
-  const { data: reporterCast, error: reporterErr } = await admin
-    .from("casts")
-    .select("id, name, line_user_id")
-    .eq("id", store.guide_hearing_reporter_id)
-    .eq("store_id", storeId)
-    .eq("is_active", true)
-    .maybeSingle();
-  if (reporterErr) {
-    console.error("[api/admin/guide-hearing] reporter fetch error:", reporterErr.message);
-    return NextResponse.json({ error: reporterErr.message }, { status: 500 });
-  }
-  if (!reporterCast?.id || !reporterCast.line_user_id) {
-    return badRequest("LINE受取担当者が無効です（在籍/LINE連携を確認してください）。");
+  const message = buildGuideTargetSelectMessage({
+    storeName: store.name,
+    staffNames,
+  });
+
+  let pushToId: string;
+  let recipientLabel: { kind: "reporter" | "cast" | "group"; id?: string; name?: string | null };
+
+  if (sendToLineGroup) {
+    const gid = String((store as { line_group_id?: string | null }).line_group_id ?? "").trim();
+    if (!gid) {
+      return badRequest("公式LINEグループが未登録です。グループでボットを友だち追加すると保存されます。");
+    }
+    pushToId = gid;
+    recipientLabel = { kind: "group" };
+  } else if (targetCastIdRaw) {
+    if (!isValidStoreId(targetCastIdRaw)) {
+      return badRequest("targetCastId が不正です");
+    }
+    const { data: targetCast, error: targetErr } = await admin
+      .from("casts")
+      .select("id, name, line_user_id")
+      .eq("id", targetCastIdRaw)
+      .eq("store_id", storeId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (targetErr) {
+      console.error("[api/admin/guide-hearing] target cast fetch error:", targetErr.message);
+      return NextResponse.json({ error: targetErr.message }, { status: 500 });
+    }
+    if (!targetCast?.id || !targetCast.line_user_id) {
+      return badRequest("選択したキャストが無効か、LINE未連携です。");
+    }
+    pushToId = targetCast.line_user_id;
+    recipientLabel = { kind: "cast", id: targetCast.id, name: targetCast.name };
+  } else {
+    const { data: reporterCast, error: reporterErr } = await admin
+      .from("casts")
+      .select("id, name, line_user_id")
+      .eq("id", store.guide_hearing_reporter_id as string)
+      .eq("store_id", storeId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (reporterErr) {
+      console.error("[api/admin/guide-hearing] reporter fetch error:", reporterErr.message);
+      return NextResponse.json({ error: reporterErr.message }, { status: 500 });
+    }
+    if (!reporterCast?.id || !reporterCast.line_user_id) {
+      return badRequest("LINE受取担当者が無効です（在籍/LINE連携を確認してください）。");
+    }
+    pushToId = reporterCast.line_user_id;
+    recipientLabel = { kind: "reporter", id: reporterCast.id, name: reporterCast.name };
   }
 
   console.log(
-    `[api/admin/guide-hearing] test targets storeId=${storeId} targetCount=${staffNames.length}`
+    `[api/admin/guide-hearing] test push storeId=${storeId} recipient=${recipientLabel.kind} staffNameCount=${staffNames.length}`
   );
 
   try {
-    await sendPushMessage(
-      reporterCast.line_user_id,
-      token.token,
-      [
-        buildGuideTargetSelectMessage({
-          storeName: store.name,
-          staffNames,
-        }),
-      ]
-    );
+    await sendPushMessage(pushToId, token.token, [message]);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    console.error(
-      `[api/admin/guide-hearing] reporter push failed storeId=${storeId} reporterId=${reporterCast.id}:`,
-      reason
-    );
-    return badRequest("担当者へのLINE送信に失敗しました。LINE連携状態とチャンネル設定を確認してください。");
+    console.error(`[api/admin/guide-hearing] push failed storeId=${storeId}:`, reason);
+    return badRequest("LINE送信に失敗しました。LINE連携状態とチャンネル設定を確認してください。");
   }
 
   return NextResponse.json({
     ok: true,
     sent: 1,
     targetCount: staffNames.length,
-    reporter: {
-      id: reporterCast.id,
-      name: reporterCast.name,
-    },
+    recipient: recipientLabel,
     tokenSource: token.source,
   });
 }

@@ -59,6 +59,7 @@ type SnapshotShape = {
   guideHearingEnabled: boolean;
   guideHearingTime: string;
   guideHearingReporterId: string;
+  guideStaffNamesText: string;
   weeklyReportEnabled: boolean;
   weeklyReportDay: number;
   weeklyReportTime: string;
@@ -142,6 +143,15 @@ const DEFAULT_CONFIG: ReminderConfig = {
 const CONTROL_CLASS =
   "rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-300";
 
+/** LINE案内数の入力対象名（改行・カンマ区切り、最大13名） */
+function parseGuideStaffNamesFromText(raw: string): string[] {
+  const parts = raw
+    .split(/[\n,、]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return [...new Set(parts)].slice(0, 13);
+}
+
 function Tip({ text }: { text: string }) {
   return (
     <span title={text} aria-label={text} className="inline-flex items-center text-slate-400">
@@ -180,7 +190,13 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [guideHearingEnabled, setGuideHearingEnabled] = useState(false);
   const [guideHearingTime, setGuideHearingTime] = useState("02:00");
   const [guideHearingReporterId, setGuideHearingReporterId] = useState("");
+  const [guideStaffNamesText, setGuideStaffNamesText] = useState("");
   const [guideReporterCandidates, setGuideReporterCandidates] = useState<GuideReporterCandidate[]>([]);
+
+  const [guideHearingTestMode, setGuideHearingTestMode] = useState<"reporter" | "cast" | "group">("reporter");
+  const [guideHearingTestCastId, setGuideHearingTestCastId] = useState("");
+  const [testingGuideHearing, setTestingGuideHearing] = useState(false);
+  const [guideHearingTestDetail, setGuideHearingTestDetail] = useState<string | null>(null);
 
   const [weeklyReportEnabled, setWeeklyReportEnabled] = useState(false);
   const [weeklyReportDay, setWeeklyReportDay] = useState(1);
@@ -220,6 +236,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       guideHearingEnabled,
       guideHearingTime,
       guideHearingReporterId,
+      guideStaffNamesText,
       weeklyReportEnabled,
       weeklyReportDay,
       weeklyReportTime,
@@ -247,6 +264,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     guideHearingEnabled,
     guideHearingTime,
     guideHearingReporterId,
+    guideStaffNamesText,
     weeklyReportEnabled,
     weeklyReportDay,
     weeklyReportTime,
@@ -282,6 +300,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     guideHearingEnabled: "案内ヒアリング送信",
     guideHearingTime: "案内ヒアリング時刻",
     guideHearingReporterId: "案内ヒアリング報告者",
+    guideStaffNamesText: "案内入力対象スタッフ名",
     weeklyReportEnabled: "週間レポート自動送信（ON/OFF）",
     weeklyReportDay: "週間レポート送信曜日",
     weeklyReportTime: "週間レポート送信時刻",
@@ -397,11 +416,16 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           enabled?: boolean;
           sendTime?: string;
           reporterCastId?: string | null;
+          guideStaffNames?: string[];
           reporterCandidates?: GuideReporterCandidate[];
         };
         setGuideHearingEnabled(g.enabled === true);
         setGuideHearingTime(canonicalGuideHearingTime(g.sendTime ?? null) ?? "02:00");
         setGuideHearingReporterId(g.reporterCastId ?? "");
+        const names = Array.isArray(g.guideStaffNames)
+          ? g.guideStaffNames.map((s) => String(s ?? "").trim()).filter(Boolean)
+          : [];
+        setGuideStaffNamesText(names.join("\n"));
         setGuideReporterCandidates(Array.isArray(g.reporterCandidates) ? g.reporterCandidates : []);
       }
     } finally {
@@ -471,6 +495,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       });
       if (!res.ok) throw new Error("設定保存に失敗しました");
 
+      const guideStaffNames = parseGuideStaffNamesFromText(guideStaffNamesText);
       const guideRes = await fetch("/api/admin/guide-hearing", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -479,7 +504,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           enabled: guideHearingEnabled,
           sendTime: canonicalGuideHearingTime(guideHearingTime) ?? "02:00",
           reporterCastId: guideHearingReporterId || null,
-          guideStaffNames: [],
+          guideStaffNames,
         }),
       });
       if (!guideRes.ok) throw new Error("案内数ヒアリング保存に失敗しました");
@@ -519,6 +544,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     guideHearingEnabled,
     guideHearingTime,
     guideHearingReporterId,
+    guideStaffNamesText,
     createSnapshot,
     router,
   ]);
@@ -567,6 +593,45 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setTestingWeeklyReport(false);
     }
   }, [activeStoreId]);
+
+  const handleGuideHearingTest = useCallback(async () => {
+    if (guideHearingTestMode === "cast" && !guideHearingTestCastId) {
+      setGuideHearingTestDetail("キャストを選択してください");
+      return;
+    }
+    setTestingGuideHearing(true);
+    setGuideHearingTestDetail(null);
+    try {
+      const body: Record<string, unknown> = { storeId: activeStoreId };
+      if (guideHearingTestMode === "cast") {
+        body.targetCastId = guideHearingTestCastId;
+      } else if (guideHearingTestMode === "group") {
+        body.sendToLineGroup = true;
+      }
+      const res = await fetch("/api/admin/guide-hearing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        recipient?: { kind?: string; name?: string | null };
+      };
+      if (!res.ok) throw new Error(data.error ?? "送信失敗");
+      const r = data.recipient;
+      const dest =
+        r?.kind === "group"
+          ? "公式LINEグループ"
+          : r?.kind === "cast"
+            ? `${r.name ?? "キャスト"}`
+            : `担当（${r?.name ?? ""}）`;
+      setGuideHearingTestDetail(`${dest} に起点メッセージを送信しました`);
+    } catch (e) {
+      setGuideHearingTestDetail(e instanceof Error ? e.message : "送信失敗");
+    } finally {
+      setTestingGuideHearing(false);
+    }
+  }, [activeStoreId, guideHearingTestCastId, guideHearingTestMode]);
 
   const handleBarSummaryTest = useCallback(async () => {
     if (!barSummaryTestCastId) return;
@@ -989,6 +1054,72 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             </label>
           </section>
 
+          {businessType === "cabaret" && (
+            <section className="app-card p-4 space-y-3 text-slate-900">
+              <h2 className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1.5">
+                案内数入力（キャバクラ専用）
+                <Tip text="営業終了付近に、案内数（組数・人数）入力の起点となるLINEメッセージを自動送信します。DBの guide_hearing_time を参照します。" />
+              </h2>
+              <p className="text-xs text-slate-600">
+                「案内数の入力対象を選んでください（店舗名）。」とクイックリプライを送り、セクキャバ／GOLD の案内フローを開始します。
+              </p>
+              {!isGuideMasterEnabled ? (
+                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+                  店舗基本設定の「案内ヒアリングを利用する」がOFFのため、定期ジョブでは送信されません。設定のあとマスターをONにしてください。
+                </p>
+              ) : null}
+              <label className="flex items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={guideHearingEnabled}
+                  onChange={(e) => setGuideHearingEnabled(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-blue-600 disabled:accent-slate-400"
+                />
+                案内数入力メッセージを自動送信する（Cron が JST 整時に一致した店舗へ送信）
+              </label>
+              <label className="block text-sm text-slate-700">
+                案内数入力の送信時刻（JST・整時）
+                <select
+                  value={guideHearingTime}
+                  onChange={(e) => setGuideHearingTime(e.target.value)}
+                  className={`mt-1 block w-full max-w-xs ${CONTROL_CLASS}`}
+                >
+                  {REMIND_TIME_OPTIONS.map((v) => (
+                    <option key={`gh-${v}`} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm text-slate-700">
+                LINE受取担当（起点メッセージの宛先）
+                <select
+                  value={guideHearingReporterId}
+                  onChange={(e) => setGuideHearingReporterId(e.target.value)}
+                  className={`mt-1 block w-full max-w-sm ${CONTROL_CLASS}`}
+                >
+                  <option value="">選択してください</option>
+                  {guideReporterCandidates.map((c) => (
+                    <option key={c.id} value={c.id} disabled={!c.line_user_id}>
+                      {c.name}
+                      {c.line_user_id ? "" : "（LINE未連携）"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm text-slate-700">
+                入力対象スタッフ名（改行またはカンマ区切り・最大13名）
+                <textarea
+                  value={guideStaffNamesText}
+                  onChange={(e) => setGuideStaffNamesText(e.target.value)}
+                  rows={4}
+                  placeholder={"例）\n山田\n佐藤"}
+                  className={`mt-1 w-full max-w-lg font-mono text-sm ${CONTROL_CLASS}`}
+                />
+              </label>
+            </section>
+          )}
+
           <section className="app-card p-4 space-y-3 text-slate-900">
             <h2 className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1.5">
               週間レポート自動送信
@@ -1074,6 +1205,60 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 {barSummaryTestDetail ? <p className="mt-1 text-xs text-slate-600">{barSummaryTestDetail}</p> : null}
               </div>
             </div>
+            {businessType === "cabaret" && isGuideMasterEnabled ? (
+              <div className="rounded-lg border border-amber-200 bg-white/70 p-3 space-y-2">
+                <p className="text-xs font-medium text-slate-700">案内数入力 個別テスト</p>
+                <p className="text-xs text-slate-600">
+                  クイックリプライ付きの起点メッセージ（入力対象の選択）を手動送信します。担当者宛・別キャスト宛・公式LINEグループ宛を選べます。
+                </p>
+                <label className="block text-xs text-slate-600">
+                  送信先
+                  <select
+                    value={guideHearingTestMode}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setGuideHearingTestMode(v === "cast" ? "cast" : v === "group" ? "group" : "reporter");
+                      setGuideHearingTestDetail(null);
+                    }}
+                    className={`mt-1 block w-full max-w-md text-sm ${CONTROL_CLASS}`}
+                  >
+                    <option value="reporter">受取担当（本番の定期送信と同じ宛先）</option>
+                    <option value="cast">指定キャスト（LINEユーザー宛）</option>
+                    <option value="group">公式LINEグループ（店舗に紐づくグループID）</option>
+                  </select>
+                </label>
+                {guideHearingTestMode === "cast" ? (
+                  <div className="flex gap-2 flex-wrap items-center">
+                    <select
+                      value={guideHearingTestCastId}
+                      onChange={(e) => setGuideHearingTestCastId(e.target.value)}
+                      className={`min-w-0 flex-1 max-w-md text-sm ${CONTROL_CLASS}`}
+                    >
+                      <option value="">送信先キャストを選択</option>
+                      {guideReporterCandidates.map((c) => (
+                        <option key={`gh-test-${c.id}`} value={c.id} disabled={!c.line_user_id}>
+                          {c.name}
+                          {c.line_user_id ? "" : "（LINE未連携）"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => void handleGuideHearingTest()}
+                    disabled={testingGuideHearing}
+                    className="btn-secondary"
+                  >
+                    {testingGuideHearing ? "送信中..." : "起点メッセージをテスト送信"}
+                  </button>
+                </div>
+                {guideHearingTestDetail ? (
+                  <p className="text-xs text-slate-700">{guideHearingTestDetail}</p>
+                ) : null}
+              </div>
+            ) : null}
             <div className="rounded-lg border border-amber-200 bg-white/70 p-3">
               <p className="text-xs font-medium text-slate-700">本日の出勤確認を一斉送信</p>
               <p className="mt-1 text-xs text-slate-600">

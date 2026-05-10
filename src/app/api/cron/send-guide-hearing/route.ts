@@ -13,7 +13,9 @@ type CronResult = {
 type StoreBaseRow = {
   id: string;
   name: string | null;
+  business_type?: string | null;
   guide_hearing_time: string | null;
+  guide_hearing_enabled?: boolean;
   last_guide_hearing_sent_date?: string | null;
   is_guide_enabled?: boolean;
 };
@@ -51,13 +53,21 @@ export async function GET(request: Request) {
     let stores: StoreBaseRow[] = [];
     let storesHasLastSentDate = true;
     let storesHasIsGuideEnabled = true;
+    /** フルスキーマ取得できたときのみ cabaret 限定・guide_hearing_enabled 判定を行う */
+    let storesHasCabaretGuideCronColumns = true;
 
     const trySelect = async (cols: string) =>
       supabase.from("stores").select(cols);
 
     let sel =
-      "id, name, guide_hearing_time, last_guide_hearing_sent_date, is_guide_enabled";
+      "id, name, business_type, guide_hearing_time, guide_hearing_enabled, last_guide_hearing_sent_date, is_guide_enabled";
     let storeFetch = await trySelect(sel);
+
+    if (storeFetch.error?.code === "42703") {
+      storesHasCabaretGuideCronColumns = false;
+      sel = "id, name, guide_hearing_time, last_guide_hearing_sent_date, is_guide_enabled";
+      storeFetch = await trySelect(sel);
+    }
 
     if (storeFetch.error?.code === "42703") {
       storesHasIsGuideEnabled = false;
@@ -91,13 +101,18 @@ export async function GET(request: Request) {
     }
     stores = storeFetch.data as unknown as StoreBaseRow[];
 
-    const targetStores = stores.filter(
-      (store) =>
+    const targetStores = stores.filter((store) => {
+      if (storesHasCabaretGuideCronColumns) {
+        if (String(store.business_type ?? "cabaret").trim() !== "cabaret") return false;
+        if (store.guide_hearing_enabled !== true) return false;
+      }
+      return (
         !!store.guide_hearing_time &&
         store.guide_hearing_time.startsWith(currentHour + ":") &&
         (!storesHasLastSentDate || store.last_guide_hearing_sent_date !== businessDate) &&
         (!storesHasIsGuideEnabled || store.is_guide_enabled !== false)
-    );
+      );
+    });
 
     if (targetStores.length === 0) {
       return NextResponse.json({
