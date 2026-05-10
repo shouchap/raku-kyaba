@@ -1,20 +1,21 @@
 /**
- * 15分刻みの時刻オプション。営業時間（17:00〜翌05:45）に絞り込み。
+ * 15分刻みの時刻オプション。
+ * 昼開始の業態（風俗等）と深夜営業の両方をカバーするため、同日 09:00〜23:45 のあと 翌日相当として 00:00〜05:45 を続ける。
  * 空文字は休み用。
  */
-const START_HOUR = 17; // 17:00〜
-const END_HOUR = 6; // 〜翌05:45（6時は含まない）
+const START_HOUR = 9; // 09:00〜（キャバクラ昼準備・昼業態など）
+const END_HOUR = 6; // 深夜側の終端〜翌05:45（6時未満の時間帯まで）
 
 function generateTimeOptions(): Array<{ value: string; label: string }> {
   const options: Array<{ value: string; label: string }> = [{ value: "", label: "—" }];
-  // 17:00〜23:45
+  // 09:00〜23:45
   for (let h = START_HOUR; h < 24; h++) {
     for (let m = 0; m < 60; m += 15) {
       const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
       options.push({ value, label: value });
     }
   }
-  // 00:00〜05:45
+  // 00:00〜05:45（日をまたぐ深夜シフト）
   for (let h = 0; h < END_HOUR; h++) {
     for (let m = 0; m < 60; m += 15) {
       const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
