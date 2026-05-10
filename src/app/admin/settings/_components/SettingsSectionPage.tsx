@@ -1043,6 +1043,64 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               レギュラーメッセージ
               <textarea value={regularRemindMessage} onChange={(e) => setRegularRemindMessage(e.target.value)} rows={3} className={`mt-1 w-full ${CONTROL_CLASS}`} />
             </label>
+
+            <div className="mt-4 pt-4 border-t border-slate-200 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">出勤確認のテスト</p>
+              <div>
+                <p className="text-xs font-medium text-slate-600">個別送信</p>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <select
+                    value={individualTestCastId}
+                    onChange={(e) => setIndividualTestCastId(e.target.value)}
+                    className={`min-w-0 flex-1 max-w-xs text-sm ${CONTROL_CLASS}`}
+                  >
+                    <option value="">送信先選択</option>
+                    {guideReporterCandidates.map((c) => (
+                      <option key={c.id} value={c.id} disabled={!c.line_user_id}>
+                        {c.name}
+                        {c.line_user_id ? "" : "（LINE未連携）"}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void handleIndividualTest()}
+                    disabled={testingIndividual || !individualTestCastId}
+                    className="btn-secondary whitespace-nowrap"
+                  >
+                    送信
+                  </button>
+                </div>
+                {individualTestDetail ? (
+                  <p className="mt-1 text-xs text-slate-600">{individualTestDetail}</p>
+                ) : null}
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                <p className="text-xs font-medium text-slate-700">本日の出勤確認を一斉送信</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  今日の対象者に対して、本番同等の出勤確認を即時送信します（時刻条件は無視）。
+                </p>
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleBroadcastRemind()}
+                    disabled={broadcastingRemind}
+                    className="btn-secondary"
+                  >
+                    {broadcastingRemind ? "送信中..." : "本日の一斉送信を実行"}
+                  </button>
+                </div>
+                {broadcastRemindDetail ? (
+                  <p className="mt-2 text-xs text-slate-700">{broadcastRemindDetail}</p>
+                ) : null}
+                {broadcastFailedCastNames.length > 0 ? (
+                  <p className="mt-1 text-sm text-red-500">
+                    ⚠️ 送信失敗: {broadcastFailedCastNames.join(", ")}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
             <label className="block text-sm text-slate-700">
               営業前サマリー時刻
               <select value={preOpenReportHourJst} onChange={(e) => setPreOpenReportHourJst(e.target.value)} className={`mt-1 block w-full max-w-xs ${CONTROL_CLASS}`}>
@@ -1052,6 +1110,34 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 ))}
               </select>
             </label>
+            <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
+              <p className="text-xs font-semibold text-slate-800">営業前サマリー 個別テスト</p>
+              <p className="text-xs text-slate-600">選択したキャストへ、営業前サマリー相当のメッセージを1通送信します。</p>
+              <div className="flex flex-wrap gap-2">
+                <select
+                  value={barSummaryTestCastId}
+                  onChange={(e) => setBarSummaryTestCastId(e.target.value)}
+                  className={`min-w-0 flex-1 max-w-xs text-sm ${CONTROL_CLASS}`}
+                >
+                  <option value="">送信先選択</option>
+                  {guideReporterCandidates.map((c) => (
+                    <option key={`sum-${c.id}`} value={c.id} disabled={!c.line_user_id}>
+                      {c.name}
+                      {c.line_user_id ? "" : "（LINE未連携）"}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void handleBarSummaryTest()}
+                  disabled={testingBarSummary || !barSummaryTestCastId}
+                  className="btn-secondary whitespace-nowrap"
+                >
+                  送信
+                </button>
+              </div>
+              {barSummaryTestDetail ? <p className="text-xs text-slate-600">{barSummaryTestDetail}</p> : null}
+            </div>
             {isGuideMasterEnabled && businessType === "cabaret" ? (
               <label className="block text-sm text-slate-700">
                 案内ヒアリング送信時刻（JST・整時）
@@ -1120,6 +1206,56 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                   className={`mt-1 w-full max-w-lg font-mono text-sm ${CONTROL_CLASS}`}
                 />
               </label>
+              {isGuideMasterEnabled ? (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-slate-800">案内ヒアリング 個別テスト</p>
+                  <p className="text-xs text-slate-600">
+                    クイックリプライ付きの起点メッセージを手動送信します。担当者宛・別キャスト宛・公式LINEグループ宛を選べます。
+                  </p>
+                  <label className="block text-xs text-slate-600">
+                    送信先
+                    <select
+                      value={guideHearingTestMode}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setGuideHearingTestMode(v === "cast" ? "cast" : v === "group" ? "group" : "reporter");
+                        setGuideHearingTestDetail(null);
+                      }}
+                      className={`mt-1 block w-full max-w-md text-sm ${CONTROL_CLASS}`}
+                    >
+                      <option value="reporter">受取担当（本番の定期送信と同じ宛先）</option>
+                      <option value="cast">指定キャスト（LINEユーザー宛）</option>
+                      <option value="group">公式LINEグループ（店舗に紐づくグループID）</option>
+                    </select>
+                  </label>
+                  {guideHearingTestMode === "cast" ? (
+                    <select
+                      value={guideHearingTestCastId}
+                      onChange={(e) => setGuideHearingTestCastId(e.target.value)}
+                      className={`block w-full max-w-md text-sm ${CONTROL_CLASS}`}
+                    >
+                      <option value="">送信先キャストを選択</option>
+                      {guideReporterCandidates.map((c) => (
+                        <option key={`gh-test-${c.id}`} value={c.id} disabled={!c.line_user_id}>
+                          {c.name}
+                          {c.line_user_id ? "" : "（LINE未連携）"}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void handleGuideHearingTest()}
+                    disabled={testingGuideHearing}
+                    className="btn-secondary"
+                  >
+                    {testingGuideHearing ? "送信中..." : "起点メッセージをテスト送信"}
+                  </button>
+                  {guideHearingTestDetail ? (
+                    <p className="text-xs text-slate-700">{guideHearingTestDetail}</p>
+                  ) : null}
+                </div>
+              ) : null}
             </section>
           )}
 
@@ -1168,141 +1304,21 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 ))}
               </select>
             </label>
-          </section>
-
-          <section className="app-card border-amber-200 bg-amber-50/40 p-4 space-y-3 text-slate-900">
-            <h2 className="text-sm font-semibold text-slate-900">運用テスト・デバッグ</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <p className="text-xs font-medium text-slate-600">出勤確認 個別テスト</p>
-                <div className="mt-1 flex gap-2">
-                  <select value={individualTestCastId} onChange={(e) => setIndividualTestCastId(e.target.value)} className={`min-w-0 flex-1 text-sm ${CONTROL_CLASS}`}>
-                    <option value="">送信先選択</option>
-                    {guideReporterCandidates.map((c) => (
-                      <option key={c.id} value={c.id} disabled={!c.line_user_id}>
-                        {c.name}{c.line_user_id ? "" : "（LINE未連携）"}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="button" onClick={() => void handleIndividualTest()} disabled={testingIndividual || !individualTestCastId} className="btn-secondary whitespace-nowrap">
-                    送信
-                  </button>
-                </div>
-                {individualTestDetail ? <p className="mt-1 text-xs text-slate-600">{individualTestDetail}</p> : null}
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-600">サマリー 個別テスト</p>
-                <div className="mt-1 flex gap-2">
-                  <select value={barSummaryTestCastId} onChange={(e) => setBarSummaryTestCastId(e.target.value)} className={`min-w-0 flex-1 text-sm ${CONTROL_CLASS}`}>
-                    <option value="">送信先選択</option>
-                    {guideReporterCandidates.map((c) => (
-                      <option key={`sum-${c.id}`} value={c.id} disabled={!c.line_user_id}>
-                        {c.name}{c.line_user_id ? "" : "（LINE未連携）"}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="button" onClick={() => void handleBarSummaryTest()} disabled={testingBarSummary || !barSummaryTestCastId} className="btn-secondary whitespace-nowrap">
-                    送信
-                  </button>
-                </div>
-                {barSummaryTestDetail ? <p className="mt-1 text-xs text-slate-600">{barSummaryTestDetail}</p> : null}
-              </div>
-            </div>
-            {businessType === "cabaret" && isGuideMasterEnabled ? (
-              <div className="rounded-lg border border-amber-200 bg-white/70 p-3 space-y-2">
-                <p className="text-xs font-medium text-slate-700">案内ヒアリング 個別テスト</p>
-                <p className="text-xs text-slate-600">
-                  クイックリプライ付きの起点メッセージ（入力対象の選択）を手動送信します。担当者宛・別キャスト宛・公式LINEグループ宛を選べます。
-                </p>
-                <label className="block text-xs text-slate-600">
-                  送信先
-                  <select
-                    value={guideHearingTestMode}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setGuideHearingTestMode(v === "cast" ? "cast" : v === "group" ? "group" : "reporter");
-                      setGuideHearingTestDetail(null);
-                    }}
-                    className={`mt-1 block w-full max-w-md text-sm ${CONTROL_CLASS}`}
-                  >
-                    <option value="reporter">受取担当（本番の定期送信と同じ宛先）</option>
-                    <option value="cast">指定キャスト（LINEユーザー宛）</option>
-                    <option value="group">公式LINEグループ（店舗に紐づくグループID）</option>
-                  </select>
-                </label>
-                {guideHearingTestMode === "cast" ? (
-                  <div className="flex gap-2 flex-wrap items-center">
-                    <select
-                      value={guideHearingTestCastId}
-                      onChange={(e) => setGuideHearingTestCastId(e.target.value)}
-                      className={`min-w-0 flex-1 max-w-md text-sm ${CONTROL_CLASS}`}
-                    >
-                      <option value="">送信先キャストを選択</option>
-                      {guideReporterCandidates.map((c) => (
-                        <option key={`gh-test-${c.id}`} value={c.id} disabled={!c.line_user_id}>
-                          {c.name}
-                          {c.line_user_id ? "" : "（LINE未連携）"}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : null}
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => void handleGuideHearingTest()}
-                    disabled={testingGuideHearing}
-                    className="btn-secondary"
-                  >
-                    {testingGuideHearing ? "送信中..." : "起点メッセージをテスト送信"}
-                  </button>
-                </div>
-                {guideHearingTestDetail ? (
-                  <p className="text-xs text-slate-700">{guideHearingTestDetail}</p>
-                ) : null}
-              </div>
-            ) : null}
-            <div className="rounded-lg border border-amber-200 bg-white/70 p-3">
-              <p className="text-xs font-medium text-slate-700">本日の出勤確認を一斉送信</p>
-              <p className="mt-1 text-xs text-slate-600">
-                今日の対象者に対して、本番同等の出勤確認を即時送信します（時刻条件は無視）。
-              </p>
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => void handleBroadcastRemind()}
-                  disabled={broadcastingRemind}
-                  className="btn-secondary"
-                >
-                  {broadcastingRemind ? "送信中..." : "本日の一斉送信を実行"}
-                </button>
-              </div>
-              {broadcastRemindDetail ? (
-                <p className="mt-2 text-xs text-slate-700">{broadcastRemindDetail}</p>
-              ) : null}
-              {broadcastFailedCastNames.length > 0 ? (
-                <p className="mt-1 text-sm text-red-500">
-                  ⚠️ 送信失敗: {broadcastFailedCastNames.join(", ")}
-                </p>
-              ) : null}
-            </div>
-            <div className="rounded-lg border border-amber-200 bg-white/70 p-3">
-              <p className="text-xs font-medium text-slate-700">週間レポートのテスト送信</p>
-              <p className="mt-1 text-xs text-slate-600">
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
+              <p className="text-xs font-semibold text-slate-800">週間レポートのテスト送信</p>
+              <p className="text-xs text-slate-600">
                 設定した曜日・時刻に関係なく、いまの集計で管理者宛に送信します（本番の冪等フラグは更新しません）。
               </p>
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => void handleWeeklyReportTest()}
-                  disabled={testingWeeklyReport}
-                  className="btn-secondary"
-                >
-                  {testingWeeklyReport ? "送信中..." : "今すぐ送信"}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => void handleWeeklyReportTest()}
+                disabled={testingWeeklyReport}
+                className="btn-secondary"
+              >
+                {testingWeeklyReport ? "送信中..." : "今すぐ送信"}
+              </button>
               {weeklyReportTestDetail ? (
-                <p className="mt-2 text-xs text-slate-700">{weeklyReportTestDetail}</p>
+                <p className="text-xs text-slate-700">{weeklyReportTestDetail}</p>
               ) : null}
             </div>
           </section>
