@@ -116,8 +116,10 @@ export async function GET(request: Request) {
     const targetStores = stores.filter((store) => {
       if (storesHasIsGuideEnabled && store.is_guide_enabled === false) return false;
       if (storesHasCabaretGuideCronColumns) {
+        // キャバクラ向けフローのみ（案内数 sek/gold は cabaret 想定）
         if (String(store.business_type ?? "cabaret").trim() !== "cabaret") return false;
-        if (store.guide_hearing_enabled !== true) return false;
+        // guide_hearing_enabled は DB 既定 false のまま運用されていた店舗があり、
+        // ここで必須にすると従来 Cron から外れるため判定に含めない（時刻・is_guide_enabled で制御）。
       }
       const slot = resolveGuideHearingScheduleSlot(
         storesHasGuidanceRequestTime ? store.guidance_request_time : null,
