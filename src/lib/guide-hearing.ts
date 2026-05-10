@@ -6,6 +6,7 @@ export type GuideHearingStoreRow = {
   id: string;
   name: string | null;
   guide_hearing_enabled: boolean;
+  guidance_request_time?: string | null;
   guide_hearing_time: string | null;
   line_channel_access_token: string | null;
   last_guide_hearing_sent_date: string | null;
@@ -109,6 +110,29 @@ export function parseGuideHearingHour(time: string | null | undefined): number |
   const c = canonicalGuideHearingTime(time);
   if (!c) return null;
   return Number(c.slice(0, 2));
+}
+
+/**
+ * Cron / 設定表示用: `guidance_request_time`（DB time）を優先し、未設定時は `guide_hearing_time`（レガシー text）を使う。
+ * 戻り値は常に `HH:00` または null。
+ */
+export function resolveGuideHearingScheduleSlot(
+  guidanceRequestTime: string | null | undefined,
+  guideHearingTimeLegacy: string | null | undefined
+): string | null {
+  const g =
+    guidanceRequestTime != null && String(guidanceRequestTime).trim() !== ""
+      ? String(guidanceRequestTime).trim()
+      : null;
+  const legacy =
+    typeof guideHearingTimeLegacy === "string" && guideHearingTimeLegacy.trim() !== ""
+      ? guideHearingTimeLegacy.trim()
+      : null;
+  if (g) {
+    const primary = canonicalGuideHearingTime(g);
+    if (primary) return primary;
+  }
+  return canonicalGuideHearingTime(legacy);
 }
 
 /** @deprecated */

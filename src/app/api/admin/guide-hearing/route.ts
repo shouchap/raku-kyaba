@@ -7,7 +7,11 @@ import { isSuperAdminUser } from "@/lib/super-admin";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import { sendPushMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
-import { buildGuideTargetSelectMessage, canonicalGuideHearingTime } from "@/lib/guide-hearing";
+import {
+  buildGuideTargetSelectMessage,
+  canonicalGuideHearingTime,
+  resolveGuideHearingScheduleSlot,
+} from "@/lib/guide-hearing";
 
 export const dynamic = "force-dynamic";
 
@@ -53,11 +57,20 @@ export async function GET(request: Request) {
   if (mismatch) return mismatch;
 
   const admin = createServiceRoleClient();
-  const storeRes = await admin
+  let storeRes = await admin
     .from("stores")
-    .select("guide_hearing_enabled, guide_hearing_time, guide_hearing_reporter_id, guide_staff_names")
+    .select(
+      "guide_hearing_enabled, guidance_request_time, guide_hearing_time, guide_hearing_reporter_id, guide_staff_names"
+    )
     .eq("id", storeId)
     .maybeSingle();
+  if (storeRes.error && isUndefinedColumnError(storeRes.error, "guidance_request_time")) {
+    storeRes = await admin
+      .from("stores")
+      .select("guide_hearing_enabled, guide_hearing_time, guide_hearing_reporter_id, guide_staff_names")
+      .eq("id", storeId)
+      .maybeSingle();
+  }
   if (storeRes.error) {
     if (isUndefinedColumnError(storeRes.error, "guide_hearing_enabled")) {
       return NextResponse.json({
@@ -79,10 +92,13 @@ export async function GET(request: Request) {
     console.error("[api/admin/guide-hearing] reporter candidates fetch failed:", candidateErr.message);
   }
 
+  const row = storeRes.data as {
+    guidance_request_time?: string | null;
+    guide_hearing_time?: string | null;
+  } | null;
   const sendTime =
-    canonicalGuideHearingTime(
-      typeof storeRes.data?.guide_hearing_time === "string" ? storeRes.data.guide_hearing_time : null
-    ) ?? "02:00";
+    resolveGuideHearingScheduleSlot(row?.guidance_request_time ?? null, row?.guide_hearing_time ?? null) ??
+    "02:00";
 
   return NextResponse.json({
     enabled: storeRes.data?.guide_hearing_enabled === true,
@@ -175,16 +191,30 @@ export async function PATCH(request: Request) {
     }
   }
 
-  const storeUpd = await admin
+  const timeForPg = `${sendTimeCanonical}:00`;
+  let storeUpd = await admin
     .from("stores")
     .update({
       guide_hearing_enabled: body.enabled,
       guide_hearing_time: sendTimeCanonical,
+      guidance_request_time: timeForPg,
       guide_hearing_reporter_id: reporterCastId,
       guide_staff_names: guideStaffNames,
       updated_at: nowIso,
     })
     .eq("id", storeId);
+  if (storeUpd.error && isUndefinedColumnError(storeUpd.error, "guidance_request_time")) {
+    storeUpd = await admin
+      .from("stores")
+      .update({
+        guide_hearing_enabled: body.enabled,
+        guide_hearing_time: sendTimeCanonical,
+        guide_hearing_reporter_id: reporterCastId,
+        guide_staff_names: guideStaffNames,
+        updated_at: nowIso,
+      })
+      .eq("id", storeId);
+  }
   if (storeUpd.error) {
     return NextResponse.json(
       {

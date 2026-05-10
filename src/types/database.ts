@@ -72,7 +72,9 @@ export interface Database {
           welfare_work_items: string | null;
           /** 案内数ヒアリング送信を有効にするか */
           guide_hearing_enabled: boolean;
-          /** 案内数ヒアリング送信時刻（HH:00, JST） */
+          /** 案内ヒアリング自動送信時刻（DB time、053）。アプリでは JST 整時として解釈 */
+          guidance_request_time: string | null;
+          /** 案内数ヒアリング送信時刻（HH:00, JST・レガシー／053 と併用） */
           guide_hearing_time: string | null;
           /** 最終ヒアリング送信営業日（JST DATE） */
           last_guide_hearing_sent_date: string | null;
@@ -120,6 +122,7 @@ export interface Database {
           | "welfare_message_welcome"
           | "welfare_work_items"
           | "guide_hearing_enabled"
+          | "guidance_request_time"
           | "guide_hearing_time"
           | "last_guide_hearing_sent_date"
           | "guide_hearing_reporter_id"
@@ -156,6 +159,7 @@ export interface Database {
           welfare_message_welcome?: string | null;
           welfare_work_items?: string | null;
           guide_hearing_enabled?: boolean;
+          guidance_request_time?: string | null;
           guide_hearing_time?: string | null;
           last_guide_hearing_sent_date?: string | null;
           guide_hearing_reporter_id?: string | null;

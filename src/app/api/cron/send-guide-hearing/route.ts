@@ -14,6 +14,7 @@ type StoreBaseRow = {
   id: string;
   name: string | null;
   business_type?: string | null;
+  guidance_request_time?: string | null;
   guide_hearing_time: string | null;
   guide_hearing_enabled?: boolean;
   last_guide_hearing_sent_date?: string | null;
@@ -41,9 +42,11 @@ export async function GET(request: Request) {
     const currentTimeStr = `${currentHour}:00`;
 
     const { createClient } = await import("@supabase/supabase-js");
-    const { buildGuideTargetSelectMessage, resolveBusinessDateFromJst } = await import(
-      "@/lib/guide-hearing"
-    );
+    const {
+      buildGuideTargetSelectMessage,
+      resolveBusinessDateFromJst,
+      resolveGuideHearingScheduleSlot,
+    } = await import("@/lib/guide-hearing");
     const { sendPushMessage } = await import("@/lib/line-reply");
     const { fetchResolvedLineChannelAccessTokenForStore } = await import("@/lib/line-channel-token");
 
@@ -55,13 +58,22 @@ export async function GET(request: Request) {
     let storesHasIsGuideEnabled = true;
     /** フルスキーマ取得できたときのみ cabaret 限定・guide_hearing_enabled 判定を行う */
     let storesHasCabaretGuideCronColumns = true;
+    /** guidance_request_time 列あり（053 以降） */
+    let storesHasGuidanceRequestTime = true;
 
     const trySelect = async (cols: string) =>
       supabase.from("stores").select(cols);
 
     let sel =
-      "id, name, business_type, guide_hearing_time, guide_hearing_enabled, last_guide_hearing_sent_date, is_guide_enabled";
+      "id, name, business_type, guidance_request_time, guide_hearing_time, guide_hearing_enabled, last_guide_hearing_sent_date, is_guide_enabled";
     let storeFetch = await trySelect(sel);
+
+    if (storeFetch.error?.code === "42703") {
+      storesHasGuidanceRequestTime = false;
+      sel =
+        "id, name, business_type, guide_hearing_time, guide_hearing_enabled, last_guide_hearing_sent_date, is_guide_enabled";
+      storeFetch = await trySelect(sel);
+    }
 
     if (storeFetch.error?.code === "42703") {
       storesHasCabaretGuideCronColumns = false;
@@ -102,15 +114,19 @@ export async function GET(request: Request) {
     stores = storeFetch.data as unknown as StoreBaseRow[];
 
     const targetStores = stores.filter((store) => {
+      if (storesHasIsGuideEnabled && store.is_guide_enabled === false) return false;
       if (storesHasCabaretGuideCronColumns) {
         if (String(store.business_type ?? "cabaret").trim() !== "cabaret") return false;
         if (store.guide_hearing_enabled !== true) return false;
       }
+      const slot = resolveGuideHearingScheduleSlot(
+        storesHasGuidanceRequestTime ? store.guidance_request_time : null,
+        store.guide_hearing_time
+      );
       return (
-        !!store.guide_hearing_time &&
-        store.guide_hearing_time.startsWith(currentHour + ":") &&
-        (!storesHasLastSentDate || store.last_guide_hearing_sent_date !== businessDate) &&
-        (!storesHasIsGuideEnabled || store.is_guide_enabled !== false)
+        !!slot &&
+        slot.startsWith(`${currentHour}:`) &&
+        (!storesHasLastSentDate || store.last_guide_hearing_sent_date !== businessDate)
       );
     });
 

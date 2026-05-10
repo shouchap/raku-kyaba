@@ -1052,13 +1052,30 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 ))}
               </select>
             </label>
+            {isGuideMasterEnabled && businessType === "cabaret" ? (
+              <label className="block text-sm text-slate-700">
+                案内ヒアリング送信時刻（JST・整時）
+                <Tip text="業態別設定で「案内ヒアリングを利用する」がONのときのみ表示されます。Cron は DB の guidance_request_time（未適用時は guide_hearing_time）と現在の JST 時刻を照合します。" />
+                <select
+                  value={guideHearingTime}
+                  onChange={(e) => setGuideHearingTime(e.target.value)}
+                  className={`mt-1 block w-full max-w-xs ${CONTROL_CLASS}`}
+                >
+                  {REMIND_TIME_OPTIONS.map((v) => (
+                    <option key={`notify-gh-${v}`} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </section>
 
           {businessType === "cabaret" && (
             <section className="app-card p-4 space-y-3 text-slate-900">
               <h2 className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1.5">
                 案内数入力（キャバクラ専用）
-                <Tip text="営業終了付近に、案内数（組数・人数）入力の起点となるLINEメッセージを自動送信します。DBの guide_hearing_time を参照します。" />
+                <Tip text="送信時刻は上の「通知設定」内の案内ヒアリング送信時刻で設定します（案内ヒアリング利用ON時のみ表示）。ここでは自動送信のON/OFF・担当・入力対象名を設定します。" />
               </h2>
               <p className="text-xs text-slate-600">
                 「案内数の入力対象を選んでください（店舗名）。」とクイックリプライを送り、セクキャバ／GOLD の案内フローを開始します。
@@ -1076,20 +1093,6 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                   className="mt-0.5 h-4 w-4 accent-blue-600 disabled:accent-slate-400"
                 />
                 案内数入力メッセージを自動送信する（Cron が JST 整時に一致した店舗へ送信）
-              </label>
-              <label className="block text-sm text-slate-700">
-                案内数入力の送信時刻（JST・整時）
-                <select
-                  value={guideHearingTime}
-                  onChange={(e) => setGuideHearingTime(e.target.value)}
-                  className={`mt-1 block w-full max-w-xs ${CONTROL_CLASS}`}
-                >
-                  {REMIND_TIME_OPTIONS.map((v) => (
-                    <option key={`gh-${v}`} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
               </label>
               <label className="block text-sm text-slate-700">
                 LINE受取担当（起点メッセージの宛先）
@@ -1207,7 +1210,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             </div>
             {businessType === "cabaret" && isGuideMasterEnabled ? (
               <div className="rounded-lg border border-amber-200 bg-white/70 p-3 space-y-2">
-                <p className="text-xs font-medium text-slate-700">案内数入力 個別テスト</p>
+                <p className="text-xs font-medium text-slate-700">案内ヒアリング 個別テスト</p>
                 <p className="text-xs text-slate-600">
                   クイックリプライ付きの起点メッセージ（入力対象の選択）を手動送信します。担当者宛・別キャスト宛・公式LINEグループ宛を選べます。
                 </p>
