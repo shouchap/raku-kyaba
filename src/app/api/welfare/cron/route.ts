@@ -6,6 +6,11 @@
  * - midday: 12:00 体調確認
  * - evening: 17:00 作業終了
  *
+ * 送信対象者（各店舗ごと）:
+ * - casts で store_id が一致し is_active=true かつ line_user_id が非空の利用者すべて。
+ * - 当日の出勤予定・作業開始済み・welfare_daily_logs の状態は見ない（同一配信）。
+ * - stores.regular_holidays に「今日の曜日（JST）」が含まれる店舗はスキップ。
+ *
  * 認証: CRON_SECRET 設定時は Authorization: Bearer <CRON_SECRET>
  * テスト: ?storeId=uuid でその店のみ（時刻チェックなし）
  */
@@ -184,41 +189,69 @@ async function pushSegmentToStore(
   supabase: SupabaseClient,
   storeRow: WelfareCronStoreRow,
   segment: Segment
-): Promise<{ ok: boolean; recipients: number; error?: string }> {
+): Promise<{
+  ok: boolean;
+  recipients: number;
+  error?: string;
+  activeCastCount?: number;
+}> {
   const storeId = storeRow.id;
   const resolved = await fetchResolvedLineChannelAccessTokenForStore(supabase, storeId, LOG_PREFIX);
   if (!resolved?.token) {
+    console.error(
+      `${LOG_PREFIX} segment=${segment} storeId=${storeId} skip=no_line_token (LINE channel access token missing or invalid)`
+    );
     return { ok: false, recipients: 0, error: "no_line_token" };
   }
 
-  const { data: casts, error: castErr } = await supabase
+  const { data: castRows, error: castErr } = await supabase
     .from("casts")
     .select("line_user_id")
     .eq("store_id", storeId)
-    .eq("is_active", true)
-    .not("line_user_id", "is", null);
+    .eq("is_active", true);
 
   if (castErr) {
-    console.error(LOG_PREFIX, "casts", storeId, castErr.message);
+    console.error(
+      `${LOG_PREFIX} segment=${segment} storeId=${storeId} casts_query_failed message=${castErr.message} code=${castErr.code ?? ""}`
+    );
     return { ok: false, recipients: 0, error: castErr.message };
   }
 
-  const ids = (casts ?? [])
+  const rows = castRows ?? [];
+  const activeCastCount = rows.length;
+  const ids = rows
     .map((r: { line_user_id?: string | null }) => r.line_user_id)
     .filter((id): id is string => !!id && id.trim() !== "");
 
   if (ids.length === 0) {
-    return { ok: true, recipients: 0 };
+    console.warn(
+      `${LOG_PREFIX} segment=${segment} storeId=${storeId} recipients=0 reason=no_line_linked_users activeCastCount=${activeCastCount}`
+    );
+    return { ok: true, recipients: 0, activeCastCount };
   }
 
   const flex = flexForSegment(segment, storeRow);
   const chunkSize = 500;
-  for (let i = 0; i < ids.length; i += chunkSize) {
-    const chunk = ids.slice(i, i + chunkSize);
-    await sendMulticastMessage(chunk, resolved.token, [flex]);
+  try {
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      await sendMulticastMessage(chunk, resolved.token, [flex]);
+      console.info(
+        `${LOG_PREFIX} segment=${segment} storeId=${storeId} multicast_ok chunk=${Math.floor(i / chunkSize) + 1}/${Math.ceil(ids.length / chunkSize)} size=${chunk.length}`
+      );
+    }
+  } catch (sendErr) {
+    const msg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+    console.error(
+      `${LOG_PREFIX} segment=${segment} storeId=${storeId} LINE_MULTICAST_FAILED message=${msg} attemptedRecipients=${ids.length} activeCastCount=${activeCastCount}`
+    );
+    return { ok: false, recipients: 0, error: `line_multicast: ${msg}`, activeCastCount };
   }
 
-  return { ok: true, recipients: ids.length };
+  console.info(
+    `${LOG_PREFIX} segment=${segment} storeId=${storeId} push_complete recipients=${ids.length} activeCastCount=${activeCastCount}`
+  );
+  return { ok: true, recipients: ids.length, activeCastCount };
 }
 
 export async function GET(request: Request) {
@@ -255,8 +288,23 @@ export async function GET(request: Request) {
       storeIdRaw && isValidStoreId(storeIdRaw) ? storeIdRaw.toLowerCase() : null;
 
     const stores = await fetchWelfareStores(supabase, singleStoreId);
-    const results: { storeId: string; recipients: number; error?: string }[] = [];
+    const results: {
+      storeId: string;
+      recipients: number;
+      error?: string;
+      activeCastCount?: number;
+    }[] = [];
     const todayJst = getTodayJst();
+
+    console.info(
+      `${LOG_PREFIX} run_begin segment=${segment} todayJst=${todayJst} weekdayJst=${getWeekdayJst(todayJst)} storeCount=${stores.length} singleStoreId=${singleStoreId ?? "null"}`
+    );
+
+    if (stores.length === 0) {
+      console.warn(
+        `${LOG_PREFIX} segment=${segment} no_welfare_b_stores (business_type=welfare_b の店舗が0件、または storeId 指定が不正)`
+      );
+    }
 
     for (const s of stores) {
       if (isRegularHolidayDay(s.regular_holidays, todayJst)) {
@@ -266,7 +314,7 @@ export async function GET(request: Request) {
           error: "regular_holiday",
         });
         console.info(
-          `${LOG_PREFIX} segment=${segment} storeId=${s.id} skipped=regular_holiday weekday=${getWeekdayJst(todayJst)}`
+          `${LOG_PREFIX} segment=${segment} storeId=${s.id} skipped=regular_holiday weekday=${getWeekdayJst(todayJst)} regular_holidays=${JSON.stringify(s.regular_holidays ?? [])}`
         );
         continue;
       }
@@ -275,10 +323,16 @@ export async function GET(request: Request) {
         storeId: s.id,
         recipients: r.recipients,
         error: r.error,
+        activeCastCount: r.activeCastCount,
       });
-      console.info(
-        `${LOG_PREFIX} segment=${segment} storeId=${s.id} recipients=${r.recipients} ok=${r.ok}`
-      );
+      const statusLine = `${LOG_PREFIX} segment=${segment} storeId=${s.id} ok=${r.ok} recipients=${r.recipients} activeCastCount=${r.activeCastCount ?? "n/a"} error=${r.error ?? "none"}`;
+      if (r.ok && r.recipients === 0 && !r.error) {
+        console.warn(`${statusLine} (note: 0 recipients may mean no LINE-linked active casts)`);
+      } else if (!r.ok) {
+        console.error(statusLine);
+      } else {
+        console.info(statusLine);
+      }
     }
 
     return NextResponse.json({
