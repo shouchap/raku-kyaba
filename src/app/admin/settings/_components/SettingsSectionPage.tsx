@@ -73,6 +73,8 @@ type SnapshotShape = {
   termCast: string;
   shiftTimeStepMinutes: ShiftTimeStepMinutes;
   lineCustomizationText: string;
+  preOpenReportPrefixText: string;
+  preOpenReportSuffixText: string;
 };
 
 const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
@@ -211,6 +213,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [menuSettings, setMenuSettings] = useState<MenuSettingsMap>({});
   const [reminderConfigExtras, setReminderConfigExtras] = useState<Record<string, unknown>>({});
   const [lineCustomizationText, setLineCustomizationText] = useState("{}");
+  const [preOpenReportPrefixText, setPreOpenReportPrefixText] = useState("");
+  const [preOpenReportSuffixText, setPreOpenReportSuffixText] = useState("");
   const [shiftTimeStepMinutes, setShiftTimeStepMinutes] = useState<ShiftTimeStepMinutes>(15);
 
   const [individualTestCastId, setIndividualTestCastId] = useState("");
@@ -224,6 +228,20 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [broadcastFailedCastNames, setBroadcastFailedCastNames] = useState<string[]>([]);
   const [testingWeeklyReport, setTestingWeeklyReport] = useState(false);
   const [weeklyReportTestDetail, setWeeklyReportTestDetail] = useState<string | null>(null);
+  const [weeklyReportTestCastId, setWeeklyReportTestCastId] = useState("");
+  const [warnUnansweredTestCastId, setWarnUnansweredTestCastId] = useState("");
+  const [testingWarnUnanswered, setTestingWarnUnanswered] = useState(false);
+  const [warnUnansweredTestDetail, setWarnUnansweredTestDetail] = useState<string | null>(null);
+  const [welfareTestCastId, setWelfareTestCastId] = useState("");
+  const [welfareTestSegment, setWelfareTestSegment] = useState<"morning" | "midday" | "evening">(
+    "morning"
+  );
+  const [testingWelfare, setTestingWelfare] = useState(false);
+  const [welfareTestDetail, setWelfareTestDetail] = useState<string | null>(null);
+  const [preOpenPreviewLoading, setPreOpenPreviewLoading] = useState(false);
+  const [preOpenPreviewText, setPreOpenPreviewText] = useState("");
+  const [preOpenPreviewDate, setPreOpenPreviewDate] = useState("");
+  const [preOpenPreviewError, setPreOpenPreviewError] = useState<string | null>(null);
 
   const createSnapshotObj = useCallback((): SnapshotShape => {
     return {
@@ -255,6 +273,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       termCast,
       shiftTimeStepMinutes,
       lineCustomizationText,
+      preOpenReportPrefixText,
+      preOpenReportSuffixText,
     };
   }, [
     businessType,
@@ -285,6 +305,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     termCast,
     shiftTimeStepMinutes,
     lineCustomizationText,
+    preOpenReportPrefixText,
+    preOpenReportSuffixText,
   ]);
 
   const createSnapshot = useCallback(() => JSON.stringify(createSnapshotObj()), [createSnapshotObj]);
@@ -323,6 +345,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     termCast: "キャストラベル",
     shiftTimeStepMinutes: "シフト時刻の刻み",
     lineCustomizationText: "LINE詳細カスタム(JSON)",
+    preOpenReportPrefixText: "営業前サマリー 追記（先頭）",
+    preOpenReportSuffixText: "営業前サマリー 追記（末尾）",
   };
 
   const unsavedChangeLabels = useMemo(() => {
@@ -402,6 +426,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setShiftTimeStepMinutes(parseShiftTimeStepMinutes(data.shift_time_step_minutes));
       setReminderConfigExtras({});
       setLineCustomizationText("{}");
+      setPreOpenReportPrefixText("");
+      setPreOpenReportSuffixText("");
 
       if (data.reminder_config && typeof data.reminder_config === "object") {
         const rc = data.reminder_config as Record<string, unknown>;
@@ -416,9 +442,17 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           admin_notify_absent: _ana,
           admin_notify_new_cast: _ann,
           welcome_message: _wm,
+          pre_open_report_prefix: _preOpenPrefix,
+          pre_open_report_suffix: _preOpenSuffix,
           ...rest
         } = rc;
         setReminderConfigExtras(rest);
+        setPreOpenReportPrefixText(
+          typeof _preOpenPrefix === "string" ? _preOpenPrefix : ""
+        );
+        setPreOpenReportSuffixText(
+          typeof _preOpenSuffix === "string" ? _preOpenSuffix : ""
+        );
         const lc = rc.line_customization;
         if (lc && typeof lc === "object" && !Array.isArray(lc)) {
           setLineCustomizationText(JSON.stringify(lc, null, 2));
@@ -466,6 +500,33 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           : [];
         setGuideStaffNamesText(names.join("\n"));
         setGuideReporterCandidates(Array.isArray(g.reporterCandidates) ? g.reporterCandidates : []);
+      }
+
+      try {
+        setPreOpenPreviewLoading(true);
+        setPreOpenPreviewError(null);
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, "0");
+        const dd = String(today.getDate()).padStart(2, "0");
+        const targetDate = `${yyyy}-${mm}-${dd}`;
+        setPreOpenPreviewDate(targetDate);
+        const q = new URLSearchParams({ storeId: activeStoreId, targetDate });
+        const previewRes = await fetch(`/api/admin/pre-open-report/preview?${q.toString()}`);
+        const previewData = (await previewRes.json()) as {
+          error?: string;
+          message?: string;
+          targetDate?: string;
+        };
+        if (!previewRes.ok) throw new Error(previewData.error ?? "プレビュー取得に失敗しました");
+        setPreOpenPreviewText(typeof previewData.message === "string" ? previewData.message : "");
+      } catch (e) {
+        setPreOpenPreviewError(
+          e instanceof Error ? e.message : "営業前サマリープレビューの取得に失敗しました"
+        );
+        setPreOpenPreviewText("");
+      } finally {
+        setPreOpenPreviewLoading(false);
       }
     } finally {
       setLoading(false);
@@ -515,6 +576,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
         admin_notify_absent: config.admin_notify_absent.trim() || DEFAULT_CONFIG.admin_notify_absent,
         admin_notify_new_cast: config.admin_notify_new_cast.trim() || DEFAULT_CONFIG.admin_notify_new_cast,
         welcome_message: config.welcome_message.trim() || DEFAULT_CONFIG.welcome_message,
+        pre_open_report_prefix: preOpenReportPrefixText.trim(),
+        pre_open_report_suffix: preOpenReportSuffixText.trim(),
         line_customization: lineCustomizationValue,
       };
 
@@ -607,6 +670,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     router,
     reminderConfigExtras,
     lineCustomizationText,
+    preOpenReportPrefixText,
+    preOpenReportSuffixText,
   ]);
 
   const handleIndividualTest = useCallback(async () => {
@@ -635,24 +700,29 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       const res = await fetch("/api/admin/weekly-report/test-send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storeId: activeStoreId }),
+        body: JSON.stringify({
+          storeId: activeStoreId,
+          castId: weeklyReportTestCastId || undefined,
+        }),
       });
       const data = (await res.json()) as {
         ok?: boolean;
         error?: string;
         chunkCount?: number;
         sendDateYmd?: string;
+        castName?: string;
       };
       if (!res.ok) throw new Error(data.error ?? "送信に失敗しました");
-      setWeeklyReportTestDetail(
-        `${data.sendDateYmd ?? "本日"}基準で ${data.chunkCount ?? 1} 通送信しました（管理者宛）`
-      );
+      const target = weeklyReportTestCastId
+        ? `${data.castName ?? "対象"}宛`
+        : "管理者宛";
+      setWeeklyReportTestDetail(`${data.sendDateYmd ?? "本日"}基準で ${data.chunkCount ?? 1} 通送信しました（${target}）`);
     } catch (e) {
       setWeeklyReportTestDetail(e instanceof Error ? e.message : "送信に失敗しました");
     } finally {
       setTestingWeeklyReport(false);
     }
-  }, [activeStoreId]);
+  }, [activeStoreId, weeklyReportTestCastId]);
 
   const handleGuideHearingTest = useCallback(async () => {
     if (guideHearingTestMode === "cast" && !guideHearingTestCastId) {
@@ -748,6 +818,74 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setBroadcastingRemind(false);
     }
   }, [activeStoreId]);
+
+  const handleWelfareTestSend = useCallback(async () => {
+    if (!welfareTestCastId) return;
+    setTestingWelfare(true);
+    setWelfareTestDetail(null);
+    try {
+      const res = await fetch("/api/admin/welfare/test-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId: activeStoreId,
+          castId: welfareTestCastId,
+          segment: welfareTestSegment,
+        }),
+      });
+      const data = (await res.json()) as { error?: string; castName?: string; segment?: string };
+      if (!res.ok) throw new Error(data.error ?? "送信失敗");
+      const segLabel =
+        data.segment === "morning" ? "朝開始" : data.segment === "midday" ? "昼体調確認" : "夕方終了";
+      setWelfareTestDetail(`${data.castName ?? "対象"} に「${segLabel}」を送信しました`);
+    } catch (e) {
+      setWelfareTestDetail(e instanceof Error ? e.message : "送信失敗");
+    } finally {
+      setTestingWelfare(false);
+    }
+  }, [activeStoreId, welfareTestCastId, welfareTestSegment]);
+
+  const handleWarnUnansweredTest = useCallback(async () => {
+    if (!warnUnansweredTestCastId) return;
+    setTestingWarnUnanswered(true);
+    setWarnUnansweredTestDetail(null);
+    try {
+      const res = await fetch("/api/admin/remind/warn-unanswered/test-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId: activeStoreId, castId: warnUnansweredTestCastId }),
+      });
+      const data = (await res.json()) as { error?: string; castName?: string };
+      if (!res.ok) throw new Error(data.error ?? "送信失敗");
+      setWarnUnansweredTestDetail(`${data.castName ?? "対象"} に未返信アラート文面を送信しました`);
+    } catch (e) {
+      setWarnUnansweredTestDetail(e instanceof Error ? e.message : "送信失敗");
+    } finally {
+      setTestingWarnUnanswered(false);
+    }
+  }, [activeStoreId, warnUnansweredTestCastId]);
+
+  const handleRefreshPreOpenPreview = useCallback(async () => {
+    setPreOpenPreviewLoading(true);
+    setPreOpenPreviewError(null);
+    try {
+      const dateParam = preOpenPreviewDate.trim();
+      const q = new URLSearchParams({ storeId: activeStoreId });
+      if (dateParam) q.set("targetDate", dateParam);
+      const res = await fetch(`/api/admin/pre-open-report/preview?${q.toString()}`);
+      const data = (await res.json()) as { error?: string; message?: string; targetDate?: string };
+      if (!res.ok) throw new Error(data.error ?? "プレビュー取得に失敗しました");
+      setPreOpenPreviewText(typeof data.message === "string" ? data.message : "");
+      if (!dateParam && typeof data.targetDate === "string") {
+        setPreOpenPreviewDate(data.targetDate);
+      }
+    } catch (e) {
+      setPreOpenPreviewError(e instanceof Error ? e.message : "プレビュー取得に失敗しました");
+      setPreOpenPreviewText("");
+    } finally {
+      setPreOpenPreviewLoading(false);
+    }
+  }, [activeStoreId, preOpenPreviewDate]);
 
   const menuEditorItems = useMemo(() => {
     const base = MENU_PRESET_BY_BUSINESS[businessType].map((item, idx) => {
@@ -1206,6 +1344,61 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 ))}
               </select>
             </label>
+            <label className="block text-sm text-slate-700">
+              営業前サマリー 追記（先頭）
+              <p className="mt-0.5 text-xs text-slate-500">
+                営業前サマリー本文の先頭に任意テキストを追加します（空欄で追加なし）。
+              </p>
+              <textarea
+                value={preOpenReportPrefixText}
+                onChange={(e) => setPreOpenReportPrefixText(e.target.value)}
+                rows={2}
+                className={`mt-1 w-full ${CONTROL_CLASS}`}
+              />
+            </label>
+            <label className="block text-sm text-slate-700">
+              営業前サマリー 追記（末尾）
+              <p className="mt-0.5 text-xs text-slate-500">
+                営業前サマリー本文の末尾に任意テキストを追加します（空欄で追加なし）。
+              </p>
+              <textarea
+                value={preOpenReportSuffixText}
+                onChange={(e) => setPreOpenReportSuffixText(e.target.value)}
+                rows={2}
+                className={`mt-1 w-full ${CONTROL_CLASS}`}
+              />
+            </label>
+            <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
+              <p className="text-xs font-semibold text-slate-800">営業前サマリー 現在送信文面プレビュー</p>
+              <p className="text-xs text-slate-600">
+                実際の送信ロジックと同じ内容を表示します。これを見ながら上の追記文面を調整してください。
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="date"
+                  value={preOpenPreviewDate}
+                  onChange={(e) => setPreOpenPreviewDate(e.target.value)}
+                  className={`w-full max-w-[220px] text-sm ${CONTROL_CLASS}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleRefreshPreOpenPreview()}
+                  disabled={preOpenPreviewLoading}
+                  className="btn-secondary whitespace-nowrap"
+                >
+                  {preOpenPreviewLoading ? "読込中..." : "プレビュー更新"}
+                </button>
+              </div>
+              <textarea
+                value={preOpenPreviewText}
+                readOnly
+                rows={14}
+                className={`w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
+              {preOpenPreviewError ? (
+                <p className="text-xs text-red-600">{preOpenPreviewError}</p>
+              ) : null}
+            </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
               <p className="text-xs font-semibold text-slate-800">営業前サマリー 個別テスト</p>
               <p className="text-xs text-slate-600">選択したキャストへ、営業前サマリー相当のメッセージを1通送信します。</p>
@@ -1233,6 +1426,89 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 </button>
               </div>
               {barSummaryTestDetail ? <p className="text-xs text-slate-600">{barSummaryTestDetail}</p> : null}
+            </div>
+
+            {businessType === "welfare_b" ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
+                <p className="text-xs font-semibold text-slate-800">福祉定期配信 個別テスト</p>
+                <p className="text-xs text-slate-600">
+                  朝開始・昼体調確認・夕方終了のFlexを、選択した利用者へ1通だけ送信します。
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    value={welfareTestSegment}
+                    onChange={(e) =>
+                      setWelfareTestSegment(
+                        e.target.value === "midday"
+                          ? "midday"
+                          : e.target.value === "evening"
+                            ? "evening"
+                            : "morning"
+                      )
+                    }
+                    className={`w-full max-w-[220px] text-sm ${CONTROL_CLASS}`}
+                  >
+                    <option value="morning">朝開始（9:00）</option>
+                    <option value="midday">昼体調確認（12:00）</option>
+                    <option value="evening">夕方終了（17:00）</option>
+                  </select>
+                  <select
+                    value={welfareTestCastId}
+                    onChange={(e) => setWelfareTestCastId(e.target.value)}
+                    className={`min-w-0 flex-1 max-w-xs text-sm ${CONTROL_CLASS}`}
+                  >
+                    <option value="">送信先選択</option>
+                    {guideReporterCandidates.map((c) => (
+                      <option key={`welfare-${c.id}`} value={c.id} disabled={!c.line_user_id}>
+                        {c.name}
+                        {c.line_user_id ? "" : "（LINE未連携）"}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void handleWelfareTestSend()}
+                    disabled={testingWelfare || !welfareTestCastId}
+                    className="btn-secondary whitespace-nowrap"
+                  >
+                    {testingWelfare ? "送信中..." : "送信"}
+                  </button>
+                </div>
+                {welfareTestDetail ? <p className="text-xs text-slate-600">{welfareTestDetail}</p> : null}
+              </div>
+            ) : null}
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
+              <p className="text-xs font-semibold text-slate-800">未返信アラート文面 個別テスト</p>
+              <p className="text-xs text-slate-600">
+                reminder_config の未返信アラート文面設定を反映したテキストを、選択先へ1通送信します。
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <select
+                  value={warnUnansweredTestCastId}
+                  onChange={(e) => setWarnUnansweredTestCastId(e.target.value)}
+                  className={`min-w-0 flex-1 max-w-xs text-sm ${CONTROL_CLASS}`}
+                >
+                  <option value="">送信先選択</option>
+                  {guideReporterCandidates.map((c) => (
+                    <option key={`warn-unanswered-${c.id}`} value={c.id} disabled={!c.line_user_id}>
+                      {c.name}
+                      {c.line_user_id ? "" : "（LINE未連携）"}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void handleWarnUnansweredTest()}
+                  disabled={testingWarnUnanswered || !warnUnansweredTestCastId}
+                  className="btn-secondary whitespace-nowrap"
+                >
+                  {testingWarnUnanswered ? "送信中..." : "送信"}
+                </button>
+              </div>
+              {warnUnansweredTestDetail ? (
+                <p className="text-xs text-slate-600">{warnUnansweredTestDetail}</p>
+              ) : null}
             </div>
           </section>
 
@@ -1401,8 +1677,21 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
               <p className="text-xs font-semibold text-slate-800">週間レポートのテスト送信</p>
               <p className="text-xs text-slate-600">
-                設定した曜日・時刻に関係なく、いまの集計で管理者宛に送信します（本番の冪等フラグは更新しません）。
+                設定した曜日・時刻に関係なく、いまの集計を送信します（本番の冪等フラグは更新しません）。
               </p>
+              <select
+                value={weeklyReportTestCastId}
+                onChange={(e) => setWeeklyReportTestCastId(e.target.value)}
+                className={`min-w-0 w-full max-w-xs text-sm ${CONTROL_CLASS}`}
+              >
+                <option value="">管理者宛（既存動作）</option>
+                {guideReporterCandidates.map((c) => (
+                  <option key={`weekly-test-${c.id}`} value={c.id} disabled={!c.line_user_id}>
+                    {c.name}
+                    {c.line_user_id ? "" : "（LINE未連携）"}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
                 onClick={() => void handleWeeklyReportTest()}
