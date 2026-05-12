@@ -1731,7 +1731,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
 
             <label className="block text-sm text-slate-700">
               営業前サマリー時刻
-              <select value={preOpenReportHourJst} onChange={(e) => setPreOpenReportHourJst(e.target.value)} className={`mt-1 block w-full max-w-xs ${CONTROL_CLASS}`}>
+              <select value={preOpenReportHourJst} onChange={(e) => setPreOpenReportHourJst(e.target.value)} className={`mt-1 block w-full sm:max-w-xs ${CONTROL_CLASS}`}>
                 <option value="">送信しない</option>
                 {PRE_OPEN_HOUR_OPTIONS.map((v) => (
                   <option key={v} value={String(v)}>{v}時</option>
@@ -1754,21 +1754,21 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 onChange={(e) => handleEditWeeklyHeader(e.target.value)}
                 rows={2}
                 placeholder="本文の前に入れる文面"
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+                className={`mt-1 w-full font-mono text-sm leading-5 ${CONTROL_CLASS}`}
               />
               <p className="mt-1 text-xs text-slate-500">本文プレビュー（固定）</p>
               <textarea
                 value={weeklyPreviewBaseBody}
                 readOnly
                 rows={4}
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+                className={`mt-1 w-full font-mono text-sm leading-5 ${CONTROL_CLASS}`}
               />
               <textarea
                 value={weeklyTemplateParts.after}
                 onChange={(e) => handleEditWeeklyFooter(e.target.value)}
                 rows={2}
                 placeholder="本文の後に入れる文面"
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+                className={`mt-1 w-full font-mono text-sm leading-5 ${CONTROL_CLASS}`}
               />
             </label>
             <label className="block text-sm text-slate-700">
@@ -1781,21 +1781,21 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 onChange={(e) => handleEditDailyBarHeader(e.target.value)}
                 rows={2}
                 placeholder="本文の前に入れる文面"
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+                className={`mt-1 w-full font-mono text-sm leading-5 ${CONTROL_CLASS}`}
               />
               <p className="mt-1 text-xs text-slate-500">本文プレビュー（固定）</p>
               <textarea
                 value={dailyBarPreviewBaseBody}
                 readOnly
                 rows={4}
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+                className={`mt-1 w-full font-mono text-sm leading-5 ${CONTROL_CLASS}`}
               />
               <textarea
                 value={dailyBarTemplateParts.after}
                 onChange={(e) => handleEditDailyBarFooter(e.target.value)}
                 rows={2}
                 placeholder="本文の後に入れる文面"
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+                className={`mt-1 w-full font-mono text-sm leading-5 ${CONTROL_CLASS}`}
               />
             </label>
             <label className="block text-sm text-slate-700">
@@ -1807,14 +1807,14 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 value={remindAdminSummaryHeaderPreviewText}
                 onChange={(e) => handleEditRemindAdminSummaryHeader(e.target.value)}
                 rows={2}
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+                className={`mt-1 w-full font-mono text-sm leading-5 ${CONTROL_CLASS}`}
               />
               <p className="mt-1 text-xs text-slate-500">一覧プレビュー（固定）</p>
               <textarea
                 value={remindSummaryPreviewList}
                 readOnly
                 rows={3}
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+                className={`mt-1 w-full font-mono text-sm leading-5 ${CONTROL_CLASS}`}
               />
             </label>
             <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -1838,7 +1838,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                     value={warnUnansweredLineTemplateText}
                     onChange={(e) => setWarnUnansweredLineTemplateText(e.target.value)}
                     rows={2}
-                    className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+                    className={`mt-1 w-full font-mono text-sm leading-5 ${CONTROL_CLASS}`}
                   />
                 </label>
                 <label className="block text-sm text-slate-700">
@@ -1848,14 +1848,14 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                     value={warnUnansweredAndMoreTemplateText}
                     onChange={(e) => setWarnUnansweredAndMoreTemplateText(e.target.value)}
                     rows={2}
-                    className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+                    className={`mt-1 w-full font-mono text-sm leading-5 ${CONTROL_CLASS}`}
                   />
                 </label>
                 <textarea
                   value={warnUnansweredTemplatePreview}
                   readOnly
                   rows={4}
-                  className={`w-full font-mono text-xs ${CONTROL_CLASS}`}
+                  className={`w-full font-mono text-sm leading-5 ${CONTROL_CLASS}`}
                 />
               </div>
             </details>
@@ -1869,7 +1869,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                   type="date"
                   value={preOpenPreviewDate}
                   onChange={(e) => setPreOpenPreviewDate(e.target.value)}
-                  className={`w-full max-w-[220px] text-sm ${CONTROL_CLASS}`}
+                  className={`w-full sm:max-w-[220px] text-sm ${CONTROL_CLASS}`}
                 />
                 <button
                   type="button"
@@ -1884,7 +1884,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 value={preOpenPreviewEditorText}
                 onChange={(e) => handleEditPreOpenPreview(e.target.value)}
                 rows={14}
-                className={`w-full font-mono text-xs ${CONTROL_CLASS}`}
+                className={`w-full font-mono text-sm leading-5 ${CONTROL_CLASS}`}
               />
               {preOpenPreviewError ? (
                 <p className="text-xs text-red-600">{preOpenPreviewError}</p>
