@@ -1658,20 +1658,6 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 </label>
               </div>
             </details>
-            <label className="block text-sm text-slate-700">
-              LINE詳細カスタム(JSON・上級者向け)
-              <p className="mt-0.5 text-xs text-slate-500">
-                通常は上の入力欄だけ使ってください。ここは画面に無い高度な設定を直接上書きする項目です。
-              </p>
-              <textarea
-                value={lineCustomizationText}
-                onChange={(e) => setLineCustomizationText(e.target.value)}
-                rows={8}
-                spellCheck={false}
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
-              />
-            </label>
-
             <div className="mt-4 pt-4 border-t border-slate-200 space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">出勤確認のテスト</p>
               <div>
