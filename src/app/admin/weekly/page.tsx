@@ -3,16 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
-import {
-  addCalendarDaysJst,
-  getTodayJst,
-  getWeekdayJst,
-  normalizeScheduledEndTimeForDb,
-} from "@/lib/date-utils";
-import {
-  mergeScheduleRowForWeeklyUpsert,
-  scheduleRowHasLineAttendanceData,
-} from "@/lib/attendance-schedule-preserve";
+import { addCalendarDaysJst, getTodayJst, getWeekdayJst } from "@/lib/date-utils";
 import { normalizeDbTimeToShiftOption, TIME_OPTIONS } from "@/lib/time-options";
 
 type Cast = {
@@ -71,6 +62,8 @@ export default function AdminWeeklyPage() {
   } | null>(null);
   const [notifyStatus, setNotifyStatus] = useState<"idle" | "sending" | "done">("idle");
   const [message, setMessage] = useState<"success" | "error" | null>(null);
+  /** 直近の一括保存で API / PostgREST が返したヒント（画面に短く表示） */
+  const [saveErrorHint, setSaveErrorHint] = useState<string | null>(null);
 
   const today = useMemo(() => getTodayJst(), []);
   const [baseDate, setBaseDate] = useState(today);
@@ -359,6 +352,7 @@ export default function AdminWeeklyPage() {
 
     setFixingMonth(true);
     setMessage(null);
+    setSaveErrorHint(null);
     try {
       const res = await fetch("/api/admin/weekly/fix-month", {
         method: "POST",
@@ -394,99 +388,57 @@ export default function AdminWeeklyPage() {
 
     setSaving(true);
     setMessage(null);
+    setSaveErrorHint(null);
 
     try {
-      /**
-       * 以前は週の日付範囲を一括 DELETE していたため、LINE で確定した公休・半休等の
-       * response_status が消え月間レポートが 0 になる問題があった。
-       * シフト枠（時刻・同伴・捌き）のみ更新し、勤怠回答はマージして保持する。
-       */
-      const { data: existingRows, error: fetchErr } = await supabase
-        .from("attendance_schedules")
-        .select("*")
-        .eq("store_id", store.id)
-        .in("scheduled_date", dates);
-
-      if (fetchErr) throw fetchErr;
-
-      const prevByKey = new Map<string, Record<string, unknown>>();
-      for (const r of existingRows ?? []) {
-        const row = r as Record<string, unknown>;
-        const cid = String(row.cast_id ?? "");
-        const d = String(row.scheduled_date ?? "");
-        if (cid && d) prevByKey.set(`${cid}_${d}`, row);
-      }
-
-      const toUpsert: Record<string, unknown>[] = [];
-      casts.forEach((cast) => {
-        dates.forEach((dateStr) => {
-          const time = matrix[cast.id]?.[dateStr]?.trim();
-          if (!time) return;
-          const key = `${cast.id}_${dateStr}`;
-          const prev = prevByKey.get(key);
-          const endHm = (endMatrix[cast.id]?.[dateStr] ?? "").trim();
-          const merged = mergeScheduleRowForWeeklyUpsert(
-            {
-              store_id: store.id,
-              cast_id: cast.id,
-              scheduled_date: dateStr,
-              scheduled_time: time.length === 5 ? `${time}:00` : time,
-              scheduled_end_time: endHm ? normalizeScheduledEndTimeForDb(endHm) : null,
-              is_dohan: dohan[cast.id]?.[dateStr] ?? false,
-              is_sabaki: sabaki[cast.id]?.[dateStr] ?? false,
-            },
-            prev
-          );
-          toUpsert.push(merged);
-        });
+      const res = await fetch("/api/admin/weekly/bulk-save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          storeId: store.id,
+          dates,
+          castIds: casts.map((c) => c.id),
+          matrix,
+          endMatrix,
+          dohan,
+          sabaki,
+        }),
       });
 
-      if (toUpsert.length > 0) {
-        const { error: upErr } = await supabase.from("attendance_schedules").upsert(toUpsert, {
-          onConflict: "store_id,cast_id,scheduled_date",
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        details?: string;
+        hint?: string;
+        code?: string;
+        chunkOffset?: number;
+        upserted?: number;
+      };
+
+      if (!res.ok || data.ok !== true) {
+        console.error("[AdminWeekly] bulk-save failed", {
+          httpStatus: res.status,
+          error: data.error,
+          message: data.message,
+          code: data.code,
+          details: data.details,
+          hint: data.hint,
+          chunkOffset: data.chunkOffset,
         });
-        if (upErr) throw upErr;
+        const hint = [data.code, data.message ?? data.error, data.details, data.hint]
+          .filter((x) => x != null && String(x).trim() !== "")
+          .join(" · ");
+        setSaveErrorHint(hint.slice(0, 400));
+        throw new Error(data.error ?? data.message ?? "保存に失敗しました");
       }
 
-      const nowIso = new Date().toISOString();
-      const matrixHasTime = new Set<string>();
-      casts.forEach((cast) => {
-        dates.forEach((dateStr) => {
-          const time = matrix[cast.id]?.[dateStr]?.trim();
-          if (time) matrixHasTime.add(`${cast.id}_${dateStr}`);
-        });
-      });
-
-      for (const r of existingRows ?? []) {
-        const row = r as Record<string, unknown>;
-        const cid = String(row.cast_id ?? "");
-        const d = String(row.scheduled_date ?? "");
-        const key = `${cid}_${d}`;
-        if (matrixHasTime.has(key)) continue;
-
-        const id = String(row.id ?? "");
-        if (!id) continue;
-
-        if (scheduleRowHasLineAttendanceData(row)) {
-          const { error: clearErr } = await supabase
-            .from("attendance_schedules")
-            .update({
-              scheduled_time: null,
-              is_dohan: false,
-              is_sabaki: false,
-              updated_at: nowIso,
-            })
-            .eq("id", id);
-          if (clearErr) throw clearErr;
-        } else {
-          const { error: delErr } = await supabase.from("attendance_schedules").delete().eq("id", id);
-          if (delErr) throw delErr;
-        }
-      }
-
+      setSaveErrorHint(null);
       setMessage("success");
+      await loadExistingSchedules(store.id);
     } catch (err) {
-      console.error(err);
+      console.error("[AdminWeekly] bulk-save exception", err);
       setMessage("error");
     } finally {
       setSaving(false);
@@ -734,9 +686,14 @@ export default function AdminWeeklyPage() {
           </p>
         )}
         {message === "error" && (
-          <p className="mt-4 text-red-600 text-sm">
-            保存に失敗しました。再度お試しください。
-          </p>
+          <div className="mt-4 text-red-600 text-sm space-y-1">
+            <p>保存に失敗しました。再度お試しください。</p>
+            {saveErrorHint ? (
+              <p className="text-xs text-red-800/90 font-mono break-words whitespace-pre-wrap">
+                {saveErrorHint}
+              </p>
+            ) : null}
+          </div>
         )}
 
         <div className="mt-4 sm:mt-6 flex flex-col sm:flex-row gap-3 sm:gap-4">

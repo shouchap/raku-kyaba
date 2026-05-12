@@ -23,6 +23,28 @@ export function logPostgrestError(context: string, err: unknown): void {
   console.error(`[${context}]`, String(err));
 }
 
+/** API / ブラウザ向け: PostgREST エラーを JSON に載せる用 */
+export function postgrestErrorFields(err: unknown): {
+  message: string;
+  code?: string;
+  details?: string;
+  hint?: string;
+} {
+  if (err && typeof err === "object" && "message" in err) {
+    const pe = err as PostgrestError;
+    return {
+      message: pe.message,
+      ...(pe.code ? { code: pe.code } : {}),
+      ...(pe.details ? { details: pe.details } : {}),
+      ...(pe.hint ? { hint: pe.hint } : {}),
+    };
+  }
+  if (err instanceof Error) {
+    return { message: err.message };
+  }
+  return { message: String(err) };
+}
+
 /**
  * stores.remind_time など未マイグレーション時（column does not exist / 42703）
  */
