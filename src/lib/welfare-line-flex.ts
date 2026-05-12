@@ -2,6 +2,7 @@
  * B型事業所（welfare_b）向け Flex Message（キャバクラ系ロジックと独立）
  */
 import type { LineReplyMessage, LineTextQuickReplyItem } from "@/lib/line-reply";
+import type { WelfareLineCustomization } from "@/lib/line-customization";
 
 const BODY_COLOR = "#37474F";
 const BTN_PRIMARY = "#00838F";
@@ -32,11 +33,11 @@ export function parseWelfareWorkItemLabels(raw: string | null | undefined): stri
   return labels.slice(0, 10);
 }
 
-function postbackButton(label: string, data: string): object {
+function postbackButton(label: string, data: string, color = BTN_PRIMARY): object {
   return {
     type: "button" as const,
     style: "primary" as const,
-    color: BTN_PRIMARY,
+    color,
     height: "md" as const,
     action: {
       type: "postback" as const,
@@ -75,9 +76,10 @@ export function normalizeDefaultHospitalNames(raw: unknown): string[] {
 
 /** Q1 病院名: かかりつけがあれば病院ごとにクイックリプライ＋その他 */
 export function buildWelfareHospitalNameQuestionMessage(
-  defaultHospitalNames: string[] | null | undefined
+  defaultHospitalNames: string[] | null | undefined,
+  custom?: WelfareLineCustomization
 ): LineReplyMessage {
-  const text = "病院名を教えてください";
+  const text = custom?.hospitalNameQuestion?.trim() || "病院名を教えてください";
   const names = normalizeDefaultHospitalNames(defaultHospitalNames);
   if (names.length === 0) {
     return { type: "text", text };
@@ -95,9 +97,9 @@ export function buildWelfareHospitalNameQuestionMessage(
     type: "action",
     action: {
       type: "postback",
-      label: "その他（手入力）",
+      label: custom?.otherInputLabel?.trim() || "その他（手入力）",
       data: "welfare_action=hospital_name_other",
-      displayText: "その他（手入力）",
+      displayText: custom?.otherInputLabel?.trim() || "その他（手入力）",
     },
   });
   return { type: "text", text, quickReply: { items } };
@@ -128,7 +130,9 @@ export const WELFARE_HOSPITAL_END_TIMES = [
 ] as const;
 
 /** Q3-1 通院開始時間 */
-export function buildWelfareHospitalStartTimeQuickReplyMessage(): LineReplyMessage {
+export function buildWelfareHospitalStartTimeQuickReplyMessage(
+  custom?: WelfareLineCustomization
+): LineReplyMessage {
   const items: LineTextQuickReplyItem[] = WELFARE_HOSPITAL_START_TIMES.map((t) => ({
     type: "action",
     action: {
@@ -142,20 +146,23 @@ export function buildWelfareHospitalStartTimeQuickReplyMessage(): LineReplyMessa
     type: "action",
     action: {
       type: "postback",
-      label: "その他（手入力）",
+      label: custom?.otherInputLabel?.trim() || "その他（手入力）",
       data: "welfare_action=hospital_duration_start_other",
-      displayText: "その他（手入力）",
+      displayText: custom?.otherInputLabel?.trim() || "その他（手入力）",
     },
   });
   return {
     type: "text",
-    text: "通院の【開始時間】を選んでください",
+    text: custom?.hospitalStartPrompt?.trim() || "通院の【開始時間】を選んでください",
     quickReply: { items },
   };
 }
 
 /** Q3-2 通院終了時間 */
-export function buildWelfareHospitalEndTimeQuickReplyMessage(startTime: string): LineReplyMessage {
+export function buildWelfareHospitalEndTimeQuickReplyMessage(
+  startTime: string,
+  custom?: WelfareLineCustomization
+): LineReplyMessage {
   const st = String(startTime ?? "").trim();
   const items: LineTextQuickReplyItem[] = WELFARE_HOSPITAL_END_TIMES.map((t) => ({
     type: "action",
@@ -170,23 +177,27 @@ export function buildWelfareHospitalEndTimeQuickReplyMessage(startTime: string):
     type: "action",
     action: {
       type: "postback",
-      label: "その他（手入力）",
+      label: custom?.otherInputLabel?.trim() || "その他（手入力）",
       data: `welfare_action=hospital_duration_end_other&start_time=${encodeURIComponent(st)}`,
-      displayText: "その他（手入力）",
+      displayText: custom?.otherInputLabel?.trim() || "その他（手入力）",
     },
   });
   return {
     type: "text",
-    text: "通院の【終了時間】を選んでください",
+    text: custom?.hospitalEndPrompt?.trim() || "通院の【終了時間】を選んでください",
     quickReply: { items },
   };
 }
 
 /** ① 朝9:00 作業開始 */
 export function buildWelfareMorningStartFlexMessage(
-  bodyText?: string | null
+  bodyText?: string | null,
+  custom?: WelfareLineCustomization
 ): LineReplyMessage {
   const text = resolveWelfareBody(bodyText, DEFAULT_WELFARE_MESSAGE_MORNING);
+  const bodyColor = custom?.bodyColor || BODY_COLOR;
+  const buttonColor = custom?.buttonColor || BTN_PRIMARY;
+  const startLabel = custom?.morningStartButtonLabel?.trim() || "作業を開始する";
   return {
     type: "flex",
     altText: `${text}（ボタンから操作）`,
@@ -205,7 +216,7 @@ export function buildWelfareMorningStartFlexMessage(
             wrap: true,
             weight: "bold" as const,
             size: "md" as const,
-            color: BODY_COLOR,
+            color: bodyColor,
           },
         ],
       },
@@ -215,7 +226,7 @@ export function buildWelfareMorningStartFlexMessage(
         paddingAll: "20px",
         paddingTop: "12px",
         spacing: "sm" as const,
-        contents: [postbackButton("作業を開始する", "welfare_action=start_work")],
+        contents: [postbackButton(startLabel, "welfare_action=start_work", buttonColor)],
       },
     },
   };
@@ -223,9 +234,12 @@ export function buildWelfareMorningStartFlexMessage(
 
 /** ② 昼12:00 体調（良好 / 不調 / 担当者に連絡） */
 export function buildWelfareMiddayHealthFlexMessage(
-  bodyText?: string | null
+  bodyText?: string | null,
+  custom?: WelfareLineCustomization
 ): LineReplyMessage {
   const text = resolveWelfareBody(bodyText, DEFAULT_WELFARE_MESSAGE_MIDDAY);
+  const bodyColor = custom?.bodyColor || BODY_COLOR;
+  const buttonColor = custom?.buttonColor || BTN_PRIMARY;
   return {
     type: "flex",
     altText: `${text}（ボタンから回答）`,
@@ -244,7 +258,7 @@ export function buildWelfareMiddayHealthFlexMessage(
             wrap: true,
             weight: "bold" as const,
             size: "md" as const,
-            color: BODY_COLOR,
+            color: bodyColor,
           },
         ],
       },
@@ -255,9 +269,21 @@ export function buildWelfareMiddayHealthFlexMessage(
         paddingTop: "12px",
         spacing: "sm" as const,
         contents: [
-          postbackButton("良好", "welfare_action=health_good"),
-          postbackButton("不調", "welfare_action=health_bad"),
-          postbackButton("担当者に連絡", "welfare_action=health_contact"),
+          postbackButton(
+            custom?.healthGoodButtonLabel?.trim() || "良好",
+            "welfare_action=health_good",
+            buttonColor
+          ),
+          postbackButton(
+            custom?.healthBadButtonLabel?.trim() || "不調",
+            "welfare_action=health_bad",
+            buttonColor
+          ),
+          postbackButton(
+            custom?.healthContactButtonLabel?.trim() || "担当者に連絡",
+            "welfare_action=health_contact",
+            buttonColor
+          ),
         ],
       },
     },
@@ -266,9 +292,12 @@ export function buildWelfareMiddayHealthFlexMessage(
 
 /** ③ 夕方17:00 作業終了（通常終了 / 通院報告をその場で選択） */
 export function buildWelfareEveningEndFlexMessage(
-  bodyText?: string | null
+  bodyText?: string | null,
+  custom?: WelfareLineCustomization
 ): LineReplyMessage {
   const text = resolveWelfareBody(bodyText, DEFAULT_WELFARE_MESSAGE_EVENING);
+  const bodyColor = custom?.bodyColor || BODY_COLOR;
+  const buttonColor = custom?.buttonColor || BTN_PRIMARY;
   return {
     type: "flex",
     altText: `${text}（ボタンから操作）`,
@@ -287,7 +316,7 @@ export function buildWelfareEveningEndFlexMessage(
             wrap: true,
             weight: "bold" as const,
             size: "md" as const,
-            color: BODY_COLOR,
+            color: bodyColor,
           },
         ],
       },
@@ -298,8 +327,16 @@ export function buildWelfareEveningEndFlexMessage(
         paddingTop: "12px",
         spacing: "md" as const,
         contents: [
-          postbackButton("通常の作業終了", "welfare_action=end_work_normal"),
-          postbackButton("通院報告をして終了", "welfare_action=end_work_hospital"),
+          postbackButton(
+            custom?.endWorkNormalButtonLabel?.trim() || "通常の作業終了",
+            "welfare_action=end_work_normal",
+            buttonColor
+          ),
+          postbackButton(
+            custom?.endWorkHospitalButtonLabel?.trim() || "通院報告をして終了",
+            "welfare_action=end_work_hospital",
+            buttonColor
+          ),
         ],
       },
     },
@@ -307,8 +344,12 @@ export function buildWelfareEveningEndFlexMessage(
 }
 
 /** 「作業を終了する」直後：通常終了か通院報告終了かを選ばせる */
-export function buildWelfareEndWorkChoiceFlexMessage(): LineReplyMessage {
-  const text = "本日の終了方法を選んでください。";
+export function buildWelfareEndWorkChoiceFlexMessage(
+  custom?: WelfareLineCustomization
+): LineReplyMessage {
+  const text = custom?.endWorkChoicePrompt?.trim() || "本日の終了方法を選んでください。";
+  const bodyColor = custom?.bodyColor || BODY_COLOR;
+  const buttonColor = custom?.buttonColor || BTN_PRIMARY;
   return {
     type: "flex",
     altText: `${text}（ボタンから選択）`,
@@ -327,7 +368,7 @@ export function buildWelfareEndWorkChoiceFlexMessage(): LineReplyMessage {
             wrap: true,
             weight: "bold" as const,
             size: "md" as const,
-            color: BODY_COLOR,
+            color: bodyColor,
           },
         ],
       },
@@ -338,8 +379,16 @@ export function buildWelfareEndWorkChoiceFlexMessage(): LineReplyMessage {
         paddingTop: "12px",
         spacing: "sm" as const,
         contents: [
-          postbackButton("通常の作業終了", "welfare_action=end_work_normal"),
-          postbackButton("通院報告をして終了", "welfare_action=end_work_hospital"),
+          postbackButton(
+            custom?.endWorkNormalButtonLabel?.trim() || "通常の作業終了",
+            "welfare_action=end_work_normal",
+            buttonColor
+          ),
+          postbackButton(
+            custom?.endWorkHospitalButtonLabel?.trim() || "通院報告をして終了",
+            "welfare_action=end_work_hospital",
+            buttonColor
+          ),
         ],
       },
     },
@@ -350,14 +399,18 @@ export function buildWelfareEndWorkChoiceFlexMessage(): LineReplyMessage {
  * end_work 後：作業項目選択（stores.welfare_work_items のカンマ区切りから動的生成）
  */
 export function buildWelfareWorkItemSelectFlexMessage(
-  welfareWorkItemsFromDb: string | null | undefined
+  welfareWorkItemsFromDb: string | null | undefined,
+  custom?: WelfareLineCustomization
 ): LineReplyMessage {
   const labels = parseWelfareWorkItemLabels(welfareWorkItemsFromDb);
-  const text = "本日の作業項目を選んでください。";
+  const text = custom?.workItemPrompt?.trim() || "本日の作業項目を選んでください。";
+  const bodyColor = custom?.bodyColor || BODY_COLOR;
+  const buttonColor = custom?.buttonColor || BTN_PRIMARY;
   const buttons = labels.map((item) =>
     postbackButton(
       item.length > 40 ? `${item.slice(0, 37)}...` : item,
-      `welfare_action=work_item&item=${encodeURIComponent(item)}`
+      `welfare_action=work_item&item=${encodeURIComponent(item)}`,
+      buttonColor
     )
   );
   return {
@@ -378,7 +431,7 @@ export function buildWelfareWorkItemSelectFlexMessage(
             wrap: true,
             weight: "bold" as const,
             size: "md" as const,
-            color: BODY_COLOR,
+            color: bodyColor,
           },
         ],
       },

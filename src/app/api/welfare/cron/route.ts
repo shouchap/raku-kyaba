@@ -28,6 +28,7 @@ import {
   buildWelfareMiddayHealthFlexMessage,
   buildWelfareMorningStartFlexMessage,
 } from "@/lib/welfare-line-flex";
+import { fetchLineCustomizationForStore } from "@/lib/line-customization";
 
 export const dynamic = "force-dynamic";
 
@@ -67,16 +68,20 @@ function isRegularHolidayDay(
   return arr.includes(wd);
 }
 
-function flexForSegment(seg: Segment, row: WelfareCronStoreRow) {
+function flexForSegment(
+  seg: Segment,
+  row: WelfareCronStoreRow,
+  welfareCustom?: Parameters<typeof buildWelfareMorningStartFlexMessage>[1]
+) {
   switch (seg) {
     case "morning":
-      return buildWelfareMorningStartFlexMessage(row.welfare_message_morning);
+      return buildWelfareMorningStartFlexMessage(row.welfare_message_morning, welfareCustom);
     case "midday":
-      return buildWelfareMiddayHealthFlexMessage(row.welfare_message_midday);
+      return buildWelfareMiddayHealthFlexMessage(row.welfare_message_midday, welfareCustom);
     case "evening":
-      return buildWelfareEveningEndFlexMessage(row.welfare_message_evening);
+      return buildWelfareEveningEndFlexMessage(row.welfare_message_evening, welfareCustom);
     default:
-      return buildWelfareMorningStartFlexMessage(row.welfare_message_morning);
+      return buildWelfareMorningStartFlexMessage(row.welfare_message_morning, welfareCustom);
   }
 }
 
@@ -233,7 +238,8 @@ async function pushSegmentToStore(
 
   let flex: ReturnType<typeof flexForSegment>;
   try {
-    flex = flexForSegment(segment, storeRow);
+    const lineCustomization = await fetchLineCustomizationForStore(supabase, storeId);
+    flex = flexForSegment(segment, storeRow, lineCustomization.welfare);
   } catch (flexErr) {
     const msg = flexErr instanceof Error ? flexErr.message : String(flexErr);
     console.error(

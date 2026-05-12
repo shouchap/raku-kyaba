@@ -198,24 +198,46 @@ async function fetchOverdueUnansweredSchedules(
 
 function buildUnansweredAlertMessage(
   items: OverdueSchedule[],
-  escalationHours: number
+  escalationHours: number,
+  cfg?: Record<string, unknown>
 ): string {
   if (items.length === 0) return "";
 
+  const customHeader =
+    typeof cfg?.warn_unanswered_header === "string" ? cfg.warn_unanswered_header.trim() : "";
+  const lineTemplate =
+    typeof cfg?.warn_unanswered_line_template === "string"
+      ? cfg.warn_unanswered_line_template
+      : "・{name} ({time})";
+  const andMoreTemplate =
+    typeof cfg?.warn_unanswered_and_more_template === "string"
+      ? cfg.warn_unanswered_and_more_template
+      : "・他{count}名";
+
   const header =
-    "【未返信アラート】\n" +
+    (customHeader || "【未返信アラート】") +
+    "\n" +
     `出勤確認から${escalationHours}時間が経過しましたが、以下のキャストから返信がありません。\n`;
 
   const maxShow = Math.min(items.length, MAX_NAMES_IN_MESSAGE);
   const lines = items
     .slice(0, maxShow)
-    .map((i) => `・${i.cast_name} (${i.timeDisplay})`)
+    .map((i) =>
+      lineTemplate
+        .replace(/\{name\}/g, i.cast_name)
+        .replace(/\{time\}/g, i.timeDisplay)
+    )
     .join("\n");
 
   if (items.length <= MAX_NAMES_IN_MESSAGE) {
     return header + lines;
   }
-  return header + lines + `\n・他${items.length - MAX_NAMES_IN_MESSAGE}名`;
+  return (
+    header +
+    lines +
+    "\n" +
+    andMoreTemplate.replace(/\{count\}/g, String(items.length - MAX_NAMES_IN_MESSAGE))
+  );
 }
 
 /**
@@ -359,7 +381,14 @@ export async function GET(request: Request) {
         continue;
       }
 
-      const text = buildUnansweredAlertMessage(storeOverdue, storeEscalationHours);
+      const { data: settingsRow } = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("store_id", storeId)
+        .eq("key", REMINDER_CONFIG_KEY)
+        .maybeSingle();
+      const cfg = (settingsRow?.value ?? {}) as Record<string, unknown>;
+      const text = buildUnansweredAlertMessage(storeOverdue, storeEscalationHours, cfg);
 
       try {
         await sendMulticastMessage(adminIds, tokenResult.token, [

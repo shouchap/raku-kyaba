@@ -131,6 +131,15 @@ type ProcessResult = {
   adminCount?: number;
 };
 
+function applyPreOpenMessageCustomization(
+  base: string,
+  cfg: Record<string, unknown> | null | undefined
+): string {
+  const pre = typeof cfg?.pre_open_report_prefix === "string" ? cfg.pre_open_report_prefix.trim() : "";
+  const post = typeof cfg?.pre_open_report_suffix === "string" ? cfg.pre_open_report_suffix.trim() : "";
+  return [pre, base, post].filter(Boolean).join("\n");
+}
+
 /**
  * 1 店舗分の営業前サマリー送信。
  * - force=false: 時刻一致・送信 ON（pre_open 非 NULL）・未送信日・シフト 1 件以上
@@ -217,16 +226,25 @@ async function processPreOpenReportForStore(
       };
     }
 
+    const { data: settingsRow } = await supabase
+      .from("system_settings")
+      .select("value")
+      .eq("store_id", sid)
+      .eq("key", "reminder_config")
+      .maybeSingle();
+    const cfg = (settingsRow?.value ?? {}) as Record<string, unknown>;
+    const customizedBody = applyPreOpenMessageCustomization(body, cfg);
+
     if (lineGroupId) {
       try {
-        await sendPushMessage(lineGroupId, resolved.token, [{ type: "text", text: body }]);
+        await sendPushMessage(lineGroupId, resolved.token, [{ type: "text", text: customizedBody }]);
       } catch (e) {
         console.error(`${LOG_PREFIX} sendPushMessage(group)`, sid, e);
       }
     }
     if (adminIds.length > 0) {
       try {
-        await sendMulticastMessage(adminIds, resolved.token, [{ type: "text", text: body }]);
+        await sendMulticastMessage(adminIds, resolved.token, [{ type: "text", text: customizedBody }]);
       } catch (e) {
         console.error(`${LOG_PREFIX} sendMulticastMessage(admins)`, sid, e);
         return {

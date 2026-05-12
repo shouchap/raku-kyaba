@@ -18,6 +18,7 @@ import {
   buildWelfareWorkItemSelectFlexMessage,
   normalizeDefaultHospitalNames,
 } from "@/lib/welfare-line-flex";
+import { fetchLineCustomizationForStore } from "@/lib/line-customization";
 import type { LineMessageEvent, LinePostbackEvent } from "@/types/line-webhook";
 
 const ERROR_REPLY = "申し訳ございません。エラーが発生しました。しばらく経ってから再度お試しください。";
@@ -523,6 +524,8 @@ async function handleWelfarePostback(
 
   const todayJst = getTodayJst();
   const nowIso = new Date().toISOString();
+  const lineCustomization = await fetchLineCustomizationForStore(supabase, store.id);
+  const welfareCustom = lineCustomization.welfare;
   const log = await getOrCreateWelfareDailyLog(supabase, store.id, cast.id, todayJst);
   if (!log) {
     await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
@@ -641,7 +644,7 @@ async function handleWelfarePostback(
       return;
     }
     if (p === WELFARE_PENDING_END_CHOICE) {
-      await safeReply(replyToken, channelAccessToken, [buildWelfareEndWorkChoiceFlexMessage()]);
+      await safeReply(replyToken, channelAccessToken, [buildWelfareEndWorkChoiceFlexMessage(welfareCustom)]);
       return;
     }
     if (
@@ -669,7 +672,7 @@ async function handleWelfarePostback(
       await safeReply(replyToken, channelAccessToken, [{ type: "text", text: ERROR_REPLY }]);
       return;
     }
-    await safeReply(replyToken, channelAccessToken, [buildWelfareEndWorkChoiceFlexMessage()]);
+    await safeReply(replyToken, channelAccessToken, [buildWelfareEndWorkChoiceFlexMessage(welfareCustom)]);
     return;
   }
 
@@ -716,7 +719,7 @@ async function handleWelfarePostback(
       storeRow && typeof (storeRow as { welfare_work_items?: unknown }).welfare_work_items === "string"
         ? (storeRow as { welfare_work_items: string }).welfare_work_items
         : null;
-    await safeReply(replyToken, channelAccessToken, [buildWelfareWorkItemSelectFlexMessage(csv)]);
+    await safeReply(replyToken, channelAccessToken, [buildWelfareWorkItemSelectFlexMessage(csv, welfareCustom)]);
     return;
   }
 
@@ -755,7 +758,7 @@ async function handleWelfarePostback(
       return;
     }
     await safeReply(replyToken, channelAccessToken, [
-      buildWelfareHospitalNameQuestionMessage(cast.default_hospital_names),
+      buildWelfareHospitalNameQuestionMessage(cast.default_hospital_names, welfareCustom),
     ]);
     return;
   }
@@ -776,7 +779,7 @@ async function handleWelfarePostback(
     if (!allowed.includes(action.name)) {
       await safeReply(replyToken, channelAccessToken, [
         { type: "text", text: "登録されていない病院名です。ボタンから選び直してください。" },
-        buildWelfareHospitalNameQuestionMessage(allowed),
+        buildWelfareHospitalNameQuestionMessage(allowed, welfareCustom),
       ]);
       return;
     }
@@ -825,7 +828,7 @@ async function handleWelfarePostback(
       return;
     }
     await safeReply(replyToken, channelAccessToken, [
-      buildWelfareHospitalNameQuestionMessage(allowed),
+      buildWelfareHospitalNameQuestionMessage(allowed, welfareCustom),
     ]);
     return;
   }
@@ -863,12 +866,12 @@ async function handleWelfarePostback(
     if (!isAllowedHospitalStartTimeLabel(action.startTime)) {
       await safeReply(replyToken, channelAccessToken, [
         { type: "text", text: "開始時間を選び直してください。" },
-        buildWelfareHospitalStartTimeQuickReplyMessage(),
+        buildWelfareHospitalStartTimeQuickReplyMessage(welfareCustom),
       ]);
       return;
     }
     await safeReply(replyToken, channelAccessToken, [
-      buildWelfareHospitalEndTimeQuickReplyMessage(action.startTime),
+      buildWelfareHospitalEndTimeQuickReplyMessage(action.startTime, welfareCustom),
     ]);
     return;
   }
@@ -916,7 +919,7 @@ async function handleWelfarePostback(
     if (!isAllowedHospitalStartTimeLabel(action.startTime) || !isAllowedHospitalEndTimeLabel(action.endTime)) {
       await safeReply(replyToken, channelAccessToken, [
         { type: "text", text: "開始時間または終了時間が不正です。選び直してください。" },
-        buildWelfareHospitalStartTimeQuickReplyMessage(),
+        buildWelfareHospitalStartTimeQuickReplyMessage(welfareCustom),
       ]);
       return;
     }
@@ -947,7 +950,7 @@ async function handleWelfarePostback(
     if (!action.startTime.trim()) {
       await safeReply(replyToken, channelAccessToken, [
         { type: "text", text: "開始時間を再選択してください。" },
-        buildWelfareHospitalStartTimeQuickReplyMessage(),
+        buildWelfareHospitalStartTimeQuickReplyMessage(welfareCustom),
       ]);
       return;
     }

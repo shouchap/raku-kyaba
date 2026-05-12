@@ -72,6 +72,7 @@ type SnapshotShape = {
   termAttendance: string;
   termCast: string;
   shiftTimeStepMinutes: ShiftTimeStepMinutes;
+  lineCustomizationText: string;
 };
 
 const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
@@ -208,6 +209,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [weeklyReportDay, setWeeklyReportDay] = useState(1);
   const [weeklyReportTime, setWeeklyReportTime] = useState("09:00");
   const [menuSettings, setMenuSettings] = useState<MenuSettingsMap>({});
+  const [reminderConfigExtras, setReminderConfigExtras] = useState<Record<string, unknown>>({});
+  const [lineCustomizationText, setLineCustomizationText] = useState("{}");
   const [shiftTimeStepMinutes, setShiftTimeStepMinutes] = useState<ShiftTimeStepMinutes>(15);
 
   const [individualTestCastId, setIndividualTestCastId] = useState("");
@@ -251,6 +254,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       termAttendance,
       termCast,
       shiftTimeStepMinutes,
+      lineCustomizationText,
     };
   }, [
     businessType,
@@ -280,6 +284,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     termAttendance,
     termCast,
     shiftTimeStepMinutes,
+    lineCustomizationText,
   ]);
 
   const createSnapshot = useCallback(() => JSON.stringify(createSnapshotObj()), [createSnapshotObj]);
@@ -317,6 +322,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     termAttendance: "出勤ラベル",
     termCast: "キャストラベル",
     shiftTimeStepMinutes: "シフト時刻の刻み",
+    lineCustomizationText: "LINE詳細カスタム(JSON)",
   };
 
   const unsavedChangeLabels = useMemo(() => {
@@ -394,9 +400,31 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setWeeklyReportTime(REMIND_TIME_OPTIONS.includes(wtime) ? wtime : "09:00");
       setMenuSettings(normalizeMenuSettings(data.menu_settings));
       setShiftTimeStepMinutes(parseShiftTimeStepMinutes(data.shift_time_step_minutes));
+      setReminderConfigExtras({});
+      setLineCustomizationText("{}");
 
       if (data.reminder_config && typeof data.reminder_config === "object") {
         const rc = data.reminder_config as Record<string, unknown>;
+        const {
+          enabled: _enabled,
+          messageTemplate: _mt,
+          template: _tpl,
+          reply_present: _rp,
+          reply_late: _rl,
+          reply_absent: _ra,
+          admin_notify_late: _anl,
+          admin_notify_absent: _ana,
+          admin_notify_new_cast: _ann,
+          welcome_message: _wm,
+          ...rest
+        } = rc;
+        setReminderConfigExtras(rest);
+        const lc = rc.line_customization;
+        if (lc && typeof lc === "object" && !Array.isArray(lc)) {
+          setLineCustomizationText(JSON.stringify(lc, null, 2));
+        } else {
+          setLineCustomizationText("{}");
+        }
         setConfig({
           enabled: Boolean(rc.enabled ?? DEFAULT_CONFIG.enabled),
           messageTemplate:
@@ -461,7 +489,23 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     setSaving(true);
     setMessage(null);
     try {
+      let lineCustomizationValue: Record<string, unknown> = {};
+      try {
+        const parsed = JSON.parse(lineCustomizationText.trim() || "{}");
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error("LINE詳細カスタム(JSON)はオブジェクト形式で入力してください。");
+        }
+        lineCustomizationValue = parsed as Record<string, unknown>;
+      } catch (e) {
+        throw new Error(
+          e instanceof Error
+            ? `LINE詳細カスタム(JSON)の形式が不正です: ${e.message}`
+            : "LINE詳細カスタム(JSON)の形式が不正です。"
+        );
+      }
+
       const reminder_config: Record<string, unknown> = {
+        ...reminderConfigExtras,
         enabled: config.enabled,
         messageTemplate: config.messageTemplate.trim() || DEFAULT_CONFIG.messageTemplate,
         reply_present: config.reply_present.trim() || DEFAULT_CONFIG.reply_present,
@@ -471,6 +515,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
         admin_notify_absent: config.admin_notify_absent.trim() || DEFAULT_CONFIG.admin_notify_absent,
         admin_notify_new_cast: config.admin_notify_new_cast.trim() || DEFAULT_CONFIG.admin_notify_new_cast,
         welcome_message: config.welcome_message.trim() || DEFAULT_CONFIG.welcome_message,
+        line_customization: lineCustomizationValue,
       };
 
       const res = await fetch("/api/admin/settings", {
@@ -560,6 +605,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     guideStaffNamesText,
     createSnapshot,
     router,
+    reminderConfigExtras,
+    lineCustomizationText,
   ]);
 
   const handleIndividualTest = useCallback(async () => {
@@ -1078,6 +1125,19 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             <label className="block text-sm text-slate-700">
               レギュラーメッセージ
               <textarea value={regularRemindMessage} onChange={(e) => setRegularRemindMessage(e.target.value)} rows={3} className={`mt-1 w-full ${CONTROL_CLASS}`} />
+            </label>
+            <label className="block text-sm text-slate-700">
+              LINE詳細カスタム(JSON)
+              <p className="mt-0.5 text-xs text-slate-500">
+                自動送信文面や福祉ボタン文言・色を上書きします。未指定キーは既定値のままです。
+              </p>
+              <textarea
+                value={lineCustomizationText}
+                onChange={(e) => setLineCustomizationText(e.target.value)}
+                rows={8}
+                spellCheck={false}
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
             </label>
 
             <div className="mt-4 pt-4 border-t border-slate-200 space-y-3">
