@@ -1068,14 +1068,14 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
 
   const remindSummaryPreviewCount = "○件";
   const remindSummaryPreviewList = "・キャスト1 (20:00)\n・キャスト2 (21:00)";
-  const remindAdminSummaryTemplatePreview = useMemo(() => {
-    return (
-      remindAdminSummaryTemplateText.trim() ||
-      "【システム通知】本日、以下の{count}名に出勤確認のリマインドを送信しました。\n{list}"
-    )
-      .replaceAll("{count}", remindSummaryPreviewCount)
-      .replaceAll("{list}", remindSummaryPreviewList);
-  }, [remindAdminSummaryTemplateText]);
+  const defaultRemindAdminSummaryTemplate =
+    "【システム通知】本日、以下の{count}名に出勤確認のリマインドを送信しました。\n{list}";
+  const remindAdminSummaryHeaderPreviewText = useMemo(() => {
+    const template = remindAdminSummaryTemplateText.trim() || defaultRemindAdminSummaryTemplate;
+    const listIdx = template.indexOf("{list}");
+    const headerPart = listIdx >= 0 ? template.slice(0, listIdx).trimEnd() : template;
+    return headerPart.replaceAll("{count}", remindSummaryPreviewCount);
+  }, [remindAdminSummaryTemplateText, defaultRemindAdminSummaryTemplate, remindSummaryPreviewCount]);
 
   const warnUnansweredTemplatePreview = useMemo(() => {
     const header = warnUnansweredHeaderText.trim() || "【未返信アラート】";
@@ -1117,24 +1117,17 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     [dailyBarPreviewBaseBody]
   );
 
-  const handleEditRemindAdminSummaryPreview = useCallback(
-    (nextText: string) => {
-      let nextTemplate = nextText;
-      if (nextTemplate.includes(remindSummaryPreviewList)) {
-        nextTemplate = nextTemplate.replaceAll(remindSummaryPreviewList, "{list}");
+  const handleEditRemindAdminSummaryHeader = useCallback(
+    (nextHeaderPreviewText: string) => {
+      let headerTemplate = nextHeaderPreviewText.replaceAll(remindSummaryPreviewCount, "{count}").trim();
+      if (!headerTemplate.includes("{count}")) {
+        headerTemplate = headerTemplate.includes("名")
+          ? headerTemplate.replace("名", "{count}名")
+          : `${headerTemplate}（{count}件）`;
       }
-      if (nextTemplate.includes(remindSummaryPreviewCount)) {
-        nextTemplate = nextTemplate.replaceAll(remindSummaryPreviewCount, "{count}");
-      }
-      if (!nextTemplate.includes("{list}")) {
-        nextTemplate = `${nextTemplate.trim()}\n{list}`;
-      }
-      if (!nextTemplate.includes("{count}")) {
-        nextTemplate = nextTemplate.replace("名", "{count}名");
-      }
-      setRemindAdminSummaryTemplateText(nextTemplate.trim());
+      setRemindAdminSummaryTemplateText(`${headerTemplate}\n{list}`.trim());
     },
-    [remindSummaryPreviewCount, remindSummaryPreviewList]
+    [remindSummaryPreviewCount]
   );
 
   const menuEditorItems = useMemo(() => {
@@ -1744,11 +1737,20 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             </label>
             <label className="block text-sm text-slate-700">
               出勤確認送信サマリー文面編集（管理者通知）
-              <p className="mt-0.5 text-xs text-slate-500">下のプレビューを直接編集してください。</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                ヘッダー文のみ編集できます。送信先一覧は自動で入るため編集できません。
+              </p>
               <textarea
-                value={remindAdminSummaryTemplatePreview}
-                onChange={(e) => handleEditRemindAdminSummaryPreview(e.target.value)}
-                rows={4}
+                value={remindAdminSummaryHeaderPreviewText}
+                onChange={(e) => handleEditRemindAdminSummaryHeader(e.target.value)}
+                rows={2}
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
+              <p className="mt-1 text-xs text-slate-500">一覧プレビュー（固定）</p>
+              <textarea
+                value={remindSummaryPreviewList}
+                readOnly
+                rows={3}
                 className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
               />
             </label>
