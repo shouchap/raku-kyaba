@@ -1,11 +1,31 @@
-import {
-  mergeScheduleRowForWeeklyUpsert,
-  scheduleRowHasLineAttendanceData,
-} from "@/lib/attendance-schedule-preserve";
+import { mergeScheduleRowForWeeklyUpsert } from "@/lib/attendance-schedule-preserve";
 import { normalizeScheduledEndTimeForDb } from "@/lib/date-utils";
 
 export type WeeklyShiftMatrix = Record<string, Record<string, string>>;
 export type WeeklyBoolMatrix = Record<string, Record<string, boolean>>;
+
+/**
+ * attendance_schedules で NOT NULL のブール列（リポジトリのマイグレーションに基づく）。
+ * PostgREST の upsert で欠損が NULL 扱いになるのを防ぎ 23502 を避ける。
+ */
+const ATTENDANCE_SCHEDULE_NOT_NULL_BOOLS = [
+  "is_absent",
+  "is_late",
+  "is_action_completed",
+  "is_dohan",
+  "is_sabaki",
+] as const;
+
+/** 各キーを厳密に boolean（true のときのみ true）に正規化 */
+export function coerceAttendanceScheduleNotNullBooleans(
+  row: Record<string, unknown>
+): Record<string, unknown> {
+  const out = { ...row };
+  for (const key of ATTENDANCE_SCHEDULE_NOT_NULL_BOOLS) {
+    out[key] = out[key] === true;
+  }
+  return out;
+}
 
 /** 週間一括保存用: 既存行とマージした upsert ペイロードを組み立てる（API / 将来の再利用） */
 export function buildWeeklyScheduleUpsertRows(opts: {
@@ -46,7 +66,7 @@ export function buildWeeklyScheduleUpsertRows(opts: {
         },
         prev
       );
-      toUpsert.push(merged);
+      toUpsert.push(coerceAttendanceScheduleNotNullBooleans(merged));
     }
   }
   return toUpsert;
