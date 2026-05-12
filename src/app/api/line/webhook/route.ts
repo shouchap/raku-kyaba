@@ -44,6 +44,12 @@ import {
 const app = new Hono();
 
 const ERROR_REPLY = "申し訳ございません。エラーが発生しました。しばらく経ってから再度お試しください。";
+type WebhookStoreRow = {
+  id: string;
+  line_channel_secret: string | null;
+  line_channel_access_token: string | null;
+  business_type: string | null;
+};
 
 /** テキストコマンドを AttendancePostbackData に変換（完全一致） */
 function textToAttendanceData(text: string): AttendancePostbackData | null {
@@ -117,52 +123,19 @@ app.post("*", async (c) => {
     let channelAccessToken: string | undefined =
       process.env.LINE_CHANNEL_ACCESS_TOKEN ?? undefined;
 
+    let storeLookupErr: { message?: string } | null = null;
+    let effectiveStore: WebhookStoreRow | null = null;
     if (botUserId) {
-      const { data: storeData, error: storeLookupErr } = await supabase
+      const { data: storeData, error } = await supabase
         .from("stores")
         .select("id, line_channel_secret, line_channel_access_token, business_type")
         .eq("line_bot_user_id", botUserId)
         .maybeSingle();
+      storeLookupErr = error;
+      effectiveStore = (storeData as WebhookStoreRow | null) ?? null;
 
       if (storeLookupErr) {
         console.warn("[Webhook] stores 参照エラー（環境変数へフォールバック）:", storeLookupErr.message);
-      }
-
-      let effectiveStore = storeData;
-
-      /** destination と一致する行がなく、かつ NULL ボットIDの店舗が1件だけなら初回登録（署名検証前に実施し、正しいシークレットで検証する） */
-      if (!effectiveStore?.id && !storeLookupErr) {
-        const { data: nullBotRows, error: nullBotErr } = await supabase
-          .from("stores")
-          .select("id")
-          .is("line_bot_user_id", null)
-          .order("created_at", { ascending: true })
-          .limit(2);
-
-        if (nullBotErr) {
-          console.warn("[Webhook] line_bot_user_id 未設定店舗の列挙エラー:", nullBotErr.message);
-        } else if (nullBotRows?.length === 1) {
-          const { data: updated, error: updErr } = await supabase
-            .from("stores")
-            .update({ line_bot_user_id: botUserId })
-            .eq("id", nullBotRows[0].id)
-            .is("line_bot_user_id", null)
-            .select("id, line_channel_secret, line_channel_access_token, business_type")
-            .maybeSingle();
-
-          if (updErr) {
-            console.warn("[Webhook] line_bot_user_id 初回登録に失敗:", updErr.message);
-          } else if (updated?.id) {
-            effectiveStore = updated;
-            console.log(
-              `[Webhook] オンボーディング: line_bot_user_id を初回登録 store_id=${updated.id} destination=${botUserId}`
-            );
-          }
-        } else if (nullBotRows && nullBotRows.length > 1) {
-          console.log(
-            "[Webhook] line_bot_user_id 未設定の店舗が複数あるため、初回自動紐付けをスキップ（デフォルト店舗へフォールバック）"
-          );
-        }
       }
 
       resolvedStoreId = effectiveStore?.id ?? null;
@@ -201,6 +174,50 @@ app.post("*", async (c) => {
       return c.json({ error: "Invalid signature" }, 401);
     }
     console.log("[Webhook] 署名検証完了");
+
+    /** destination と一致する行がなく、かつ NULL ボットIDの店舗が1件だけなら初回登録（署名検証成功後のみ） */
+    if (botUserId && !effectiveStore?.id && !storeLookupErr) {
+      const { data: nullBotRows, error: nullBotErr } = await supabase
+        .from("stores")
+        .select("id")
+        .is("line_bot_user_id", null)
+        .order("created_at", { ascending: true })
+        .limit(2);
+
+      if (nullBotErr) {
+        console.warn("[Webhook] line_bot_user_id 未設定店舗の列挙エラー:", nullBotErr.message);
+      } else if (nullBotRows?.length === 1) {
+        const { data: updated, error: updErr } = await supabase
+          .from("stores")
+          .update({ line_bot_user_id: botUserId })
+          .eq("id", nullBotRows[0].id)
+          .is("line_bot_user_id", null)
+          .select("id, line_channel_secret, line_channel_access_token, business_type")
+          .maybeSingle();
+
+        if (updErr) {
+          console.warn("[Webhook] line_bot_user_id 初回登録に失敗:", updErr.message);
+        } else if (updated?.id) {
+          effectiveStore = updated as WebhookStoreRow;
+          resolvedStoreId = updated.id;
+          storeRowForBusinessType = {
+            id: updated.id,
+            business_type: String(
+              (updated as { business_type?: string | null }).business_type ?? "cabaret"
+            ),
+          };
+          const tok = updated.line_channel_access_token?.trim();
+          if (tok) channelAccessToken = tok;
+          console.log(
+            `[Webhook] オンボーディング: line_bot_user_id を初回登録 store_id=${updated.id} destination=${botUserId}`
+          );
+        }
+      } else if (nullBotRows && nullBotRows.length > 1) {
+        console.log(
+          "[Webhook] line_bot_user_id 未設定の店舗が複数あるため、初回自動紐付けをスキップ（デフォルト店舗へフォールバック）"
+        );
+      }
+    }
 
     const events = body.events;
     if (!events || !Array.isArray(events) || events.length === 0) {
