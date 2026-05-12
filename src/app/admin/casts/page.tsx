@@ -346,20 +346,21 @@ export default function AdminCastsPage() {
                 return (
                   <li
                     key={cast.id}
-                    className={`flex min-w-0 flex-col gap-2 px-3 py-3 sm:flex-row sm:items-start sm:gap-3 sm:px-4 ${
+                    className={`flex min-w-0 flex-col gap-2 px-3 py-3 sm:px-4 ${
                       selected
                         ? "bg-sky-50/90 border-l-4 border-sky-300"
                         : "hover:bg-gray-50/90"
                     }`}
                   >
-                    <div className="min-w-0 flex-1">
-                      <span className="block break-words text-sm font-medium leading-snug text-gray-900 sm:text-base">
+                    {/* 名前は常にパネル全幅で横書き（横並び flex で幅を奪われ 1 字改行にならない） */}
+                    <div className="w-full min-w-0">
+                      <span className="block w-full text-left text-sm font-medium leading-snug text-gray-900 sm:text-base break-words">
                         {cast.display_name?.trim()
                           ? `${cast.display_name}（${cast.name}）`
                           : cast.name}
                       </span>
                     </div>
-                    <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
+                    <div className="flex w-full min-w-0 flex-row flex-wrap items-center justify-end gap-2">
                       <span className="flex-none shrink-0 rounded-full bg-fuchsia-50 px-2 py-0.5 text-xs font-medium text-fuchsia-700">
                         {cast.role === "nakai" ? "仲居" : "キャスト"}
                       </span>
