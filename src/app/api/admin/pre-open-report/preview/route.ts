@@ -86,6 +86,7 @@ export async function GET(request: Request) {
     targetDate,
     schedules ?? []
   );
+  const baseMessage = anonymizeCastNames(base, schedules ?? []);
   const { data: cfgRow } = await admin
     .from("system_settings")
     .select("value")
@@ -93,14 +94,12 @@ export async function GET(request: Request) {
     .eq("key", "reminder_config")
     .maybeSingle();
   const cfg = (cfgRow?.value ?? {}) as Record<string, unknown>;
-  const message = anonymizeCastNames(
-    applyPreOpenReportCustomization(base, cfg),
-    schedules ?? []
-  );
+  const message = applyPreOpenReportCustomization(baseMessage, cfg);
 
   return NextResponse.json({
     ok: true,
     targetDate,
+    baseMessage,
     message,
   });
 }

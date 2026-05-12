@@ -271,7 +271,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [testingWelfare, setTestingWelfare] = useState(false);
   const [welfareTestDetail, setWelfareTestDetail] = useState<string | null>(null);
   const [preOpenPreviewLoading, setPreOpenPreviewLoading] = useState(false);
-  const [preOpenPreviewText, setPreOpenPreviewText] = useState("");
+  const [preOpenPreviewBaseText, setPreOpenPreviewBaseText] = useState("");
+  const [preOpenPreviewEditorText, setPreOpenPreviewEditorText] = useState("");
   const [preOpenPreviewDate, setPreOpenPreviewDate] = useState("");
   const [preOpenPreviewError, setPreOpenPreviewError] = useState<string | null>(null);
 
@@ -613,15 +614,20 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
         const previewData = (await previewRes.json()) as {
           error?: string;
           message?: string;
+          baseMessage?: string;
           targetDate?: string;
         };
         if (!previewRes.ok) throw new Error(previewData.error ?? "プレビュー取得に失敗しました");
-        setPreOpenPreviewText(typeof previewData.message === "string" ? previewData.message : "");
+        setPreOpenPreviewBaseText(
+          typeof previewData.baseMessage === "string" ? previewData.baseMessage : ""
+        );
+        setPreOpenPreviewEditorText(typeof previewData.message === "string" ? previewData.message : "");
       } catch (e) {
         setPreOpenPreviewError(
           e instanceof Error ? e.message : "営業前サマリープレビューの取得に失敗しました"
         );
-        setPreOpenPreviewText("");
+        setPreOpenPreviewBaseText("");
+        setPreOpenPreviewEditorText("");
       } finally {
         setPreOpenPreviewLoading(false);
       }
@@ -994,19 +1000,48 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       const q = new URLSearchParams({ storeId: activeStoreId });
       if (dateParam) q.set("targetDate", dateParam);
       const res = await fetch(`/api/admin/pre-open-report/preview?${q.toString()}`);
-      const data = (await res.json()) as { error?: string; message?: string; targetDate?: string };
+      const data = (await res.json()) as {
+        error?: string;
+        message?: string;
+        baseMessage?: string;
+        targetDate?: string;
+      };
       if (!res.ok) throw new Error(data.error ?? "プレビュー取得に失敗しました");
-      setPreOpenPreviewText(typeof data.message === "string" ? data.message : "");
+      setPreOpenPreviewBaseText(typeof data.baseMessage === "string" ? data.baseMessage : "");
+      setPreOpenPreviewEditorText(typeof data.message === "string" ? data.message : "");
       if (!dateParam && typeof data.targetDate === "string") {
         setPreOpenPreviewDate(data.targetDate);
       }
     } catch (e) {
       setPreOpenPreviewError(e instanceof Error ? e.message : "プレビュー取得に失敗しました");
-      setPreOpenPreviewText("");
+      setPreOpenPreviewBaseText("");
+      setPreOpenPreviewEditorText("");
     } finally {
       setPreOpenPreviewLoading(false);
     }
   }, [activeStoreId, preOpenPreviewDate]);
+
+  const handleEditPreOpenPreview = useCallback(
+    (nextText: string) => {
+      setPreOpenPreviewEditorText(nextText);
+      const base = preOpenPreviewBaseText;
+      if (!base) {
+        setPreOpenReportTemplateText(nextText.trim() || PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER);
+        return;
+      }
+      if (nextText.includes(base)) {
+        setPreOpenReportTemplateText(
+          nextText.replaceAll(base, PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER) ||
+            PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER
+        );
+        return;
+      }
+      setPreOpenReportTemplateText(
+        `${nextText.trim()}\n${PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER}`.trim()
+      );
+    },
+    [preOpenPreviewBaseText]
+  );
 
   const attendanceTemplatePreview = useMemo(() => {
     return (config.messageTemplate || DEFAULT_CONFIG.messageTemplate)
@@ -1633,14 +1668,14 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               </select>
             </label>
             <label className="block text-sm text-slate-700">
-              営業前サマリーテンプレート（業態共通）
+              営業前サマリー編集（業態共通）
               <p className="mt-0.5 text-xs text-slate-500">
-                {"{summary_body}"} を本文差し込み位置として使います。未記入なら既定フォーマットを表示します。
+                プレビュー欄を直接編集してください。内部で {"{summary_body}"} に自動変換します。
               </p>
               <textarea
                 value={preOpenReportTemplateText}
-                onChange={(e) => setPreOpenReportTemplateText(e.target.value)}
-                rows={4}
+                readOnly
+                rows={2}
                 className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
               />
             </label>
@@ -1741,7 +1776,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
               <p className="text-xs font-semibold text-slate-800">営業前サマリー 現在送信文面プレビュー</p>
               <p className="text-xs text-slate-600">
-                実際の送信ロジックと同じ内容を表示しつつ、キャスト名は「キャスト1」等に置換して見やすく表示します。
+                実際の送信ロジックと同じ内容です。キャスト名は「キャスト1」等に置換済みで、この欄を直接編集できます。
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <input
@@ -1760,8 +1795,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 </button>
               </div>
               <textarea
-                value={preOpenPreviewText}
-                readOnly
+                value={preOpenPreviewEditorText}
+                onChange={(e) => handleEditPreOpenPreview(e.target.value)}
                 rows={14}
                 className={`w-full font-mono text-xs ${CONTROL_CLASS}`}
               />
