@@ -10,6 +10,7 @@ import { getTodayJst } from "@/lib/date-utils";
 import { chunkDailyBarSummaryBody, generateDailyBarSummaryForStore } from "@/lib/daily-bar-summary";
 import { fetchSchedulesForPreOpenReport } from "@/lib/pre-open-report-fetch";
 import { buildPreOpenReportMessageByBusinessType } from "@/lib/pre-open-report-message";
+import { applyDailyBarSummaryCustomization } from "@/lib/daily-bar-summary-customization";
 
 export const dynamic = "force-dynamic";
 
@@ -115,13 +116,27 @@ export async function POST(request: Request) {
       );
     }
     const body = buildPreOpenReportMessageByBusinessType(businessType, storeName, today, schedules ?? []);
-    chunks = chunkDailyBarSummaryBody(body);
+    const { data: settingsRow } = await admin
+      .from("system_settings")
+      .select("value")
+      .eq("store_id", storeId)
+      .eq("key", "reminder_config")
+      .maybeSingle();
+    const cfg = (settingsRow?.value ?? {}) as Record<string, unknown>;
+    chunks = chunkDailyBarSummaryBody(applyDailyBarSummaryCustomization(body, cfg));
   } else {
     const generated = await generateDailyBarSummaryForStore(admin, storeId, today);
     if (!generated.ok) {
       return NextResponse.json({ error: "サマリー生成に失敗しました", details: generated.error }, { status: 500 });
     }
-    chunks = generated.chunks;
+    const { data: settingsRow } = await admin
+      .from("system_settings")
+      .select("value")
+      .eq("store_id", storeId)
+      .eq("key", "reminder_config")
+      .maybeSingle();
+    const cfg = (settingsRow?.value ?? {}) as Record<string, unknown>;
+    chunks = chunkDailyBarSummaryBody(applyDailyBarSummaryCustomization(generated.body, cfg));
   }
 
   const tokenPack = await fetchResolvedLineChannelAccessTokenForStore(

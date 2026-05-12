@@ -18,6 +18,8 @@ import {
   buildEditablePreOpenReportTemplate,
   PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER,
 } from "@/lib/pre-open-report-customization";
+import { buildEditableWeeklyReportTemplate } from "@/lib/weekly-report-customization";
+import { buildEditableDailyBarSummaryTemplate } from "@/lib/daily-bar-summary-customization";
 
 type Section = "store" | "line" | "features" | "admins";
 type BusinessType = "cabaret" | "welfare_b" | "bar" | "fuzoku";
@@ -28,8 +30,13 @@ type ReminderConfig = {
   reply_present: string;
   reply_late: string;
   reply_absent: string;
+  reply_public_holiday: string;
+  reply_half_holiday: string;
   admin_notify_late: string;
   admin_notify_absent: string;
+  admin_notify_present: string;
+  admin_notify_public_holiday: string;
+  admin_notify_half_holiday: string;
   admin_notify_new_cast: string;
   welcome_message: string;
 };
@@ -78,6 +85,12 @@ type SnapshotShape = {
   shiftTimeStepMinutes: ShiftTimeStepMinutes;
   lineCustomizationText: string;
   preOpenReportTemplateText: string;
+  weeklyReportTemplateText: string;
+  dailyBarSummaryTemplateText: string;
+  remindAdminSummaryTemplateText: string;
+  warnUnansweredHeaderText: string;
+  warnUnansweredLineTemplateText: string;
+  warnUnansweredAndMoreTemplateText: string;
 };
 
 const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
@@ -143,10 +156,17 @@ const DEFAULT_CONFIG: ReminderConfig = {
     "遅刻の連絡を受け付けました。差し支えなければ、このチャットで『理由』と『到着予定時刻』を教えていただけますか？",
   reply_absent:
     "欠勤の連絡を受け付けました。この後、管理者から直接ご連絡させていただきます。",
+  reply_public_holiday: "公休の連絡を受け付けました。理由を入力してください。",
+  reply_half_holiday: "半休の連絡を受け付けました。理由を入力してください。",
   admin_notify_late:
     "【遅刻連絡】\n{name} さんから遅刻の連絡がありました。理由と到着予定時刻を確認してください。",
   admin_notify_absent:
     "【欠勤連絡】\n{name} さんから欠勤の連絡がありました。至急、連絡・シフト調整をお願いします。",
+  admin_notify_present: "【出勤連絡】{name}さんから本日の出勤（予定通り）の連絡がありました。",
+  admin_notify_public_holiday:
+    "【公休連絡】\n{name} さんから公休の連絡がありました。理由を確認してください。",
+  admin_notify_half_holiday:
+    "【半休連絡】\n{name} さんから半休の連絡がありました。理由を確認してください。",
   admin_notify_new_cast: "新しく {name} さんが登録されました！",
   welcome_message:
     "{name}さん、はじめまして。出勤・退勤の連絡はこのLINEから行えます。よろしくお願いいたします。",
@@ -219,6 +239,14 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [preOpenReportTemplateText, setPreOpenReportTemplateText] = useState(
     PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER
   );
+  const [weeklyReportTemplateText, setWeeklyReportTemplateText] = useState("{weekly_report_body}");
+  const [dailyBarSummaryTemplateText, setDailyBarSummaryTemplateText] = useState("{daily_bar_summary_body}");
+  const [remindAdminSummaryTemplateText, setRemindAdminSummaryTemplateText] = useState(
+    "【システム通知】本日、以下の{count}名に出勤確認のリマインドを送信しました。\n{list}"
+  );
+  const [warnUnansweredHeaderText, setWarnUnansweredHeaderText] = useState("【未返信アラート】");
+  const [warnUnansweredLineTemplateText, setWarnUnansweredLineTemplateText] = useState("・{name} ({time})");
+  const [warnUnansweredAndMoreTemplateText, setWarnUnansweredAndMoreTemplateText] = useState("・他{count}名");
   const [shiftTimeStepMinutes, setShiftTimeStepMinutes] = useState<ShiftTimeStepMinutes>(15);
 
   const [individualTestCastId, setIndividualTestCastId] = useState("");
@@ -278,6 +306,12 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       shiftTimeStepMinutes,
       lineCustomizationText,
       preOpenReportTemplateText,
+      weeklyReportTemplateText,
+      dailyBarSummaryTemplateText,
+      remindAdminSummaryTemplateText,
+      warnUnansweredHeaderText,
+      warnUnansweredLineTemplateText,
+      warnUnansweredAndMoreTemplateText,
     };
   }, [
     businessType,
@@ -309,6 +343,12 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     shiftTimeStepMinutes,
     lineCustomizationText,
     preOpenReportTemplateText,
+    weeklyReportTemplateText,
+    dailyBarSummaryTemplateText,
+    remindAdminSummaryTemplateText,
+    warnUnansweredHeaderText,
+    warnUnansweredLineTemplateText,
+    warnUnansweredAndMoreTemplateText,
   ]);
 
   const createSnapshot = useCallback(() => JSON.stringify(createSnapshotObj()), [createSnapshotObj]);
@@ -348,6 +388,12 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     shiftTimeStepMinutes: "シフト時刻の刻み",
     lineCustomizationText: "LINE詳細カスタム(JSON)",
     preOpenReportTemplateText: "営業前サマリーテンプレート",
+    weeklyReportTemplateText: "週間レポートテンプレート",
+    dailyBarSummaryTemplateText: "出勤確認サマリーテンプレート",
+    remindAdminSummaryTemplateText: "出勤確認送信サマリーテンプレート",
+    warnUnansweredHeaderText: "未返信アラート見出し",
+    warnUnansweredLineTemplateText: "未返信アラート行テンプレート",
+    warnUnansweredAndMoreTemplateText: "未返信アラート残数テンプレート",
   };
 
   const unsavedChangeLabels = useMemo(() => {
@@ -428,6 +474,14 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setReminderConfigExtras({});
       setLineCustomizationText("{}");
       setPreOpenReportTemplateText(PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER);
+      setWeeklyReportTemplateText("{weekly_report_body}");
+      setDailyBarSummaryTemplateText("{daily_bar_summary_body}");
+      setRemindAdminSummaryTemplateText(
+        "【システム通知】本日、以下の{count}名に出勤確認のリマインドを送信しました。\n{list}"
+      );
+      setWarnUnansweredHeaderText("【未返信アラート】");
+      setWarnUnansweredLineTemplateText("・{name} ({time})");
+      setWarnUnansweredAndMoreTemplateText("・他{count}名");
 
       if (data.reminder_config && typeof data.reminder_config === "object") {
         const rc = data.reminder_config as Record<string, unknown>;
@@ -438,8 +492,13 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           reply_present: _rp,
           reply_late: _rl,
           reply_absent: _ra,
+          reply_public_holiday: _rph,
+          reply_half_holiday: _rhh,
           admin_notify_late: _anl,
           admin_notify_absent: _ana,
+          admin_notify_present: _anp,
+          admin_notify_public_holiday: _anph,
+          admin_notify_half_holiday: _anhh,
           admin_notify_new_cast: _ann,
           welcome_message: _wm,
           ...rest
@@ -447,6 +506,33 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
         setReminderConfigExtras(rest);
         setPreOpenReportTemplateText(
           buildEditablePreOpenReportTemplate(rc) || PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER
+        );
+        setWeeklyReportTemplateText(
+          buildEditableWeeklyReportTemplate(rc) || "{weekly_report_body}"
+        );
+        setDailyBarSummaryTemplateText(
+          buildEditableDailyBarSummaryTemplate(rc) || "{daily_bar_summary_body}"
+        );
+        setRemindAdminSummaryTemplateText(
+          typeof rc.remind_admin_summary_template === "string" && rc.remind_admin_summary_template.trim()
+            ? rc.remind_admin_summary_template
+            : "【システム通知】本日、以下の{count}名に出勤確認のリマインドを送信しました。\n{list}"
+        );
+        setWarnUnansweredHeaderText(
+          typeof rc.warn_unanswered_header === "string" && rc.warn_unanswered_header.trim()
+            ? rc.warn_unanswered_header
+            : "【未返信アラート】"
+        );
+        setWarnUnansweredLineTemplateText(
+          typeof rc.warn_unanswered_line_template === "string" && rc.warn_unanswered_line_template.trim()
+            ? rc.warn_unanswered_line_template
+            : "・{name} ({time})"
+        );
+        setWarnUnansweredAndMoreTemplateText(
+          typeof rc.warn_unanswered_and_more_template === "string" &&
+            rc.warn_unanswered_and_more_template.trim()
+            ? rc.warn_unanswered_and_more_template
+            : "・他{count}名"
         );
         const lc = rc.line_customization;
         if (lc && typeof lc === "object" && !Array.isArray(lc)) {
@@ -463,12 +549,28 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           reply_late: (typeof rc.reply_late === "string" ? rc.reply_late : null) ?? DEFAULT_CONFIG.reply_late,
           reply_absent:
             (typeof rc.reply_absent === "string" ? rc.reply_absent : null) ?? DEFAULT_CONFIG.reply_absent,
+          reply_public_holiday:
+            (typeof rc.reply_public_holiday === "string" ? rc.reply_public_holiday : null) ??
+            DEFAULT_CONFIG.reply_public_holiday,
+          reply_half_holiday:
+            (typeof rc.reply_half_holiday === "string" ? rc.reply_half_holiday : null) ??
+            DEFAULT_CONFIG.reply_half_holiday,
           admin_notify_late:
             (typeof rc.admin_notify_late === "string" ? rc.admin_notify_late : null) ??
             DEFAULT_CONFIG.admin_notify_late,
           admin_notify_absent:
             (typeof rc.admin_notify_absent === "string" ? rc.admin_notify_absent : null) ??
             DEFAULT_CONFIG.admin_notify_absent,
+          admin_notify_present:
+            (typeof rc.admin_notify_present === "string" ? rc.admin_notify_present : null) ??
+            DEFAULT_CONFIG.admin_notify_present,
+          admin_notify_public_holiday:
+            (typeof rc.admin_notify_public_holiday === "string"
+              ? rc.admin_notify_public_holiday
+              : null) ?? DEFAULT_CONFIG.admin_notify_public_holiday,
+          admin_notify_half_holiday:
+            (typeof rc.admin_notify_half_holiday === "string" ? rc.admin_notify_half_holiday : null) ??
+            DEFAULT_CONFIG.admin_notify_half_holiday,
           admin_notify_new_cast:
             (typeof rc.admin_notify_new_cast === "string" ? rc.admin_notify_new_cast : null) ??
             DEFAULT_CONFIG.admin_notify_new_cast,
@@ -567,12 +669,31 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
         reply_present: config.reply_present.trim() || DEFAULT_CONFIG.reply_present,
         reply_late: config.reply_late.trim() || DEFAULT_CONFIG.reply_late,
         reply_absent: config.reply_absent.trim() || DEFAULT_CONFIG.reply_absent,
+        reply_public_holiday:
+          config.reply_public_holiday.trim() || DEFAULT_CONFIG.reply_public_holiday,
+        reply_half_holiday: config.reply_half_holiday.trim() || DEFAULT_CONFIG.reply_half_holiday,
         admin_notify_late: config.admin_notify_late.trim() || DEFAULT_CONFIG.admin_notify_late,
         admin_notify_absent: config.admin_notify_absent.trim() || DEFAULT_CONFIG.admin_notify_absent,
+        admin_notify_present:
+          config.admin_notify_present.trim() || DEFAULT_CONFIG.admin_notify_present,
+        admin_notify_public_holiday:
+          config.admin_notify_public_holiday.trim() || DEFAULT_CONFIG.admin_notify_public_holiday,
+        admin_notify_half_holiday:
+          config.admin_notify_half_holiday.trim() || DEFAULT_CONFIG.admin_notify_half_holiday,
         admin_notify_new_cast: config.admin_notify_new_cast.trim() || DEFAULT_CONFIG.admin_notify_new_cast,
         welcome_message: config.welcome_message.trim() || DEFAULT_CONFIG.welcome_message,
         pre_open_report_template:
           preOpenReportTemplateText.trim() || PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER,
+        weekly_report_template: weeklyReportTemplateText.trim() || "{weekly_report_body}",
+        daily_bar_summary_template: dailyBarSummaryTemplateText.trim() || "{daily_bar_summary_body}",
+        remind_admin_summary_template:
+          remindAdminSummaryTemplateText.trim() ||
+          "【システム通知】本日、以下の{count}名に出勤確認のリマインドを送信しました。\n{list}",
+        warn_unanswered_header: warnUnansweredHeaderText.trim() || "【未返信アラート】",
+        warn_unanswered_line_template:
+          warnUnansweredLineTemplateText.trim() || "・{name} ({time})",
+        warn_unanswered_and_more_template:
+          warnUnansweredAndMoreTemplateText.trim() || "・他{count}名",
         line_customization: lineCustomizationValue,
       };
 
@@ -666,6 +787,12 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     reminderConfigExtras,
     lineCustomizationText,
     preOpenReportTemplateText,
+    weeklyReportTemplateText,
+    dailyBarSummaryTemplateText,
+    remindAdminSummaryTemplateText,
+    warnUnansweredHeaderText,
+    warnUnansweredLineTemplateText,
+    warnUnansweredAndMoreTemplateText,
   ]);
 
   const handleIndividualTest = useCallback(async () => {
@@ -886,6 +1013,45 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       .replace(/\{name\}/g, "キャスト名")
       .replace(/\{time\}/g, "20:00");
   }, [config.messageTemplate]);
+
+  const weeklyTemplatePreview = useMemo(() => {
+    const body = "【週間レポート】店舗名\n対象期間: 2026年5月1日〜7日\n全体の出勤日数（合計）: 25";
+    const t = weeklyReportTemplateText.trim() || "{weekly_report_body}";
+    return t.includes("{weekly_report_body}") ? t.replaceAll("{weekly_report_body}", body) : `${t}\n${body}`;
+  }, [weeklyReportTemplateText]);
+
+  const dailyBarTemplatePreview = useMemo(() => {
+    const body = "【営業前サマリー（日報）】\n📅 2026年5月12日\n📊 全体組数: 確定 8組 / 仮 2組";
+    const t = dailyBarSummaryTemplateText.trim() || "{daily_bar_summary_body}";
+    return t.includes("{daily_bar_summary_body}")
+      ? t.replaceAll("{daily_bar_summary_body}", body)
+      : `${t}\n${body}`;
+  }, [dailyBarSummaryTemplateText]);
+
+  const remindAdminSummaryTemplatePreview = useMemo(() => {
+    return (
+      remindAdminSummaryTemplateText.trim() ||
+      "【システム通知】本日、以下の{count}名に出勤確認のリマインドを送信しました。\n{list}"
+    )
+      .replaceAll("{count}", "2")
+      .replaceAll("{list}", "・キャスト1 (20:00)\n・キャスト2 (21:00)");
+  }, [remindAdminSummaryTemplateText]);
+
+  const warnUnansweredTemplatePreview = useMemo(() => {
+    const header = warnUnansweredHeaderText.trim() || "【未返信アラート】";
+    const line = (warnUnansweredLineTemplateText.trim() || "・{name} ({time})")
+      .replaceAll("{name}", "キャスト名")
+      .replaceAll("{time}", "21:00");
+    const more = (warnUnansweredAndMoreTemplateText.trim() || "・他{count}名").replaceAll(
+      "{count}",
+      "3"
+    );
+    return `${header}\n${line}\n${more}`;
+  }, [
+    warnUnansweredHeaderText,
+    warnUnansweredLineTemplateText,
+    warnUnansweredAndMoreTemplateText,
+  ]);
 
   const menuEditorItems = useMemo(() => {
     const base = MENU_PRESET_BY_BUSINESS[businessType].map((item, idx) => {
@@ -1285,6 +1451,107 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               レギュラーメッセージ
               <textarea value={regularRemindMessage} onChange={(e) => setRegularRemindMessage(e.target.value)} rows={3} className={`mt-1 w-full ${CONTROL_CLASS}`} />
             </label>
+            <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <summary className="cursor-pointer text-sm font-medium text-slate-800">
+                出勤回答・管理者通知 文面の詳細設定
+              </summary>
+              <div className="mt-3 space-y-3">
+                <label className="block text-sm text-slate-700">
+                  回答後メッセージ（出勤）
+                  <textarea
+                    value={config.reply_present}
+                    onChange={(e) => setConfig((c) => ({ ...c, reply_present: e.target.value }))}
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  回答後メッセージ（遅刻）
+                  <textarea
+                    value={config.reply_late}
+                    onChange={(e) => setConfig((c) => ({ ...c, reply_late: e.target.value }))}
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  回答後メッセージ（欠勤）
+                  <textarea
+                    value={config.reply_absent}
+                    onChange={(e) => setConfig((c) => ({ ...c, reply_absent: e.target.value }))}
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  回答後メッセージ（公休）
+                  <textarea
+                    value={config.reply_public_holiday}
+                    onChange={(e) => setConfig((c) => ({ ...c, reply_public_holiday: e.target.value }))}
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  回答後メッセージ（半休）
+                  <textarea
+                    value={config.reply_half_holiday}
+                    onChange={(e) => setConfig((c) => ({ ...c, reply_half_holiday: e.target.value }))}
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  管理者通知（出勤）
+                  <textarea
+                    value={config.admin_notify_present}
+                    onChange={(e) => setConfig((c) => ({ ...c, admin_notify_present: e.target.value }))}
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  管理者通知（遅刻）
+                  <textarea
+                    value={config.admin_notify_late}
+                    onChange={(e) => setConfig((c) => ({ ...c, admin_notify_late: e.target.value }))}
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  管理者通知（欠勤）
+                  <textarea
+                    value={config.admin_notify_absent}
+                    onChange={(e) => setConfig((c) => ({ ...c, admin_notify_absent: e.target.value }))}
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  管理者通知（公休）
+                  <textarea
+                    value={config.admin_notify_public_holiday}
+                    onChange={(e) =>
+                      setConfig((c) => ({ ...c, admin_notify_public_holiday: e.target.value }))
+                    }
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  管理者通知（半休）
+                  <textarea
+                    value={config.admin_notify_half_holiday}
+                    onChange={(e) =>
+                      setConfig((c) => ({ ...c, admin_notify_half_holiday: e.target.value }))
+                    }
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+              </div>
+            </details>
             <label className="block text-sm text-slate-700">
               LINE詳細カスタム(JSON・上級者向け)
               <p className="mt-0.5 text-xs text-slate-500">
@@ -1377,6 +1644,100 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
               />
             </label>
+            <label className="block text-sm text-slate-700">
+              週間レポートテンプレート
+              <p className="mt-0.5 text-xs text-slate-500">
+                {"{weekly_report_body}"} を差し込み位置として使います。
+              </p>
+              <textarea
+                value={weeklyReportTemplateText}
+                onChange={(e) => setWeeklyReportTemplateText(e.target.value)}
+                rows={3}
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
+              <textarea
+                value={weeklyTemplatePreview}
+                readOnly
+                rows={4}
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
+            </label>
+            <label className="block text-sm text-slate-700">
+              出勤確認サマリーテンプレート（BAR日報）
+              <p className="mt-0.5 text-xs text-slate-500">
+                {"{daily_bar_summary_body}"} を差し込み位置として使います。
+              </p>
+              <textarea
+                value={dailyBarSummaryTemplateText}
+                onChange={(e) => setDailyBarSummaryTemplateText(e.target.value)}
+                rows={3}
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
+              <textarea
+                value={dailyBarTemplatePreview}
+                readOnly
+                rows={4}
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
+            </label>
+            <label className="block text-sm text-slate-700">
+              出勤確認送信サマリーテンプレート（管理者通知）
+              <p className="mt-0.5 text-xs text-slate-500">変数: {"{count}"}, {"{list}"}</p>
+              <textarea
+                value={remindAdminSummaryTemplateText}
+                onChange={(e) => setRemindAdminSummaryTemplateText(e.target.value)}
+                rows={3}
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
+              <textarea
+                value={remindAdminSummaryTemplatePreview}
+                readOnly
+                rows={4}
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
+            </label>
+            <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <summary className="cursor-pointer text-sm font-medium text-slate-800">
+                未返信アラート文面テンプレート
+              </summary>
+              <div className="mt-3 space-y-3">
+                <label className="block text-sm text-slate-700">
+                  見出し
+                  <textarea
+                    value={warnUnansweredHeaderText}
+                    onChange={(e) => setWarnUnansweredHeaderText(e.target.value)}
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  1行テンプレート
+                  <p className="mt-0.5 text-xs text-slate-500">変数: {"{name}"}, {"{time}"}</p>
+                  <textarea
+                    value={warnUnansweredLineTemplateText}
+                    onChange={(e) => setWarnUnansweredLineTemplateText(e.target.value)}
+                    rows={2}
+                    className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  残数テンプレート
+                  <p className="mt-0.5 text-xs text-slate-500">変数: {"{count}"}</p>
+                  <textarea
+                    value={warnUnansweredAndMoreTemplateText}
+                    onChange={(e) => setWarnUnansweredAndMoreTemplateText(e.target.value)}
+                    rows={2}
+                    className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <textarea
+                  value={warnUnansweredTemplatePreview}
+                  readOnly
+                  rows={4}
+                  className={`w-full font-mono text-xs ${CONTROL_CLASS}`}
+                />
+              </div>
+            </details>
             <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
               <p className="text-xs font-semibold text-slate-800">営業前サマリー 現在送信文面プレビュー</p>
               <p className="text-xs text-slate-600">

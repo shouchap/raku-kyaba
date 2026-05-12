@@ -4,6 +4,7 @@ import { sendMulticastMessage } from "@/lib/line-reply";
 import { buildWeeklyReportBody, chunkWeeklyReportBody } from "@/lib/line-weekly-report";
 import { loadWeeklyReportBuildInput } from "@/lib/weekly-report-data";
 import { logPostgrestError, isUndefinedColumnError } from "@/lib/postgrest-error";
+import { applyWeeklyReportCustomization } from "@/lib/weekly-report-customization";
 
 async function fetchAdminLineUserIds(admin: SupabaseClient, storeId: string): Promise<string[]> {
   const { data: adminCasts } = await admin
@@ -80,7 +81,14 @@ export async function sendWeeklyReportForStore(
     return { ok: false, error: loaded.error };
   }
 
-  const body = buildWeeklyReportBody(loaded.input);
+  const { data: settingsRow } = await admin
+    .from("system_settings")
+    .select("value")
+    .eq("store_id", storeId)
+    .eq("key", "reminder_config")
+    .maybeSingle();
+  const cfg = (settingsRow?.value ?? {}) as Record<string, unknown>;
+  const body = applyWeeklyReportCustomization(buildWeeklyReportBody(loaded.input), cfg);
   const chunks = chunkWeeklyReportBody(body);
 
   for (const chunk of chunks) {

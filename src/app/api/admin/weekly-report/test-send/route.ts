@@ -8,6 +8,7 @@ import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-
 import { buildWeeklyReportBody, chunkWeeklyReportBody } from "@/lib/line-weekly-report";
 import { loadWeeklyReportBuildInput } from "@/lib/weekly-report-data";
 import { isValidStoreId } from "@/lib/current-store";
+import { applyWeeklyReportCustomization } from "@/lib/weekly-report-customization";
 
 /**
  * 週間レポートを時刻条件なしで管理者へ送信する（設定画面のテスト用）。
@@ -57,7 +58,16 @@ export async function POST(request: Request) {
     if (!loaded.ok) {
       return NextResponse.json({ ok: false, error: loaded.error }, { status: 500 });
     }
-    const chunks = chunkWeeklyReportBody(buildWeeklyReportBody(loaded.input));
+    const { data: settingsRow } = await admin
+      .from("system_settings")
+      .select("value")
+      .eq("store_id", storeId)
+      .eq("key", "reminder_config")
+      .maybeSingle();
+    const cfg = (settingsRow?.value ?? {}) as Record<string, unknown>;
+    const chunks = chunkWeeklyReportBody(
+      applyWeeklyReportCustomization(buildWeeklyReportBody(loaded.input), cfg)
+    );
     try {
       for (const chunk of chunks) {
         await sendPushMessage(cast.line_user_id, tokenPack.token, [{ type: "text", text: chunk }]);

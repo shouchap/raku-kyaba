@@ -415,7 +415,7 @@ async function runRemindForStore(
   if (!loaded) {
     return { storeId, skipped: "settings_error", successCount: 0, failureCount: 0, totalCandidates: 0 };
   }
-  const { config, messageTemplate, holidayFlex } = loaded;
+  const { config, messageTemplate, holidayFlex, rawConfig } = loaded;
   const regularRemindMessageFromStore = store.regular_remind_message;
   let regularFallbackHm: string | null = null;
   try {
@@ -527,7 +527,15 @@ async function runRemindForStore(
       if (adminIds.length > 0) {
         const sorted = [...sentItems].sort((a, b) => a.sortMinutes - b.sortMinutes);
         const nameList = sorted.map(({ line }) => line).join("\n");
-        const adminMessage = `【システム通知】本日、以下の${sentItems.length}名に出勤確認のリマインドを送信しました。\n${nameList}`;
+        const tplRaw =
+          typeof rawConfig.remind_admin_summary_template === "string"
+            ? rawConfig.remind_admin_summary_template
+            : "";
+        const adminMessage = tplRaw.trim()
+          ? tplRaw
+              .replace(/\{count\}/g, String(sentItems.length))
+              .replace(/\{list\}/g, nameList)
+          : `【システム通知】本日、以下の${sentItems.length}名に出勤確認のリマインドを送信しました。\n${nameList}`;
         await sendMulticastMessage(adminIds, channelAccessToken, [
           { type: "text", text: adminMessage },
         ]);

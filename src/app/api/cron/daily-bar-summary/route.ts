@@ -5,7 +5,8 @@ import { getTodayJst } from "@/lib/date-utils";
 import { sendMulticastMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { isUndefinedColumnError, logPostgrestError } from "@/lib/postgrest-error";
-import { generateDailyBarSummaryForStore } from "@/lib/daily-bar-summary";
+import { chunkDailyBarSummaryBody, generateDailyBarSummaryForStore } from "@/lib/daily-bar-summary";
+import { applyDailyBarSummaryCustomization } from "@/lib/daily-bar-summary-customization";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -90,7 +91,17 @@ async function runDailyBarSummary(): Promise<{
         continue;
       }
 
-      for (const chunk of generated.chunks) {
+      const { data: settingsRow } = await admin
+        .from("system_settings")
+        .select("value")
+        .eq("store_id", storeId)
+        .eq("key", "reminder_config")
+        .maybeSingle();
+      const cfg = (settingsRow?.value ?? {}) as Record<string, unknown>;
+      const body = applyDailyBarSummaryCustomization(generated.body, cfg);
+      const chunks = body === generated.body ? generated.chunks : chunkDailyBarSummaryBody(body);
+
+      for (const chunk of chunks) {
         await sendMulticastMessage(adminIds, tokenPack.token, [{ type: "text", text: chunk }]);
       }
 
