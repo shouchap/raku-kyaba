@@ -1261,7 +1261,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const showSave = section !== "admins";
 
   return (
-    <div className="space-y-4 text-slate-900">
+    <div className={`space-y-4 text-slate-900 ${showSave ? "pb-24 sm:pb-20" : ""}`}>
       <header className="sticky top-2 z-20 app-card flex items-center justify-between gap-3 p-3 backdrop-blur">
         <div>
           <h1 className="text-base font-bold text-slate-900">
@@ -2197,6 +2197,29 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           </div>
         </section>
       )}
+      {showSave ? (
+        <div className="fixed inset-x-3 bottom-3 z-30 sm:inset-x-auto sm:bottom-4 sm:right-4">
+          <div className="rounded-xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur sm:min-w-[280px]">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-slate-600">
+                {isDirty ? `未保存: ${unsavedChangeLabels.length}件` : "保存済み"}
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleSave()}
+                disabled={saving || !isDirty}
+                className={`min-h-[40px] rounded-lg px-4 text-sm font-semibold transition ${
+                  isDirty
+                    ? "bg-blue-600 text-white hover:bg-blue-700"
+                    : "bg-slate-200 text-slate-500 cursor-not-allowed"
+                }`}
+              >
+                {saving ? "保存中..." : "設定を保存"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
