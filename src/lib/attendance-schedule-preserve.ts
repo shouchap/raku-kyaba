@@ -24,21 +24,39 @@ export function mergeScheduleRowForWeeklyUpsert(
   },
   prev: Record<string, unknown> | undefined
 ): Record<string, unknown> {
+  const attendanceDefaults = {
+    response_status: null,
+    is_absent: false,
+    is_late: false,
+    late_reason: null,
+    absent_reason: null,
+    public_holiday_reason: null,
+    half_holiday_reason: null,
+    is_action_completed: false,
+    pending_line_flow: null,
+    pending_line_updated_at: null,
+    has_reservation: null,
+    reservation_details: null,
+    last_reminded_at: null,
+    admin_warned_at: null,
+  };
+
   if (!prev) {
     return {
       ...base,
+      ...attendanceDefaults,
     };
   }
   return {
     ...base,
     response_status: prev.response_status ?? null,
-    is_absent: prev.is_absent ?? false,
-    is_late: prev.is_late ?? false,
+    is_absent: prev.is_absent === true,
+    is_late: prev.is_late === true,
     late_reason: prev.late_reason ?? null,
     absent_reason: prev.absent_reason ?? null,
     public_holiday_reason: prev.public_holiday_reason ?? null,
     half_holiday_reason: prev.half_holiday_reason ?? null,
-    is_action_completed: prev.is_action_completed ?? false,
+    is_action_completed: prev.is_action_completed === true,
     pending_line_flow: prev.pending_line_flow ?? null,
     pending_line_updated_at: prev.pending_line_updated_at ?? null,
     has_reservation: prev.has_reservation ?? null,
