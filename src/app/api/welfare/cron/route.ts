@@ -12,6 +12,7 @@
  * - stores.regular_holidays に「今日の曜日（JST）」が含まれる店舗はスキップ。
  *
  * 認証: CRON_SECRET 設定時は Authorization: Bearer <CRON_SECRET>
+ * GET / POST いずれも同一処理（Scheduler のメソッド差で 405 にならないよう POST も受付）
  * テスト: ?storeId=uuid でその店のみ（時刻チェックなし）
  */
 
@@ -230,28 +231,69 @@ async function pushSegmentToStore(
     return { ok: true, recipients: 0, activeCastCount };
   }
 
-  const flex = flexForSegment(segment, storeRow);
-  const chunkSize = 500;
+  let flex: ReturnType<typeof flexForSegment>;
   try {
-    for (let i = 0; i < ids.length; i += chunkSize) {
-      const chunk = ids.slice(i, i + chunkSize);
+    flex = flexForSegment(segment, storeRow);
+  } catch (flexErr) {
+    const msg = flexErr instanceof Error ? flexErr.message : String(flexErr);
+    console.error(
+      `${LOG_PREFIX} segment=${segment} storeId=${storeId} FLEX_BUILD_FAILED message=${msg}`
+    );
+    return { ok: false, recipients: 0, error: `flex_build: ${msg}`, activeCastCount };
+  }
+
+  const chunkSize = 500;
+  let sentTotal = 0;
+  const chunkErrors: string[] = [];
+  const numChunks = Math.ceil(ids.length / chunkSize);
+
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const chunkIdx = Math.floor(i / chunkSize) + 1;
+    try {
       await sendMulticastMessage(chunk, resolved.token, [flex]);
+      sentTotal += chunk.length;
       console.info(
-        `${LOG_PREFIX} segment=${segment} storeId=${storeId} multicast_ok chunk=${Math.floor(i / chunkSize) + 1}/${Math.ceil(ids.length / chunkSize)} size=${chunk.length}`
+        `${LOG_PREFIX} segment=${segment} storeId=${storeId} multicast_ok chunk=${chunkIdx}/${numChunks} size=${chunk.length}`
+      );
+    } catch (sendErr) {
+      const msg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+      chunkErrors.push(`chunk ${chunkIdx}/${numChunks} (${chunk.length} users): ${msg}`);
+      console.error(
+        `${LOG_PREFIX} segment=${segment} storeId=${storeId} LINE_MULTICAST_CHUNK_FAILED chunk=${chunkIdx}/${numChunks} size=${chunk.length} message=${msg}`
       );
     }
-  } catch (sendErr) {
-    const msg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+  }
+
+  if (sentTotal === 0) {
+    const joined = chunkErrors.join(" | ");
     console.error(
-      `${LOG_PREFIX} segment=${segment} storeId=${storeId} LINE_MULTICAST_FAILED message=${msg} attemptedRecipients=${ids.length} activeCastCount=${activeCastCount}`
+      `${LOG_PREFIX} segment=${segment} storeId=${storeId} LINE_MULTICAST_ALL_CHUNKS_FAILED attemptedRecipients=${ids.length} details=${joined}`
     );
-    return { ok: false, recipients: 0, error: `line_multicast: ${msg}`, activeCastCount };
+    return {
+      ok: false,
+      recipients: 0,
+      error: `line_multicast: ${joined || "all chunks failed"}`,
+      activeCastCount,
+    };
+  }
+
+  if (chunkErrors.length > 0) {
+    console.warn(
+      `${LOG_PREFIX} segment=${segment} storeId=${storeId} multicast_partial_success sent=${sentTotal}/${ids.length} failures=${chunkErrors.length}`
+    );
+    return {
+      ok: true,
+      recipients: sentTotal,
+      activeCastCount,
+      error: `partial: ${chunkErrors.join("; ")}`,
+    };
   }
 
   console.info(
-    `${LOG_PREFIX} segment=${segment} storeId=${storeId} push_complete recipients=${ids.length} activeCastCount=${activeCastCount}`
+    `${LOG_PREFIX} segment=${segment} storeId=${storeId} push_complete recipients=${sentTotal} activeCastCount=${activeCastCount}`
   );
-  return { ok: true, recipients: ids.length, activeCastCount };
+  return { ok: true, recipients: sentTotal, activeCastCount };
 }
 
 export async function GET(request: Request) {
@@ -307,39 +349,60 @@ export async function GET(request: Request) {
     }
 
     for (const s of stores) {
-      if (isRegularHolidayDay(s.regular_holidays, todayJst)) {
+      try {
+        if (isRegularHolidayDay(s.regular_holidays, todayJst)) {
+          results.push({
+            storeId: s.id,
+            recipients: 0,
+            error: "regular_holiday",
+          });
+          console.info(
+            `${LOG_PREFIX} segment=${segment} storeId=${s.id} skipped=regular_holiday weekday=${getWeekdayJst(todayJst)} regular_holidays=${JSON.stringify(s.regular_holidays ?? [])}`
+          );
+          continue;
+        }
+        const r = await pushSegmentToStore(supabase, s, segment);
+        results.push({
+          storeId: s.id,
+          recipients: r.recipients,
+          error: r.error,
+          activeCastCount: r.activeCastCount,
+        });
+        const statusLine = `${LOG_PREFIX} segment=${segment} storeId=${s.id} ok=${r.ok} recipients=${r.recipients} activeCastCount=${r.activeCastCount ?? "n/a"} error=${r.error ?? "none"}`;
+        if (r.ok && r.recipients === 0 && !r.error) {
+          console.warn(`${statusLine} (note: 0 recipients may mean no LINE-linked active casts)`);
+        } else if (!r.ok) {
+          console.error(statusLine);
+        } else if (r.error?.startsWith("partial:")) {
+          console.warn(statusLine);
+        } else {
+          console.info(statusLine);
+        }
+      } catch (storeErr) {
+        const msg = storeErr instanceof Error ? storeErr.message : String(storeErr);
+        console.error(
+          `${LOG_PREFIX} segment=${segment} storeId=${s.id} STORE_ITERATION_UNCAUGHT message=${msg}`
+        );
         results.push({
           storeId: s.id,
           recipients: 0,
-          error: "regular_holiday",
+          error: `uncaught: ${msg}`,
         });
-        console.info(
-          `${LOG_PREFIX} segment=${segment} storeId=${s.id} skipped=regular_holiday weekday=${getWeekdayJst(todayJst)} regular_holidays=${JSON.stringify(s.regular_holidays ?? [])}`
-        );
-        continue;
-      }
-      const r = await pushSegmentToStore(supabase, s, segment);
-      results.push({
-        storeId: s.id,
-        recipients: r.recipients,
-        error: r.error,
-        activeCastCount: r.activeCastCount,
-      });
-      const statusLine = `${LOG_PREFIX} segment=${segment} storeId=${s.id} ok=${r.ok} recipients=${r.recipients} activeCastCount=${r.activeCastCount ?? "n/a"} error=${r.error ?? "none"}`;
-      if (r.ok && r.recipients === 0 && !r.error) {
-        console.warn(`${statusLine} (note: 0 recipients may mean no LINE-linked active casts)`);
-      } else if (!r.ok) {
-        console.error(statusLine);
-      } else {
-        console.info(statusLine);
       }
     }
 
+    const anyHardFailure = results.some((row) => {
+      const e = row.error ?? "";
+      return e !== "" && e !== "regular_holiday" && !e.startsWith("partial:");
+    });
+    const anyPartial = results.some((row) => row.error?.startsWith("partial:"));
+
     return NextResponse.json({
-      ok: true,
+      ok: !anyHardFailure,
       segment,
       storeCount: stores.length,
       results,
+      ...(anyPartial ? { warning: "one_or_more_multicast_chunks_failed_see_results" } : {}),
     });
   } catch (e) {
     console.error(LOG_PREFIX, e);
@@ -348,4 +411,9 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
+}
+
+/** Cloud Scheduler が POST のジョブでも 405 にならないよう GET と同等処理 */
+export async function POST(request: Request) {
+  return GET(request);
 }
