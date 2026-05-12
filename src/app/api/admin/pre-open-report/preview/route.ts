@@ -7,6 +7,7 @@ import { isSuperAdminUser } from "@/lib/super-admin";
 import { getTodayJst } from "@/lib/date-utils";
 import { fetchSchedulesForPreOpenReport } from "@/lib/pre-open-report-fetch";
 import { buildPreOpenReportMessageByBusinessType } from "@/lib/pre-open-report-message";
+import { applyPreOpenReportCustomization } from "@/lib/pre-open-report-customization";
 
 export const dynamic = "force-dynamic";
 
@@ -19,13 +20,26 @@ function rejectStoreMismatch(request: Request, user: User, storeId: string): Nex
   return null;
 }
 
-function applyPreOpenMessageCustomization(
-  base: string,
-  cfg: Record<string, unknown> | null | undefined
-): string {
-  const pre = typeof cfg?.pre_open_report_prefix === "string" ? cfg.pre_open_report_prefix.trim() : "";
-  const post = typeof cfg?.pre_open_report_suffix === "string" ? cfg.pre_open_report_suffix.trim() : "";
-  return [pre, base, post].filter(Boolean).join("\n");
+function collectCastNames(rows: unknown[]): string[] {
+  const names = new Set<string>();
+  for (const row of rows) {
+    const casts = (row as { casts?: unknown }).casts;
+    const cast = Array.isArray(casts) ? casts[0] : casts;
+    const n = (cast as { name?: string; display_name?: string | null } | null)?.display_name
+      ?? (cast as { name?: string } | null)?.name;
+    const t = typeof n === "string" ? n.trim() : "";
+    if (t) names.add(t);
+  }
+  return [...names];
+}
+
+function anonymizeCastNames(message: string, rows: unknown[]): string {
+  const names = collectCastNames(rows).sort((a, b) => b.length - a.length);
+  let out = message;
+  names.forEach((name, idx) => {
+    out = out.replaceAll(name, `キャスト${idx + 1}`);
+  });
+  return out;
 }
 
 export async function GET(request: Request) {
@@ -79,7 +93,10 @@ export async function GET(request: Request) {
     .eq("key", "reminder_config")
     .maybeSingle();
   const cfg = (cfgRow?.value ?? {}) as Record<string, unknown>;
-  const message = applyPreOpenMessageCustomization(base, cfg);
+  const message = anonymizeCastNames(
+    applyPreOpenReportCustomization(base, cfg),
+    schedules ?? []
+  );
 
   return NextResponse.json({
     ok: true,

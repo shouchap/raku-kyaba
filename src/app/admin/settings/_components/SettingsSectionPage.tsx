@@ -14,6 +14,10 @@ import {
 } from "@/lib/time-options";
 import { canonicalGuideHearingTime } from "@/lib/guide-hearing";
 import { DEFAULT_CUSTOM_TERMS, resolveCustomTerms, serializeCustomTerms } from "@/lib/custom-terms";
+import {
+  buildEditablePreOpenReportTemplate,
+  PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER,
+} from "@/lib/pre-open-report-customization";
 
 type Section = "store" | "line" | "features" | "admins";
 type BusinessType = "cabaret" | "welfare_b" | "bar" | "fuzoku";
@@ -73,8 +77,7 @@ type SnapshotShape = {
   termCast: string;
   shiftTimeStepMinutes: ShiftTimeStepMinutes;
   lineCustomizationText: string;
-  preOpenReportPrefixText: string;
-  preOpenReportSuffixText: string;
+  preOpenReportTemplateText: string;
 };
 
 const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
@@ -213,8 +216,9 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [menuSettings, setMenuSettings] = useState<MenuSettingsMap>({});
   const [reminderConfigExtras, setReminderConfigExtras] = useState<Record<string, unknown>>({});
   const [lineCustomizationText, setLineCustomizationText] = useState("{}");
-  const [preOpenReportPrefixText, setPreOpenReportPrefixText] = useState("");
-  const [preOpenReportSuffixText, setPreOpenReportSuffixText] = useState("");
+  const [preOpenReportTemplateText, setPreOpenReportTemplateText] = useState(
+    PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER
+  );
   const [shiftTimeStepMinutes, setShiftTimeStepMinutes] = useState<ShiftTimeStepMinutes>(15);
 
   const [individualTestCastId, setIndividualTestCastId] = useState("");
@@ -273,8 +277,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       termCast,
       shiftTimeStepMinutes,
       lineCustomizationText,
-      preOpenReportPrefixText,
-      preOpenReportSuffixText,
+      preOpenReportTemplateText,
     };
   }, [
     businessType,
@@ -305,8 +308,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     termCast,
     shiftTimeStepMinutes,
     lineCustomizationText,
-    preOpenReportPrefixText,
-    preOpenReportSuffixText,
+    preOpenReportTemplateText,
   ]);
 
   const createSnapshot = useCallback(() => JSON.stringify(createSnapshotObj()), [createSnapshotObj]);
@@ -345,8 +347,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     termCast: "キャストラベル",
     shiftTimeStepMinutes: "シフト時刻の刻み",
     lineCustomizationText: "LINE詳細カスタム(JSON)",
-    preOpenReportPrefixText: "営業前サマリー 追記（先頭）",
-    preOpenReportSuffixText: "営業前サマリー 追記（末尾）",
+    preOpenReportTemplateText: "営業前サマリーテンプレート",
   };
 
   const unsavedChangeLabels = useMemo(() => {
@@ -426,8 +427,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setShiftTimeStepMinutes(parseShiftTimeStepMinutes(data.shift_time_step_minutes));
       setReminderConfigExtras({});
       setLineCustomizationText("{}");
-      setPreOpenReportPrefixText("");
-      setPreOpenReportSuffixText("");
+      setPreOpenReportTemplateText(PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER);
 
       if (data.reminder_config && typeof data.reminder_config === "object") {
         const rc = data.reminder_config as Record<string, unknown>;
@@ -442,16 +442,11 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           admin_notify_absent: _ana,
           admin_notify_new_cast: _ann,
           welcome_message: _wm,
-          pre_open_report_prefix: _preOpenPrefix,
-          pre_open_report_suffix: _preOpenSuffix,
           ...rest
         } = rc;
         setReminderConfigExtras(rest);
-        setPreOpenReportPrefixText(
-          typeof _preOpenPrefix === "string" ? _preOpenPrefix : ""
-        );
-        setPreOpenReportSuffixText(
-          typeof _preOpenSuffix === "string" ? _preOpenSuffix : ""
+        setPreOpenReportTemplateText(
+          buildEditablePreOpenReportTemplate(rc) || PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER
         );
         const lc = rc.line_customization;
         if (lc && typeof lc === "object" && !Array.isArray(lc)) {
@@ -576,8 +571,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
         admin_notify_absent: config.admin_notify_absent.trim() || DEFAULT_CONFIG.admin_notify_absent,
         admin_notify_new_cast: config.admin_notify_new_cast.trim() || DEFAULT_CONFIG.admin_notify_new_cast,
         welcome_message: config.welcome_message.trim() || DEFAULT_CONFIG.welcome_message,
-        pre_open_report_prefix: preOpenReportPrefixText.trim(),
-        pre_open_report_suffix: preOpenReportSuffixText.trim(),
+        pre_open_report_template:
+          preOpenReportTemplateText.trim() || PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER,
         line_customization: lineCustomizationValue,
       };
 
@@ -670,8 +665,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     router,
     reminderConfigExtras,
     lineCustomizationText,
-    preOpenReportPrefixText,
-    preOpenReportSuffixText,
+    preOpenReportTemplateText,
   ]);
 
   const handleIndividualTest = useCallback(async () => {
@@ -886,6 +880,12 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setPreOpenPreviewLoading(false);
     }
   }, [activeStoreId, preOpenPreviewDate]);
+
+  const attendanceTemplatePreview = useMemo(() => {
+    return (config.messageTemplate || DEFAULT_CONFIG.messageTemplate)
+      .replace(/\{name\}/g, "キャスト名")
+      .replace(/\{time\}/g, "20:00");
+  }, [config.messageTemplate]);
 
   const menuEditorItems = useMemo(() => {
     const base = MENU_PRESET_BY_BUSINESS[businessType].map((item, idx) => {
@@ -1248,6 +1248,14 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
         <div className="space-y-4">
           <section className="app-card p-4 space-y-3 text-slate-900">
             <h2 className="text-sm font-semibold text-slate-900">通知設定</h2>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold text-slate-700">この業態で送信される主なLINE</p>
+              <p className="mt-1 text-xs text-slate-600">
+                {businessType === "welfare_b"
+                  ? "出勤確認 / 営業前サマリー / 週間レポート / 未返信アラート / 福祉（朝開始・昼体調確認・夕方終了）"
+                  : "出勤確認 / 営業前サマリー / 週間レポート / 未返信アラート"}
+              </p>
+            </div>
             <label className="flex items-start gap-2 text-sm text-slate-700">
               <input type="checkbox" checked={config.enabled} onChange={(e) => setConfig((c) => ({ ...c, enabled: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-blue-600 disabled:accent-slate-400" />
               リマインドを有効化
@@ -1261,13 +1269,26 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               </select>
             </label>
             <label className="block text-sm text-slate-700">
+              出勤確認メッセージ（通常）
+              <p className="mt-0.5 text-xs text-slate-500">
+                変数: {"{name}"} = キャスト名, {"{time}"} = 出勤予定時刻
+              </p>
+              <textarea
+                value={config.messageTemplate}
+                onChange={(e) => setConfig((c) => ({ ...c, messageTemplate: e.target.value }))}
+                rows={3}
+                className={`mt-1 w-full ${CONTROL_CLASS}`}
+              />
+              <p className="mt-1 text-xs text-slate-600">プレビュー: {attendanceTemplatePreview}</p>
+            </label>
+            <label className="block text-sm text-slate-700">
               レギュラーメッセージ
               <textarea value={regularRemindMessage} onChange={(e) => setRegularRemindMessage(e.target.value)} rows={3} className={`mt-1 w-full ${CONTROL_CLASS}`} />
             </label>
             <label className="block text-sm text-slate-700">
-              LINE詳細カスタム(JSON)
+              LINE詳細カスタム(JSON・上級者向け)
               <p className="mt-0.5 text-xs text-slate-500">
-                自動送信文面や福祉ボタン文言・色を上書きします。未指定キーは既定値のままです。
+                通常は上の入力欄だけ使ってください。ここは画面に無い高度な設定を直接上書きする項目です。
               </p>
               <textarea
                 value={lineCustomizationText}
@@ -1345,33 +1366,21 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               </select>
             </label>
             <label className="block text-sm text-slate-700">
-              営業前サマリー 追記（先頭）
+              営業前サマリーテンプレート（業態共通）
               <p className="mt-0.5 text-xs text-slate-500">
-                営業前サマリー本文の先頭に任意テキストを追加します（空欄で追加なし）。
+                {"{summary_body}"} を本文差し込み位置として使います。未記入なら既定フォーマットを表示します。
               </p>
               <textarea
-                value={preOpenReportPrefixText}
-                onChange={(e) => setPreOpenReportPrefixText(e.target.value)}
-                rows={2}
-                className={`mt-1 w-full ${CONTROL_CLASS}`}
-              />
-            </label>
-            <label className="block text-sm text-slate-700">
-              営業前サマリー 追記（末尾）
-              <p className="mt-0.5 text-xs text-slate-500">
-                営業前サマリー本文の末尾に任意テキストを追加します（空欄で追加なし）。
-              </p>
-              <textarea
-                value={preOpenReportSuffixText}
-                onChange={(e) => setPreOpenReportSuffixText(e.target.value)}
-                rows={2}
-                className={`mt-1 w-full ${CONTROL_CLASS}`}
+                value={preOpenReportTemplateText}
+                onChange={(e) => setPreOpenReportTemplateText(e.target.value)}
+                rows={4}
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
               />
             </label>
             <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
               <p className="text-xs font-semibold text-slate-800">営業前サマリー 現在送信文面プレビュー</p>
               <p className="text-xs text-slate-600">
-                実際の送信ロジックと同じ内容を表示します。これを見ながら上の追記文面を調整してください。
+                実際の送信ロジックと同じ内容を表示しつつ、キャスト名は「キャスト1」等に置換して見やすく表示します。
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <input
