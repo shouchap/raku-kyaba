@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
-import { addCalendarDaysJst, getTodayJst, getWeekdayJst } from "@/lib/date-utils";
+import {
+  addCalendarDaysJst,
+  getTodayJst,
+  getWeekdayJst,
+  normalizeScheduledEndTimeForDb,
+} from "@/lib/date-utils";
 import {
   mergeScheduleRowForWeeklyUpsert,
   scheduleRowHasLineAttendanceData,
@@ -419,15 +424,14 @@ export default function AdminWeeklyPage() {
           if (!time) return;
           const key = `${cast.id}_${dateStr}`;
           const prev = prevByKey.get(key);
+          const endHm = (endMatrix[cast.id]?.[dateStr] ?? "").trim();
           const merged = mergeScheduleRowForWeeklyUpsert(
             {
               store_id: store.id,
               cast_id: cast.id,
               scheduled_date: dateStr,
               scheduled_time: time.length === 5 ? `${time}:00` : time,
-              scheduled_end_time: (endMatrix[cast.id]?.[dateStr] ?? "").trim()
-                ? `${(endMatrix[cast.id]?.[dateStr] ?? "").trim()}:00`
-                : null,
+              scheduled_end_time: endHm ? normalizeScheduledEndTimeForDb(endHm) : null,
               is_dohan: dohan[cast.id]?.[dateStr] ?? false,
               is_sabaki: sabaki[cast.id]?.[dateStr] ?? false,
             },

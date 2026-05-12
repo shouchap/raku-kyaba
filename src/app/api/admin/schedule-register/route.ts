@@ -11,7 +11,7 @@ import {
 import { fetchAttendanceFlexHolidayOptions } from "@/lib/reminder-config";
 import { fetchReminderMessageTemplate } from "@/lib/reminder-config";
 import { assertStoreIdMatchesRequest } from "@/lib/current-store";
-import { getTodayJst } from "@/lib/date-utils";
+import { getTodayJst, normalizeScheduledEndTimeForDb } from "@/lib/date-utils";
 import { canUserEditStore } from "@/lib/admin-store-auth";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { mergeScheduleRowForWeeklyUpsert } from "@/lib/attendance-schedule-preserve";
@@ -142,7 +142,7 @@ export async function POST(request: Request) {
     cast_id: castId,
     scheduled_date: scheduledDate,
     scheduled_time: scheduledTime,
-    scheduled_end_time: scheduledEndTime ? `${scheduledEndTime}:00` : null,
+    scheduled_end_time: scheduledEndTime ? normalizeScheduledEndTimeForDb(scheduledEndTime) : null,
     is_dohan: Boolean(isDohan),
     is_sabaki: Boolean(isSabaki),
   };

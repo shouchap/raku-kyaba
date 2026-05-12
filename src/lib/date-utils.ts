@@ -99,3 +99,57 @@ export function getCurrentTimeJst(): { hour: number; minute: number } {
   const minute = match ? parseInt(match[2], 10) : 0;
   return { hour: Math.min(23, Math.max(0, hour)), minute: Math.min(59, Math.max(0, minute)) };
 }
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
+/** PostgreSQL の time として許容される「24 時台」は 24:00:00 のみ */
+const SCHEDULED_END_DAY_END_RE = /^24:00(?::00)?$/;
+
+/**
+ * DB の営業日キー用。タイムゾーン変換を避けるため Date へ変換せず、
+ * 受け取った YYYY-MM-DD 文字列を検証・trim してそのまま返す。
+ */
+export function normalizeYmdDateKey(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const ymd = raw.trim();
+  return YMD_RE.test(ymd) ? ymd : null;
+}
+
+/** `time` カラム用に HH:mm / HH:mm:ss を HH:mm:ss へ正規化する。 */
+export function normalizeSqlTime(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  const time = String(raw).trim();
+  if (time === "") return null;
+  if (!TIME_RE.test(time)) return null;
+  return time.length === 5 ? `${time}:00` : time;
+}
+
+/**
+ * attendance_schedules.scheduled_end_time 専用。
+ * プルダウンでは日跨ぎ終了を 00:00〜05:45 で表すが、DB の `time` 比較では 00:00 が「その日の始まり」になるため
+ * `scheduled_time < scheduled_end_time` 系の CHECK で弾かれやすい。00:00 のみ同日終端の 24:00:00 に寄せる。
+ * （24:00:00 は PostgreSQL の time で入力可能。読み込み側は 00:00 として表示する想定。）
+ */
+export function normalizeScheduledEndTimeForDb(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  const time = String(raw).trim();
+  if (time === "") return null;
+  if (SCHEDULED_END_DAY_END_RE.test(time)) return "24:00:00";
+  if (!TIME_RE.test(time)) return null;
+  const withSeconds = time.length === 5 ? `${time}:00` : time;
+  if (withSeconds === "00:00:00") return "24:00:00";
+  return withSeconds;
+}
+
+/**
+ * JST の日付キー + 時刻を timestamptz 用 ISO へ変換する。
+ * `+09:00` を明記して、UTC 実行環境でも対象日がずれないようにする。
+ */
+export function buildJstTimestampIso(dateKey: string, timeStr?: string | null): string | null {
+  if (!timeStr || timeStr.trim() === "") return null;
+  const ymd = normalizeYmdDateKey(dateKey);
+  const time = normalizeSqlTime(timeStr);
+  if (!ymd || !time) return null;
+  const d = new Date(`${ymd}T${time}+09:00`);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
