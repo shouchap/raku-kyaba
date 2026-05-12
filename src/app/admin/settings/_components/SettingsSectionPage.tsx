@@ -1051,20 +1051,39 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
 
   const weeklyPreviewBaseBody =
     "【週間レポート】店舗名\n対象期間: 2026年5月1日〜7日\n全体の出勤日数（合計）: 25";
-  const weeklyTemplatePreview = useMemo(() => {
-    const t = weeklyReportTemplateText.trim() || "{weekly_report_body}";
-    return t.includes("{weekly_report_body}")
-      ? t.replaceAll("{weekly_report_body}", weeklyPreviewBaseBody)
-      : `${t}\n${weeklyPreviewBaseBody}`;
-  }, [weeklyReportTemplateText]);
+  const splitTemplateByPlaceholder = useCallback((templateRaw: string, placeholder: string) => {
+    const template = templateRaw.trim();
+    const idx = template.indexOf(placeholder);
+    if (idx < 0) return { before: template, after: "" };
+    const before = template.slice(0, idx).trimEnd();
+    const after = template.slice(idx + placeholder.length).trimStart();
+    return { before, after };
+  }, []);
+  const buildTemplateWithPlaceholder = useCallback(
+    (beforeRaw: string, placeholder: string, afterRaw: string) => {
+      const before = beforeRaw.trim();
+      const after = afterRaw.trim();
+      if (before && after) return `${before}\n${placeholder}\n${after}`;
+      if (before) return `${before}\n${placeholder}`;
+      if (after) return `${placeholder}\n${after}`;
+      return placeholder;
+    },
+    []
+  );
+  const weeklyTemplateParts = useMemo(
+    () => splitTemplateByPlaceholder(weeklyReportTemplateText || "{weekly_report_body}", "{weekly_report_body}"),
+    [splitTemplateByPlaceholder, weeklyReportTemplateText]
+  );
 
   const dailyBarPreviewBaseBody = "【営業前サマリー（日報）】\n📅 2026年5月12日\n📊 全体組数: 確定 8組 / 仮 2組";
-  const dailyBarTemplatePreview = useMemo(() => {
-    const t = dailyBarSummaryTemplateText.trim() || "{daily_bar_summary_body}";
-    return t.includes("{daily_bar_summary_body}")
-      ? t.replaceAll("{daily_bar_summary_body}", dailyBarPreviewBaseBody)
-      : `${t}\n${dailyBarPreviewBaseBody}`;
-  }, [dailyBarSummaryTemplateText]);
+  const dailyBarTemplateParts = useMemo(
+    () =>
+      splitTemplateByPlaceholder(
+        dailyBarSummaryTemplateText || "{daily_bar_summary_body}",
+        "{daily_bar_summary_body}"
+      ),
+    [dailyBarSummaryTemplateText, splitTemplateByPlaceholder]
+  );
 
   const remindSummaryPreviewCount = "○件";
   const remindSummaryPreviewList = "・キャスト1 (20:00)\n・キャスト2 (21:00)";
@@ -1093,28 +1112,38 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     warnUnansweredAndMoreTemplateText,
   ]);
 
-  const handleEditWeeklyPreview = useCallback(
+  const handleEditWeeklyHeader = useCallback(
     (nextText: string) => {
-      if (nextText.includes(weeklyPreviewBaseBody)) {
-        setWeeklyReportTemplateText(nextText.replaceAll(weeklyPreviewBaseBody, "{weekly_report_body}"));
-        return;
-      }
-      setWeeklyReportTemplateText(`${nextText.trim()}\n{weekly_report_body}`.trim());
+      setWeeklyReportTemplateText(
+        buildTemplateWithPlaceholder(nextText, "{weekly_report_body}", weeklyTemplateParts.after)
+      );
     },
-    [weeklyPreviewBaseBody]
+    [buildTemplateWithPlaceholder, weeklyTemplateParts.after]
+  );
+  const handleEditWeeklyFooter = useCallback(
+    (nextText: string) => {
+      setWeeklyReportTemplateText(
+        buildTemplateWithPlaceholder(weeklyTemplateParts.before, "{weekly_report_body}", nextText)
+      );
+    },
+    [buildTemplateWithPlaceholder, weeklyTemplateParts.before]
   );
 
-  const handleEditDailyBarPreview = useCallback(
+  const handleEditDailyBarHeader = useCallback(
     (nextText: string) => {
-      if (nextText.includes(dailyBarPreviewBaseBody)) {
-        setDailyBarSummaryTemplateText(
-          nextText.replaceAll(dailyBarPreviewBaseBody, "{daily_bar_summary_body}")
-        );
-        return;
-      }
-      setDailyBarSummaryTemplateText(`${nextText.trim()}\n{daily_bar_summary_body}`.trim());
+      setDailyBarSummaryTemplateText(
+        buildTemplateWithPlaceholder(nextText, "{daily_bar_summary_body}", dailyBarTemplateParts.after)
+      );
     },
-    [dailyBarPreviewBaseBody]
+    [buildTemplateWithPlaceholder, dailyBarTemplateParts.after]
+  );
+  const handleEditDailyBarFooter = useCallback(
+    (nextText: string) => {
+      setDailyBarSummaryTemplateText(
+        buildTemplateWithPlaceholder(dailyBarTemplateParts.before, "{daily_bar_summary_body}", nextText)
+      );
+    },
+    [buildTemplateWithPlaceholder, dailyBarTemplateParts.before]
   );
 
   const handleEditRemindAdminSummaryHeader = useCallback(
@@ -1717,21 +1746,55 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             </label>
             <label className="block text-sm text-slate-700">
               週間レポート文面編集
-              <p className="mt-0.5 text-xs text-slate-500">下のプレビューを直接編集してください。</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                自動で入る本文部分は固定です。前後に追記する文面だけ編集できます。
+              </p>
               <textarea
-                value={weeklyTemplatePreview}
-                onChange={(e) => handleEditWeeklyPreview(e.target.value)}
+                value={weeklyTemplateParts.before}
+                onChange={(e) => handleEditWeeklyHeader(e.target.value)}
+                rows={2}
+                placeholder="本文の前に入れる文面"
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
+              <p className="mt-1 text-xs text-slate-500">本文プレビュー（固定）</p>
+              <textarea
+                value={weeklyPreviewBaseBody}
+                readOnly
                 rows={4}
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
+              <textarea
+                value={weeklyTemplateParts.after}
+                onChange={(e) => handleEditWeeklyFooter(e.target.value)}
+                rows={2}
+                placeholder="本文の後に入れる文面"
                 className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
               />
             </label>
             <label className="block text-sm text-slate-700">
               出勤確認サマリー文面編集（BAR日報）
-              <p className="mt-0.5 text-xs text-slate-500">下のプレビューを直接編集してください。</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                自動で入る本文部分は固定です。前後に追記する文面だけ編集できます。
+              </p>
               <textarea
-                value={dailyBarTemplatePreview}
-                onChange={(e) => handleEditDailyBarPreview(e.target.value)}
+                value={dailyBarTemplateParts.before}
+                onChange={(e) => handleEditDailyBarHeader(e.target.value)}
+                rows={2}
+                placeholder="本文の前に入れる文面"
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
+              <p className="mt-1 text-xs text-slate-500">本文プレビュー（固定）</p>
+              <textarea
+                value={dailyBarPreviewBaseBody}
+                readOnly
                 rows={4}
+                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
+              />
+              <textarea
+                value={dailyBarTemplateParts.after}
+                onChange={(e) => handleEditDailyBarFooter(e.target.value)}
+                rows={2}
+                placeholder="本文の後に入れる文面"
                 className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
               />
             </label>
