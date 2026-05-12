@@ -1049,27 +1049,32 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       .replace(/\{time\}/g, "20:00");
   }, [config.messageTemplate]);
 
+  const weeklyPreviewBaseBody =
+    "【週間レポート】店舗名\n対象期間: 2026年5月1日〜7日\n全体の出勤日数（合計）: 25";
   const weeklyTemplatePreview = useMemo(() => {
-    const body = "【週間レポート】店舗名\n対象期間: 2026年5月1日〜7日\n全体の出勤日数（合計）: 25";
     const t = weeklyReportTemplateText.trim() || "{weekly_report_body}";
-    return t.includes("{weekly_report_body}") ? t.replaceAll("{weekly_report_body}", body) : `${t}\n${body}`;
+    return t.includes("{weekly_report_body}")
+      ? t.replaceAll("{weekly_report_body}", weeklyPreviewBaseBody)
+      : `${t}\n${weeklyPreviewBaseBody}`;
   }, [weeklyReportTemplateText]);
 
+  const dailyBarPreviewBaseBody = "【営業前サマリー（日報）】\n📅 2026年5月12日\n📊 全体組数: 確定 8組 / 仮 2組";
   const dailyBarTemplatePreview = useMemo(() => {
-    const body = "【営業前サマリー（日報）】\n📅 2026年5月12日\n📊 全体組数: 確定 8組 / 仮 2組";
     const t = dailyBarSummaryTemplateText.trim() || "{daily_bar_summary_body}";
     return t.includes("{daily_bar_summary_body}")
-      ? t.replaceAll("{daily_bar_summary_body}", body)
-      : `${t}\n${body}`;
+      ? t.replaceAll("{daily_bar_summary_body}", dailyBarPreviewBaseBody)
+      : `${t}\n${dailyBarPreviewBaseBody}`;
   }, [dailyBarSummaryTemplateText]);
 
+  const remindSummaryPreviewCount = "○件";
+  const remindSummaryPreviewList = "・キャスト1 (20:00)\n・キャスト2 (21:00)";
   const remindAdminSummaryTemplatePreview = useMemo(() => {
     return (
       remindAdminSummaryTemplateText.trim() ||
       "【システム通知】本日、以下の{count}名に出勤確認のリマインドを送信しました。\n{list}"
     )
-      .replaceAll("{count}", "2")
-      .replaceAll("{list}", "・キャスト1 (20:00)\n・キャスト2 (21:00)");
+      .replaceAll("{count}", remindSummaryPreviewCount)
+      .replaceAll("{list}", remindSummaryPreviewList);
   }, [remindAdminSummaryTemplateText]);
 
   const warnUnansweredTemplatePreview = useMemo(() => {
@@ -1087,6 +1092,50 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     warnUnansweredLineTemplateText,
     warnUnansweredAndMoreTemplateText,
   ]);
+
+  const handleEditWeeklyPreview = useCallback(
+    (nextText: string) => {
+      if (nextText.includes(weeklyPreviewBaseBody)) {
+        setWeeklyReportTemplateText(nextText.replaceAll(weeklyPreviewBaseBody, "{weekly_report_body}"));
+        return;
+      }
+      setWeeklyReportTemplateText(`${nextText.trim()}\n{weekly_report_body}`.trim());
+    },
+    [weeklyPreviewBaseBody]
+  );
+
+  const handleEditDailyBarPreview = useCallback(
+    (nextText: string) => {
+      if (nextText.includes(dailyBarPreviewBaseBody)) {
+        setDailyBarSummaryTemplateText(
+          nextText.replaceAll(dailyBarPreviewBaseBody, "{daily_bar_summary_body}")
+        );
+        return;
+      }
+      setDailyBarSummaryTemplateText(`${nextText.trim()}\n{daily_bar_summary_body}`.trim());
+    },
+    [dailyBarPreviewBaseBody]
+  );
+
+  const handleEditRemindAdminSummaryPreview = useCallback(
+    (nextText: string) => {
+      let nextTemplate = nextText;
+      if (nextTemplate.includes(remindSummaryPreviewList)) {
+        nextTemplate = nextTemplate.replaceAll(remindSummaryPreviewList, "{list}");
+      }
+      if (nextTemplate.includes(remindSummaryPreviewCount)) {
+        nextTemplate = nextTemplate.replaceAll(remindSummaryPreviewCount, "{count}");
+      }
+      if (!nextTemplate.includes("{list}")) {
+        nextTemplate = `${nextTemplate.trim()}\n{list}`;
+      }
+      if (!nextTemplate.includes("{count}")) {
+        nextTemplate = nextTemplate.replace("名", "{count}名");
+      }
+      setRemindAdminSummaryTemplateText(nextTemplate.trim());
+    },
+    [remindSummaryPreviewCount, remindSummaryPreviewList]
+  );
 
   const menuEditorItems = useMemo(() => {
     const base = MENU_PRESET_BY_BUSINESS[businessType].map((item, idx) => {
@@ -1472,7 +1521,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             <label className="block text-sm text-slate-700">
               出勤確認メッセージ（通常）
               <p className="mt-0.5 text-xs text-slate-500">
-                変数: {"{name}"} = キャスト名, {"{time}"} = 出勤予定時刻
+                下のプレビューで表示イメージを確認できます。
               </p>
               <textarea
                 value={config.messageTemplate}
@@ -1670,63 +1719,35 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             <label className="block text-sm text-slate-700">
               営業前サマリー編集（業態共通）
               <p className="mt-0.5 text-xs text-slate-500">
-                プレビュー欄を直接編集してください。内部で {"{summary_body}"} に自動変換します。
+                下のプレビューを直接編集してください。
               </p>
-              <textarea
-                value={preOpenReportTemplateText}
-                readOnly
-                rows={2}
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
-              />
             </label>
             <label className="block text-sm text-slate-700">
-              週間レポートテンプレート
-              <p className="mt-0.5 text-xs text-slate-500">
-                {"{weekly_report_body}"} を差し込み位置として使います。
-              </p>
-              <textarea
-                value={weeklyReportTemplateText}
-                onChange={(e) => setWeeklyReportTemplateText(e.target.value)}
-                rows={3}
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
-              />
+              週間レポート文面編集
+              <p className="mt-0.5 text-xs text-slate-500">下のプレビューを直接編集してください。</p>
               <textarea
                 value={weeklyTemplatePreview}
-                readOnly
+                onChange={(e) => handleEditWeeklyPreview(e.target.value)}
                 rows={4}
                 className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
               />
             </label>
             <label className="block text-sm text-slate-700">
-              出勤確認サマリーテンプレート（BAR日報）
-              <p className="mt-0.5 text-xs text-slate-500">
-                {"{daily_bar_summary_body}"} を差し込み位置として使います。
-              </p>
-              <textarea
-                value={dailyBarSummaryTemplateText}
-                onChange={(e) => setDailyBarSummaryTemplateText(e.target.value)}
-                rows={3}
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
-              />
+              出勤確認サマリー文面編集（BAR日報）
+              <p className="mt-0.5 text-xs text-slate-500">下のプレビューを直接編集してください。</p>
               <textarea
                 value={dailyBarTemplatePreview}
-                readOnly
+                onChange={(e) => handleEditDailyBarPreview(e.target.value)}
                 rows={4}
                 className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
               />
             </label>
             <label className="block text-sm text-slate-700">
-              出勤確認送信サマリーテンプレート（管理者通知）
-              <p className="mt-0.5 text-xs text-slate-500">変数: {"{count}"}, {"{list}"}</p>
-              <textarea
-                value={remindAdminSummaryTemplateText}
-                onChange={(e) => setRemindAdminSummaryTemplateText(e.target.value)}
-                rows={3}
-                className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
-              />
+              出勤確認送信サマリー文面編集（管理者通知）
+              <p className="mt-0.5 text-xs text-slate-500">下のプレビューを直接編集してください。</p>
               <textarea
                 value={remindAdminSummaryTemplatePreview}
-                readOnly
+                onChange={(e) => handleEditRemindAdminSummaryPreview(e.target.value)}
                 rows={4}
                 className={`mt-1 w-full font-mono text-xs ${CONTROL_CLASS}`}
               />
@@ -1747,7 +1768,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 </label>
                 <label className="block text-sm text-slate-700">
                   1行テンプレート
-                  <p className="mt-0.5 text-xs text-slate-500">変数: {"{name}"}, {"{time}"}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">名前と時刻が入る1行です。</p>
                   <textarea
                     value={warnUnansweredLineTemplateText}
                     onChange={(e) => setWarnUnansweredLineTemplateText(e.target.value)}
@@ -1757,7 +1778,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 </label>
                 <label className="block text-sm text-slate-700">
                   残数テンプレート
-                  <p className="mt-0.5 text-xs text-slate-500">変数: {"{count}"}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">表示しきれない人数の案内文です。</p>
                   <textarea
                     value={warnUnansweredAndMoreTemplateText}
                     onChange={(e) => setWarnUnansweredAndMoreTemplateText(e.target.value)}
