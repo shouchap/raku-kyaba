@@ -6,7 +6,12 @@ import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { DEFAULT_REGULAR_REMIND_BODY } from "@/lib/remind-employment";
-import { TIME_OPTIONS } from "@/lib/time-options";
+import {
+  getTimeOptions,
+  isAllowedShiftTime,
+  parseShiftTimeStepMinutes,
+  type ShiftTimeStepMinutes,
+} from "@/lib/time-options";
 import { canonicalGuideHearingTime } from "@/lib/guide-hearing";
 import { DEFAULT_CUSTOM_TERMS, resolveCustomTerms, serializeCustomTerms } from "@/lib/custom-terms";
 
@@ -66,6 +71,7 @@ type SnapshotShape = {
   menuSettings: MenuSettingsMap;
   termAttendance: string;
   termCast: string;
+  shiftTimeStepMinutes: ShiftTimeStepMinutes;
 };
 
 const REMIND_TIME_OPTIONS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
@@ -202,6 +208,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [weeklyReportDay, setWeeklyReportDay] = useState(1);
   const [weeklyReportTime, setWeeklyReportTime] = useState("09:00");
   const [menuSettings, setMenuSettings] = useState<MenuSettingsMap>({});
+  const [shiftTimeStepMinutes, setShiftTimeStepMinutes] = useState<ShiftTimeStepMinutes>(15);
 
   const [individualTestCastId, setIndividualTestCastId] = useState("");
   const [barSummaryTestCastId, setBarSummaryTestCastId] = useState("");
@@ -243,6 +250,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       menuSettings,
       termAttendance,
       termCast,
+      shiftTimeStepMinutes,
     };
   }, [
     businessType,
@@ -271,6 +279,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     menuSettings,
     termAttendance,
     termCast,
+    shiftTimeStepMinutes,
   ]);
 
   const createSnapshot = useCallback(() => JSON.stringify(createSnapshotObj()), [createSnapshotObj]);
@@ -307,6 +316,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     menuSettings: "メニューカスタマイズ",
     termAttendance: "出勤ラベル",
     termCast: "キャストラベル",
+    shiftTimeStepMinutes: "シフト時刻の刻み",
   };
 
   const unsavedChangeLabels = useMemo(() => {
@@ -383,6 +393,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       const wtime = typeof data.weekly_report_time === "string" ? data.weekly_report_time.trim() : "";
       setWeeklyReportTime(REMIND_TIME_OPTIONS.includes(wtime) ? wtime : "09:00");
       setMenuSettings(normalizeMenuSettings(data.menu_settings));
+      setShiftTimeStepMinutes(parseShiftTimeStepMinutes(data.shift_time_step_minutes));
 
       if (data.reminder_config && typeof data.reminder_config === "object") {
         const rc = data.reminder_config as Record<string, unknown>;
@@ -491,6 +502,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           weekly_report_day: weeklyReportDay,
           weekly_report_time: weeklyReportTime,
           menu_settings: menuSettings,
+          shift_time_step_minutes: shiftTimeStepMinutes,
         }),
       });
       if (!res.ok) throw new Error("設定保存に失敗しました");
@@ -541,6 +553,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     weeklyReportDay,
     weeklyReportTime,
     menuSettings,
+    shiftTimeStepMinutes,
     guideHearingEnabled,
     guideHearingTime,
     guideHearingReporterId,
@@ -962,13 +975,36 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               ))}
             </div>
             <div className="mt-4">
+              <label className="block text-sm font-medium text-slate-700">シフト時刻の選択刻み</label>
+              <p className="mt-0.5 text-xs text-slate-500">
+                週間シフト入力・単日登録・キャスト向けシフト提出のプルダウンに反映されます（風俗などで 1
+                時間単位にしたい場合は「1時間」を選んでください）。
+              </p>
+              <select
+                value={shiftTimeStepMinutes}
+                onChange={(e) => {
+                  const next = parseShiftTimeStepMinutes(Number(e.target.value));
+                  setShiftTimeStepMinutes(next);
+                  setRegularStartTime((prev) => {
+                    const t = prev.trim();
+                    if (!t) return prev;
+                    return isAllowedShiftTime(t, next) ? prev : "";
+                  });
+                }}
+                className={`mt-1 w-full max-w-xs text-sm ${CONTROL_CLASS}`}
+              >
+                <option value={15}>15分単位</option>
+                <option value={60}>1時間単位</option>
+              </select>
+            </div>
+            <div className="mt-4">
               <label className="block text-sm font-medium text-slate-700">レギュラー出勤時間</label>
               <select
                 value={regularStartTime}
                 onChange={(e) => setRegularStartTime(e.target.value)}
                 className={`mt-1 w-full max-w-xs text-sm ${CONTROL_CLASS}`}
               >
-                {TIME_OPTIONS.map((opt) => (
+                {getTimeOptions(shiftTimeStepMinutes).map((opt) => (
                   <option key={opt.value || "unset"} value={opt.value}>
                     {opt.label}
                   </option>

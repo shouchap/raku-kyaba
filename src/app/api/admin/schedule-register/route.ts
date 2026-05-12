@@ -16,7 +16,7 @@ import { canUserEditStore } from "@/lib/admin-store-auth";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { mergeScheduleRowForWeeklyUpsert } from "@/lib/attendance-schedule-preserve";
 import { createServiceRoleClient } from "@/lib/supabase-service";
-import { normalizeDbTimeToShiftOption } from "@/lib/time-options";
+import { normalizeDbTimeToShiftOption, isAllowedShiftTime, parseShiftTimeStepMinutes } from "@/lib/time-options";
 
 export const dynamic = "force-dynamic";
 
@@ -129,6 +129,35 @@ export async function POST(request: Request) {
     );
   }
 
+  let shiftStep = parseShiftTimeStepMinutes(undefined);
+  const stepRow = await admin
+    .from("stores")
+    .select("shift_time_step_minutes")
+    .eq("id", storeId)
+    .maybeSingle();
+  if (!stepRow.error && stepRow.data) {
+    shiftStep = parseShiftTimeStepMinutes(
+      (stepRow.data as { shift_time_step_minutes?: unknown }).shift_time_step_minutes
+    );
+  }
+
+  const timeHm = String(scheduledTime).trim();
+  if (!isAllowedShiftTime(timeHm, shiftStep)) {
+    return NextResponse.json(
+      { error: "scheduledTime is not a valid time for this store's shift step (15 or 60 minutes)" },
+      { status: 400 }
+    );
+  }
+  if (scheduledEndTime != null && String(scheduledEndTime).trim() !== "") {
+    const endHm = String(scheduledEndTime).trim();
+    if (!isAllowedShiftTime(endHm, shiftStep)) {
+      return NextResponse.json(
+        { error: "scheduledEndTime is not a valid time for this store's shift step (15 or 60 minutes)" },
+        { status: 400 }
+      );
+    }
+  }
+
   const { data: existingRow } = await admin
     .from("attendance_schedules")
     .select("*")
@@ -230,13 +259,17 @@ export async function POST(request: Request) {
   }
 
   const [storeRes, holidayFlex] = await Promise.all([
-    admin.from("stores").select("name, regular_start_time").eq("id", storeId).maybeSingle(),
+    admin.from("stores").select("name, regular_start_time, shift_time_step_minutes").eq("id", storeId).maybeSingle(),
     fetchAttendanceFlexHolidayOptions(admin, storeId),
   ]);
   const storeRow = storeRes.data;
+  const lineShiftStep = parseShiftTimeStepMinutes(
+    (storeRow as { shift_time_step_minutes?: unknown } | null)?.shift_time_step_minutes
+  );
   const regularHm =
     normalizeDbTimeToShiftOption(
-      (storeRow as { regular_start_time?: string | null } | null)?.regular_start_time ?? null
+      (storeRow as { regular_start_time?: string | null } | null)?.regular_start_time ?? null,
+      lineShiftStep
     ) || null;
 
   const castName = cast?.name ?? "キャスト";

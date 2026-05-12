@@ -6,7 +6,11 @@ import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-au
 import { isSuperAdminUser } from "@/lib/super-admin";
 import { isUndefinedColumnError, logPostgrestError } from "@/lib/postgrest-error";
 import { DEFAULT_REGULAR_REMIND_BODY } from "@/lib/remind-employment";
-import { isAllowedShiftTime, normalizeDbTimeToShiftOption } from "@/lib/time-options";
+import {
+  isAllowedShiftTime,
+  normalizeDbTimeToShiftOption,
+  parseShiftTimeStepMinutes,
+} from "@/lib/time-options";
 import { resolveCustomTerms, serializeCustomTerms } from "@/lib/custom-terms";
 
 export const dynamic = "force-dynamic";
@@ -384,15 +388,39 @@ export async function GET(request: Request) {
       }
     }
 
+    let shiftTimeStepMinutes: 15 | 60 = 15;
     let regularStartTime: string | null = null;
     const rstRes = await admin
       .from("stores")
-      .select("regular_start_time")
+      .select("regular_start_time, shift_time_step_minutes")
       .eq("id", storeId)
       .maybeSingle();
     if (rstRes.error) {
-      if (!isUndefinedColumnError(rstRes.error, "regular_start_time")) {
-        logPostgrestError("GET stores regular_start_time", rstRes.error);
+      if (isUndefinedColumnError(rstRes.error, "shift_time_step_minutes")) {
+        const fb = await admin
+          .from("stores")
+          .select("regular_start_time")
+          .eq("id", storeId)
+          .maybeSingle();
+        if (fb.error && !isUndefinedColumnError(fb.error, "regular_start_time")) {
+          logPostgrestError("GET stores regular_start_time (no shift step)", fb.error);
+          return NextResponse.json(
+            {
+              error: "Failed to load store",
+              details: fb.error.message,
+              code: fb.error.code,
+            },
+            { status: 500 }
+          );
+        }
+        const raw = (fb.data as { regular_start_time?: string | null } | null)?.regular_start_time;
+        const n = normalizeDbTimeToShiftOption(raw ?? null, 15);
+        regularStartTime = n || null;
+        console.warn(
+          "[api/admin/settings] GET: stores.shift_time_step_minutes 未適用。055 を適用してください（刻みは 15 分として読み込み）。"
+        );
+      } else if (!isUndefinedColumnError(rstRes.error, "regular_start_time")) {
+        logPostgrestError("GET stores regular_start_time / shift_time_step_minutes", rstRes.error);
         return NextResponse.json(
           {
             error: "Failed to load store",
@@ -401,13 +429,19 @@ export async function GET(request: Request) {
           },
           { status: 500 }
         );
+      } else {
+        console.warn(
+          "[api/admin/settings] GET: stores.regular_start_time 未適用。マイグレーション 030 を適用してください。"
+        );
       }
-      console.warn(
-        "[api/admin/settings] GET: stores.regular_start_time 未適用。マイグレーション 030 を適用してください。"
-      );
     } else {
-      const raw = (rstRes.data as { regular_start_time?: string | null } | null)?.regular_start_time;
-      const n = normalizeDbTimeToShiftOption(raw ?? null);
+      const row = rstRes.data as {
+        regular_start_time?: string | null;
+        shift_time_step_minutes?: number | null;
+      } | null;
+      shiftTimeStepMinutes = parseShiftTimeStepMinutes(row?.shift_time_step_minutes);
+      const raw = row?.regular_start_time;
+      const n = normalizeDbTimeToShiftOption(raw ?? null, shiftTimeStepMinutes);
       regularStartTime = n || null;
     }
 
@@ -692,6 +726,7 @@ export async function GET(request: Request) {
       regular_holidays: regularHolidays,
       regular_remind_message: regularRemindMessage,
       regular_start_time: regularStartTime,
+      shift_time_step_minutes: shiftTimeStepMinutes,
       reminder_config:
         settingsRow?.value && typeof settingsRow.value === "object"
           ? settingsRow.value
@@ -759,6 +794,8 @@ type PatchBody = {
   weekly_report_day?: number;
   /** HH:00（049） */
   weekly_report_time?: string;
+  /** シフト時刻の選択刻み（055）。15 または 60（分） */
+  shift_time_step_minutes?: 15 | 60;
 };
 
 /**
@@ -857,26 +894,6 @@ export async function PATCH(request: Request) {
       body,
       "regular_start_time"
     );
-    if (regularStartTimeWelfareProvided) {
-      const v = (body as PatchBody).regular_start_time;
-      if (v !== null && v !== undefined) {
-        if (typeof v !== "string") {
-          return NextResponse.json(
-            {
-              error: "regular_start_time must be null or an HH:mm string from shift time options",
-            },
-            { status: 400 }
-          );
-        }
-        const t = v.trim();
-        if (t !== "" && !isAllowedShiftTime(t)) {
-          return NextResponse.json(
-            { error: "regular_start_time must be empty or a valid shift time (15-minute steps)" },
-            { status: 400 }
-          );
-        }
-      }
-    }
 
     if (
       !(process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim() ||
@@ -914,6 +931,42 @@ export async function PATCH(request: Request) {
     }
     if (!stExists) {
       return NextResponse.json({ error: "Store not found" }, { status: 404 });
+    }
+
+    let welfareShiftStep: import("@/lib/time-options").ShiftTimeStepMinutes = 15;
+    const wStepRes = await adminWelfare
+      .from("stores")
+      .select("shift_time_step_minutes")
+      .eq("id", storeId)
+      .maybeSingle();
+    if (!wStepRes.error && wStepRes.data) {
+      welfareShiftStep = parseShiftTimeStepMinutes(
+        (wStepRes.data as { shift_time_step_minutes?: unknown }).shift_time_step_minutes
+      );
+    }
+
+    if (regularStartTimeWelfareProvided) {
+      const v = (body as PatchBody).regular_start_time;
+      if (v !== null && v !== undefined) {
+        if (typeof v !== "string") {
+          return NextResponse.json(
+            {
+              error: "regular_start_time must be null or an HH:mm string from shift time options",
+            },
+            { status: 400 }
+          );
+        }
+        const t = v.trim();
+        if (t !== "" && !isAllowedShiftTime(t, welfareShiftStep)) {
+          return NextResponse.json(
+            {
+              error:
+                "regular_start_time must be empty or a valid shift time for the configured step (15 or 60 minutes)",
+            },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     const nowIso = new Date().toISOString();
@@ -1121,25 +1174,6 @@ export async function PATCH(request: Request) {
       { status: 400 }
     );
   }
-  if (regularStartTimeProvided) {
-    const v = body.regular_start_time;
-    if (v !== null && v !== undefined) {
-      if (typeof v !== "string") {
-        return NextResponse.json(
-          { error: "regular_start_time must be null or an HH:mm string from shift time options" },
-          { status: 400 }
-        );
-      }
-      const t = v.trim();
-      if (t !== "" && !isAllowedShiftTime(t)) {
-        return NextResponse.json(
-          { error: "regular_start_time must be empty or a valid shift time (15-minute steps)" },
-          { status: 400 }
-        );
-      }
-    }
-  }
-
   if (
     !(process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL)?.trim() ||
     !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
@@ -1159,6 +1193,60 @@ export async function PATCH(request: Request) {
       },
       { status: 500 }
     );
+  }
+
+  const shiftTimeStepMinutesProvided =
+    body.shift_time_step_minutes === 15 || body.shift_time_step_minutes === 60;
+  let effectiveShiftStepForRegular: import("@/lib/time-options").ShiftTimeStepMinutes = 15;
+  if (regularStartTimeProvided || shiftTimeStepMinutesProvided) {
+    const persistedStep = await admin
+      .from("stores")
+      .select("shift_time_step_minutes")
+      .eq("id", storeId)
+      .maybeSingle();
+    if (!persistedStep.error && persistedStep.data) {
+      effectiveShiftStepForRegular = parseShiftTimeStepMinutes(
+        (persistedStep.data as { shift_time_step_minutes?: unknown }).shift_time_step_minutes
+      );
+    } else if (
+      persistedStep.error &&
+      !isUndefinedColumnError(persistedStep.error, "shift_time_step_minutes")
+    ) {
+      logPostgrestError("PATCH stores shift_time_step_minutes load", persistedStep.error);
+      return NextResponse.json(
+        {
+          error: "Failed to load store shift step",
+          details: persistedStep.error.message,
+          code: persistedStep.error.code,
+        },
+        { status: 500 }
+      );
+    }
+    if (shiftTimeStepMinutesProvided) {
+      effectiveShiftStepForRegular = body.shift_time_step_minutes as 15 | 60;
+    }
+  }
+
+  if (regularStartTimeProvided) {
+    const v = body.regular_start_time;
+    if (v !== null && v !== undefined) {
+      if (typeof v !== "string") {
+        return NextResponse.json(
+          { error: "regular_start_time must be null or an HH:mm string from shift time options" },
+          { status: 400 }
+        );
+      }
+      const t = v.trim();
+      if (t !== "" && !isAllowedShiftTime(t, effectiveShiftStepForRegular)) {
+        return NextResponse.json(
+          {
+            error:
+              "regular_start_time must be empty or a valid shift time for the configured step (15 or 60 minutes)",
+          },
+          { status: 400 }
+        );
+      }
+    }
   }
 
   /** JSONB にそのまま渡せるよう undefined を除去 */
@@ -1354,11 +1442,44 @@ export async function PATCH(request: Request) {
       storePayload.weekly_report_day = body.weekly_report_day as number;
       storePayload.weekly_report_time = String(body.weekly_report_time).trim();
     }
+    if (shiftTimeStepMinutesProvided) {
+      storePayload.shift_time_step_minutes = body.shift_time_step_minutes as 15 | 60;
+    }
 
     const storeRes = await admin.from("stores").update(storePayload).eq("id", storeId);
 
     if (storeRes.error) {
       logPostgrestError("PATCH stores", storeRes.error);
+      if (
+        shiftTimeStepMinutesProvided &&
+        isUndefinedColumnError(storeRes.error, "shift_time_step_minutes")
+      ) {
+        console.warn(
+          "[api/admin/settings] PATCH: stores.shift_time_step_minutes 未適用。055 を適用してください。刻み以外を再試行します。"
+        );
+        const retryPayload = { ...storePayload };
+        delete retryPayload.shift_time_step_minutes;
+        const retryRes = await admin.from("stores").update(retryPayload).eq("id", storeId);
+        if (retryRes.error) {
+          logPostgrestError("PATCH stores retry without shift_time_step_minutes", retryRes.error);
+          return NextResponse.json(
+            {
+              error: "Failed to update store",
+              details: retryRes.error.message,
+              code: retryRes.error.code,
+              hint: retryRes.error.hint,
+            },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json({
+          ok: true,
+          remind_time: remindTime,
+          shift_time_step_minutes_persisted: false,
+          warning:
+            "その他の設定は保存しましたが、stores.shift_time_step_minutes カラムがありません。マイグレーション 055 を Supabase に適用してください。",
+        });
+      }
       if (menuSettingsProvided && isUndefinedColumnError(storeRes.error, "menu_settings")) {
         console.warn(
           "[api/admin/settings] PATCH: stores.menu_settings 未適用。menu_settings を除いて再試行します。"

@@ -4,16 +4,14 @@ import { redirect } from "next/navigation";
 import { createServiceRoleClient } from "@/lib/supabase-service";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { isValidStoreId } from "@/lib/current-store";
-import { TIME_OPTIONS_REQUIRED } from "@/lib/time-options";
+import { isAllowedShiftTime, parseShiftTimeStepMinutes, type ShiftTimeStepMinutes } from "@/lib/time-options";
 import { SHIFT_TIME_OFF } from "./constants";
 import type { SubmitShiftState } from "./types";
 
-const ALLOWED_TIMES = new Set(TIME_OPTIONS_REQUIRED.map((o) => o.value));
-
-function normalizeTime(raw: string): string | null {
+function normalizeTime(raw: string, step: ShiftTimeStepMinutes): string | null {
   const t = raw.trim();
   if (!t || t === SHIFT_TIME_OFF) return null;
-  if (!ALLOWED_TIMES.has(t)) return null;
+  if (!isAllowedShiftTime(t, step)) return null;
   return `${t}:00`;
 }
 
@@ -54,18 +52,29 @@ export async function submitShiftAction(
     return { error: "サーバー設定エラーです。" };
   }
 
-  const { data: storeRow, error: storeErr } = await admin
+  let storeQuery = await admin
     .from("stores")
-    .select("allow_shift_submission")
+    .select("allow_shift_submission, shift_time_step_minutes")
     .eq("id", storeId)
     .maybeSingle();
 
-  if (storeErr || !storeRow) {
+  if (storeQuery.error && String(storeQuery.error.message ?? "").includes("shift_time_step_minutes")) {
+    storeQuery = await admin
+      .from("stores")
+      .select("allow_shift_submission")
+      .eq("id", storeId)
+      .maybeSingle();
+  }
+
+  if (storeQuery.error || !storeQuery.data) {
     return { error: "店舗を取得できませんでした。" };
   }
+  const storeRow = storeQuery.data as { allow_shift_submission?: boolean; shift_time_step_minutes?: unknown };
   if (storeRow.allow_shift_submission !== true) {
     return { error: "この店舗はシフト提出を受け付けていません。" };
   }
+
+  const shiftStep = parseShiftTimeStepMinutes(storeRow.shift_time_step_minutes);
 
   const { data: castRow, error: castErr } = await admin
     .from("casts")
@@ -90,7 +99,7 @@ export async function submitShiftAction(
 
   for (const d of dates) {
     const raw = formData.get(`time_${d}`)?.toString() ?? "";
-    const normalized = normalizeTime(raw);
+    const normalized = normalizeTime(raw, shiftStep);
     if (normalized) {
       rowsToInsert.push({
         store_id: storeId,

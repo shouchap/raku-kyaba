@@ -5,7 +5,7 @@ import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { addCalendarDaysJst, getTodayJst, getWeekdayJst } from "@/lib/date-utils";
 import { sortCastsForShiftDisplay } from "@/lib/cast-display-sort";
-import { normalizeDbTimeToShiftOption, TIME_OPTIONS } from "@/lib/time-options";
+import { normalizeDbTimeToShiftOption, getTimeOptions, parseShiftTimeStepMinutes } from "@/lib/time-options";
 
 type Cast = {
   id: string;
@@ -21,6 +21,7 @@ type Store = {
   regular_holidays?: number[];
   regular_start_time?: string | null;
   is_dohan_sabaki_enabled?: boolean;
+  shift_time_step_minutes?: number | null;
 };
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
@@ -87,12 +88,18 @@ export default function AdminWeeklyPage() {
     return result;
   }, [baseDate]);
 
+  const shiftStep = useMemo(
+    () => parseShiftTimeStepMinutes(store?.shift_time_step_minutes),
+    [store?.shift_time_step_minutes]
+  );
+  const timeOptions = useMemo(() => getTimeOptions(shiftStep), [shiftStep]);
+
   // データ取得（キャスト・店舗・既存シフト）
   const fetchData = useCallback(async () => {
     setLoading(true);
     const storeId = activeStoreId;
     try {
-      const [castsRes, storesRes] = await Promise.all([
+      const [castsRes, storesResFirst] = await Promise.all([
         supabase
           .from("casts")
           .select("id, name, store_id, employment_type, role")
@@ -101,10 +108,24 @@ export default function AdminWeeklyPage() {
           .order("name"),
         supabase
           .from("stores")
-          .select("id, name, regular_holidays, regular_start_time, is_dohan_sabaki_enabled")
+          .select(
+            "id, name, regular_holidays, regular_start_time, is_dohan_sabaki_enabled, shift_time_step_minutes"
+          )
           .eq("id", storeId)
           .single(),
       ]);
+
+      let storesRes = storesResFirst;
+      if (
+        storesRes.error &&
+        String(storesRes.error.message ?? "").includes("shift_time_step_minutes")
+      ) {
+        storesRes = await supabase
+          .from("stores")
+          .select("id, name, regular_holidays, regular_start_time, is_dohan_sabaki_enabled")
+          .eq("id", storeId)
+          .single();
+      }
 
       if (
         castsRes.error &&
@@ -148,6 +169,7 @@ export default function AdminWeeklyPage() {
       if (storeRaw) {
         const raw = storeRaw;
         const rh = raw.regular_holidays;
+        const step = parseShiftTimeStepMinutes(raw.shift_time_step_minutes);
         setStore({
           id: String(raw.id ?? ""),
           name: String(raw.name ?? ""),
@@ -161,6 +183,7 @@ export default function AdminWeeklyPage() {
               ? null
               : String(raw.regular_start_time),
           is_dohan_sabaki_enabled: raw.is_dohan_sabaki_enabled !== false,
+          shift_time_step_minutes: step,
         });
       }
     } catch (err) {
@@ -207,10 +230,12 @@ export default function AdminWeeklyPage() {
         }) => {
           if (nextMatrix[row.cast_id]) {
             nextMatrix[row.cast_id][row.scheduled_date] = normalizeDbTimeToShiftOption(
-              row.scheduled_time ?? null
+              row.scheduled_time ?? null,
+              shiftStep
             );
             nextEndMatrix[row.cast_id][row.scheduled_date] = normalizeDbTimeToShiftOption(
-              row.scheduled_end_time ?? null
+              row.scheduled_end_time ?? null,
+              shiftStep
             );
             nextDohan[row.cast_id][row.scheduled_date] = Boolean(row.is_dohan);
             nextSabaki[row.cast_id][row.scheduled_date] = Boolean(row.is_sabaki);
@@ -222,7 +247,7 @@ export default function AdminWeeklyPage() {
       setDohan(nextDohan);
       setSabaki(nextSabaki);
     },
-    [supabase, casts, dates]
+    [supabase, casts, dates, shiftStep]
   );
 
   useEffect(() => {
@@ -317,7 +342,7 @@ export default function AdminWeeklyPage() {
   /** レギュラーキャスト×定休日以外に、店舗設定のデフォルト出勤時刻を反映（保存は別） */
   const handleApplyRegularBulk = useCallback(() => {
     if (!store) return;
-    const timeStr = normalizeDbTimeToShiftOption(store.regular_start_time);
+    const timeStr = normalizeDbTimeToShiftOption(store.regular_start_time, shiftStep);
     if (!timeStr) {
       window.alert(
         "システム設定で「レギュラー出勤時間」を保存してから実行してください。（— のままでは使えません）"
@@ -365,7 +390,7 @@ export default function AdminWeeklyPage() {
       }
       return next;
     });
-  }, [store, casts, dates]);
+  }, [store, casts, dates, shiftStep]);
 
   const handleFixCurrentMonth = useCallback(async () => {
     if (!store?.id) return;
@@ -626,7 +651,7 @@ export default function AdminWeeklyPage() {
                               onChange={(e) => updateCell(cast.id, dateStr, e.target.value)}
                               className="w-full min-w-[52px] sm:w-20 min-h-[36px] sm:h-9 px-1 sm:px-1.5 text-[10px] sm:text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
                             >
-                              {TIME_OPTIONS.map((opt) => (
+                              {timeOptions.map((opt) => (
                                 <option key={opt.value || "empty"} value={opt.value}>
                                   {opt.label}
                                 </option>
@@ -638,7 +663,7 @@ export default function AdminWeeklyPage() {
                               onChange={(e) => updateEndCell(cast.id, dateStr, e.target.value)}
                               className="w-full min-w-[52px] sm:w-20 min-h-[36px] sm:h-9 px-1 sm:px-1.5 text-[10px] sm:text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
                             >
-                              {TIME_OPTIONS.map((opt) => (
+                              {timeOptions.map((opt) => (
                                 <option key={`end-${opt.value || "empty"}`} value={opt.value}>
                                   {opt.label}
                                 </option>

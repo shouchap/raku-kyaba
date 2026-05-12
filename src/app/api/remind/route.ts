@@ -22,7 +22,7 @@ import {
 } from "@/lib/line-channel-token";
 import type { HolidayFlexFlags } from "@/lib/reminder-config";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
-import { normalizeDbTimeToShiftOption } from "@/lib/time-options";
+import { normalizeDbTimeToShiftOption, parseShiftTimeStepMinutes } from "@/lib/time-options";
 
 /** キャッシュ無効化: 毎回最新のDB値を取得する */
 export const dynamic = "force-dynamic";
@@ -182,6 +182,7 @@ type StoreRow = {
   regular_remind_message?: string | null;
   /** 週間一括入力用デフォルト時刻（未設定時 null） */
   regular_start_time?: string | null;
+  shift_time_step_minutes?: number | null;
 };
 
 async function loadReminderConfig(
@@ -418,7 +419,8 @@ async function runRemindForStore(
   const regularRemindMessageFromStore = store.regular_remind_message;
   let regularFallbackHm: string | null = null;
   try {
-    regularFallbackHm = normalizeDbTimeToShiftOption(store.regular_start_time ?? null) || null;
+    const shiftStep = parseShiftTimeStepMinutes(store.shift_time_step_minutes);
+    regularFallbackHm = normalizeDbTimeToShiftOption(store.regular_start_time ?? null, shiftStep) || null;
   } catch (normErr) {
     logError(`regular_start_time の正規化で例外 store=${storeId}`, normErr);
     regularFallbackHm = null;
@@ -968,7 +970,7 @@ async function handleRemind(request: Request) {
     const { data: store, error: storeErr } = await supabase
       .from("stores")
       .select(
-        "id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays, regular_remind_message, regular_start_time"
+        "id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays, regular_remind_message, regular_start_time, shift_time_step_minutes"
       )
       .eq("id", storeId)
       .single();
@@ -996,7 +998,7 @@ async function handleRemind(request: Request) {
   const { data: stores, error: storesErr } = await supabase
     .from("stores")
     .select(
-      "id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays, regular_remind_message, regular_start_time"
+      "id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays, regular_remind_message, regular_start_time, shift_time_step_minutes"
     );
 
   if (storesErr) {

@@ -1,6 +1,7 @@
 import { createServiceRoleClient } from "@/lib/supabase-service";
 import { isValidStoreId } from "@/lib/current-store";
 import { addCalendarDaysJst, getTodayJst } from "@/lib/date-utils";
+import { parseShiftTimeStepMinutes } from "@/lib/time-options";
 import { ShiftSubmitForm } from "./ShiftSubmitForm";
 
 export const dynamic = "force-dynamic";
@@ -42,18 +43,32 @@ export default async function ShiftSubmitPage({
   let allowed = false;
   let casts: { id: string; name: string }[] = [];
   let loadError: string | null = null;
+  let shiftTimeStepMinutes: 15 | 60 = 15;
 
   try {
     const admin = createServiceRoleClient();
-    const { data: store, error: sErr } = await admin
+    let storeQuery = await admin
       .from("stores")
-      .select("name, allow_shift_submission")
+      .select("name, allow_shift_submission, shift_time_step_minutes")
       .eq("id", storeId)
       .maybeSingle();
 
-    if (sErr || !store) {
+    if (storeQuery.error && String(storeQuery.error.message ?? "").includes("shift_time_step_minutes")) {
+      storeQuery = await admin
+        .from("stores")
+        .select("name, allow_shift_submission")
+        .eq("id", storeId)
+        .maybeSingle();
+    } else if (!storeQuery.error && storeQuery.data) {
+      shiftTimeStepMinutes = parseShiftTimeStepMinutes(
+        (storeQuery.data as { shift_time_step_minutes?: unknown }).shift_time_step_minutes
+      );
+    }
+
+    if (storeQuery.error || !storeQuery.data) {
       loadError = "店舗を取得できませんでした。";
     } else {
+      const store = storeQuery.data as { name?: string; allow_shift_submission?: boolean };
       storeName = (store.name as string) ?? "";
       allowed = store.allow_shift_submission === true;
     }
@@ -86,6 +101,7 @@ export default async function ShiftSubmitPage({
       allowed={allowed}
       loadError={loadError}
       initialSuccess={showSuccess}
+      shiftTimeStepMinutes={shiftTimeStepMinutes}
     />
   );
 }

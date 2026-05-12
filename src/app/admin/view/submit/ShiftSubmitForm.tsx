@@ -1,10 +1,10 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { submitShiftAction } from "./actions";
 import { SHIFT_TIME_OFF } from "./constants";
 import type { SubmitShiftState } from "./types";
-import { TIME_OPTIONS_REQUIRED } from "@/lib/time-options";
+import { getTimeOptionsRequired, type ShiftTimeStepMinutes } from "@/lib/time-options";
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -24,6 +24,7 @@ type Props = {
   allowed: boolean;
   loadError: string | null;
   initialSuccess: boolean;
+  shiftTimeStepMinutes: ShiftTimeStepMinutes;
 };
 
 export function ShiftSubmitForm({
@@ -34,7 +35,12 @@ export function ShiftSubmitForm({
   allowed,
   loadError,
   initialSuccess,
+  shiftTimeStepMinutes,
 }: Props) {
+  const timeOptionsRequired = useMemo(
+    () => getTimeOptionsRequired(shiftTimeStepMinutes),
+    [shiftTimeStepMinutes]
+  );
   const [state, formAction, isPending] = useActionState(submitShiftAction, null as SubmitShiftState);
   const [showSuccessBanner, setShowSuccessBanner] = useState(initialSuccess);
 
@@ -135,7 +141,7 @@ export function ShiftSubmitForm({
                 >
                   <option value="">未選択</option>
                   <option value={SHIFT_TIME_OFF}>休み</option>
-                  {TIME_OPTIONS_REQUIRED.map((opt) => (
+                  {timeOptionsRequired.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>

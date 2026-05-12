@@ -9,7 +9,7 @@ import {
   mergeScheduleRowForWeeklyUpsert,
   scheduleRowHasLineAttendanceData,
 } from "@/lib/attendance-schedule-preserve";
-import { normalizeDbTimeToShiftOption } from "@/lib/time-options";
+import { normalizeDbTimeToShiftOption, parseShiftTimeStepMinutes } from "@/lib/time-options";
 import { logPostgrestError } from "@/lib/postgrest-error";
 
 export const dynamic = "force-dynamic";
@@ -78,19 +78,54 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Server configuration error (service role)" }, { status: 500 });
   }
 
-  const { data: store, error: storeErr } = await admin
+  let store:
+    | {
+        id: string;
+        regular_holidays?: number[] | null;
+        regular_start_time?: string | null;
+        shift_time_step_minutes?: unknown;
+      }
+    | null = null;
+
+  const storeFull = await admin
     .from("stores")
-    .select("id, regular_holidays, regular_start_time")
+    .select("id, regular_holidays, regular_start_time, shift_time_step_minutes")
     .eq("id", storeId)
     .maybeSingle();
-  if (storeErr) {
-    logPostgrestError("weekly/fix-month stores", storeErr);
-    return NextResponse.json({ error: "Failed to load store", details: storeErr.message }, { status: 500 });
+
+  if (storeFull.error) {
+    if (String(storeFull.error.message ?? "").includes("shift_time_step_minutes")) {
+      const fb = await admin
+        .from("stores")
+        .select("id, regular_holidays, regular_start_time")
+        .eq("id", storeId)
+        .maybeSingle();
+      if (fb.error) {
+        logPostgrestError("weekly/fix-month stores", fb.error);
+        return NextResponse.json({ error: "Failed to load store", details: fb.error.message }, { status: 500 });
+      }
+      store = fb.data
+        ? { ...(fb.data as { id: string; regular_holidays?: number[] | null; regular_start_time?: string | null }), shift_time_step_minutes: 15 }
+        : null;
+    } else {
+      logPostgrestError("weekly/fix-month stores", storeFull.error);
+      return NextResponse.json(
+        { error: "Failed to load store", details: storeFull.error.message },
+        { status: 500 }
+      );
+    }
+  } else {
+    store = storeFull.data as typeof store;
   }
+
   if (!store?.id) return NextResponse.json({ error: "Store not found" }, { status: 404 });
 
+  const fixMonthShiftStep = parseShiftTimeStepMinutes(
+    (store as { shift_time_step_minutes?: unknown }).shift_time_step_minutes
+  );
   const regularStart = normalizeDbTimeToShiftOption(
-    (store as { regular_start_time?: string | null }).regular_start_time ?? null
+    (store as { regular_start_time?: string | null }).regular_start_time ?? null,
+    fixMonthShiftStep
   );
   if (!regularStart) {
     return NextResponse.json(

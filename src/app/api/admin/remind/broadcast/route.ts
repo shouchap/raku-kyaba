@@ -9,7 +9,7 @@ import {
   formatRemindScheduledTime,
 } from "@/lib/attendance-remind-flex";
 import { getTodayJst } from "@/lib/date-utils";
-import { normalizeDbTimeToShiftOption } from "@/lib/time-options";
+import { normalizeDbTimeToShiftOption, parseShiftTimeStepMinutes } from "@/lib/time-options";
 import { fetchAttendanceFlexHolidayOptions, fetchReminderMessageTemplate } from "@/lib/reminder-config";
 import {
   buildRegularRemindMessageLine,
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
 
   const { data: store } = await admin
     .from("stores")
-    .select("id, name, regular_remind_message, regular_start_time")
+    .select("id, name, regular_remind_message, regular_start_time, shift_time_step_minutes")
     .eq("id", storeId)
     .maybeSingle();
   if (!store?.id) return NextResponse.json({ error: "Store not found" }, { status: 404 });
@@ -115,7 +115,10 @@ export async function POST(request: Request) {
     fetchReminderMessageTemplate(admin, storeId),
     fetchAttendanceFlexHolidayOptions(admin, storeId),
   ]);
-  const regularFallbackHm = normalizeDbTimeToShiftOption(store.regular_start_time ?? null) || null;
+  const broadcastShiftStep = parseShiftTimeStepMinutes(
+    (store as { shift_time_step_minutes?: unknown }).shift_time_step_minutes
+  );
+  const regularFallbackHm = normalizeDbTimeToShiftOption(store.regular_start_time ?? null, broadcastShiftStep) || null;
 
   const { data: schedulesRaw, error: schedulesErr } = await admin
     .from("attendance_schedules")

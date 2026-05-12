@@ -7,7 +7,8 @@ import { isValidStoreId, parseActiveStoreIdFromCookieHeader } from "@/lib/curren
 import { normalizeYmdDateKey } from "@/lib/date-utils";
 import { scheduleRowHasLineAttendanceData } from "@/lib/attendance-schedule-preserve";
 import { buildWeeklyScheduleUpsertRows } from "@/lib/weekly-schedule-bulk-save";
-import { logPostgrestError, postgrestErrorFields } from "@/lib/postgrest-error";
+import { logPostgrestError, postgrestErrorFields, isUndefinedColumnError } from "@/lib/postgrest-error";
+import { isAllowedShiftTime, parseShiftTimeStepMinutes } from "@/lib/time-options";
 
 export const dynamic = "force-dynamic";
 
@@ -110,6 +111,46 @@ export async function POST(request: Request) {
   } catch (e) {
     logPostgrestError("weekly/bulk-save createServiceRoleClient", e);
     return NextResponse.json({ error: "Server configuration error (service role)" }, { status: 500 });
+  }
+
+  let shiftStep = parseShiftTimeStepMinutes(undefined);
+  const stepRes = await admin
+    .from("stores")
+    .select("shift_time_step_minutes")
+    .eq("id", storeId)
+    .maybeSingle();
+  if (!stepRes.error && stepRes.data) {
+    shiftStep = parseShiftTimeStepMinutes(
+      (stepRes.data as { shift_time_step_minutes?: unknown }).shift_time_step_minutes
+    );
+  } else if (
+    stepRes.error &&
+    !isUndefinedColumnError(stepRes.error, "shift_time_step_minutes")
+  ) {
+    logPostgrestError("weekly/bulk-save shift_time_step_minutes", stepRes.error);
+    return NextResponse.json(
+      { error: "Failed to load store", ...postgrestErrorFields(stepRes) },
+      { status: 500 }
+    );
+  }
+
+  for (const castId of castIds) {
+    for (const dateStr of dates) {
+      const start = body.matrix[castId]?.[dateStr]?.trim() ?? "";
+      const end = body.endMatrix[castId]?.[dateStr]?.trim() ?? "";
+      if (start && !isAllowedShiftTime(start, shiftStep)) {
+        return NextResponse.json(
+          { error: `Invalid start time for ${dateStr} (must match store shift step)` },
+          { status: 400 }
+        );
+      }
+      if (end && !isAllowedShiftTime(end, shiftStep)) {
+        return NextResponse.json(
+          { error: `Invalid end time for ${dateStr} (must match store shift step)` },
+          { status: 400 }
+        );
+      }
+    }
   }
 
   const { data: existingRows, error: fetchErr } = await admin

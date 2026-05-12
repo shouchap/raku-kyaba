@@ -1,23 +1,31 @@
 /**
- * 15分刻みの時刻オプション。
- * 昼開始の業態（風俗等）と深夜営業の両方をカバーするため、同日 09:00〜23:45 のあと 翌日相当として 00:00〜05:45 を続ける。
+ * シフト用時刻オプション（店舗設定の刻み: 15 分 or 60 分）。
+ * 昼開始の業態（風俗等）と深夜営業の両方をカバーするため、同日 09:00〜23:45/23:00 のあと
+ * 翌日相当として 00:00〜05:45/05:00 を続ける。
  * 空文字は休み用。
  */
-const START_HOUR = 9; // 09:00〜（キャバクラ昼準備・昼業態など）
-const END_HOUR = 6; // 深夜側の終端〜翌05:45（6時未満の時間帯まで）
+const START_HOUR = 9;
+const END_HOUR = 6;
 
-function generateTimeOptions(): Array<{ value: string; label: string }> {
+export type ShiftTimeStepMinutes = 15 | 60;
+
+export function parseShiftTimeStepMinutes(raw: unknown): ShiftTimeStepMinutes {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+  if (n === 60) return 60;
+  return 15;
+}
+
+function generateTimeOptions(stepMinutes: ShiftTimeStepMinutes): Array<{ value: string; label: string }> {
   const options: Array<{ value: string; label: string }> = [{ value: "", label: "—" }];
-  // 09:00〜23:45
+  const step = stepMinutes === 60 ? 60 : 15;
   for (let h = START_HOUR; h < 24; h++) {
-    for (let m = 0; m < 60; m += 15) {
+    for (let m = 0; m < 60; m += step) {
       const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
       options.push({ value, label: value });
     }
   }
-  // 00:00〜05:45（日をまたぐ深夜シフト）
   for (let h = 0; h < END_HOUR; h++) {
-    for (let m = 0; m < 60; m += 15) {
+    for (let m = 0; m < 60; m += step) {
       const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
       options.push({ value, label: value });
     }
@@ -25,22 +33,48 @@ function generateTimeOptions(): Array<{ value: string; label: string }> {
   return options;
 }
 
-export const TIME_OPTIONS = generateTimeOptions();
+const optionsCache = new Map<ShiftTimeStepMinutes, Array<{ value: string; label: string }>>();
+
+export function getTimeOptions(stepMinutes: ShiftTimeStepMinutes): Array<{ value: string; label: string }> {
+  let cached = optionsCache.get(stepMinutes);
+  if (!cached) {
+    cached = generateTimeOptions(stepMinutes);
+    optionsCache.set(stepMinutes, cached);
+  }
+  return cached;
+}
 
 /** 週間シフトで選べる時刻値のみ（空文字除く） */
-const SHIFT_TIME_VALUE_SET = new Set(
-  TIME_OPTIONS.map((o) => o.value).filter((v) => v.length > 0)
-);
+export function getTimeOptionsRequired(stepMinutes: ShiftTimeStepMinutes): Array<{ value: string; label: string }> {
+  return getTimeOptions(stepMinutes).filter((o) => o.value !== "");
+}
 
-export function isAllowedShiftTime(value: string): boolean {
-  return SHIFT_TIME_VALUE_SET.has(value);
+const valueSetCache = new Map<ShiftTimeStepMinutes, ReadonlySet<string>>();
+
+function getShiftTimeValueSet(stepMinutes: ShiftTimeStepMinutes): ReadonlySet<string> {
+  let s = valueSetCache.get(stepMinutes);
+  if (!s) {
+    s = new Set(getTimeOptions(stepMinutes).map((o) => o.value).filter((v) => v.length > 0));
+    valueSetCache.set(stepMinutes, s);
+  }
+  return s;
+}
+
+export function isAllowedShiftTime(value: string, stepMinutes: ShiftTimeStepMinutes = 15): boolean {
+  const v = String(value ?? "").trim();
+  if (!v) return false;
+  return getShiftTimeValueSet(stepMinutes).has(v);
 }
 
 /**
  * DB の time / "HH:mm:ss" / ISO 風 "…T18:30:00…" を週間シフト用の "HH:mm" に正規化（候補に無い場合は空）。
  * 秒以下は無視し、時は2桁ゼロ埋めしてプルダウン value と一致させる。
+ * 60 分刻みのとき、DB が 18:30 等の場合は表示用に時を切り捨てた "18:00" が候補にあればそれを返す。
  */
-export function normalizeDbTimeToShiftOption(raw: string | null | undefined): string {
+export function normalizeDbTimeToShiftOption(
+  raw: string | null | undefined,
+  stepMinutes: ShiftTimeStepMinutes = 15
+): string {
   if (raw == null) return "";
   let s = String(raw).trim();
   if (s === "") return "";
@@ -60,10 +94,21 @@ export function normalizeDbTimeToShiftOption(raw: string | null | undefined): st
   const hh = m[1].padStart(2, "0");
   const mm = m[2];
   let key = `${hh}:${mm}`;
-  // DB の日跨ぎ終端は 24:00:00 となることがあるが、プルダウンは翌日側 00:00〜
   if (key === "24:00") key = "00:00";
-  return SHIFT_TIME_VALUE_SET.has(key) ? key : "";
+
+  const set = getShiftTimeValueSet(stepMinutes);
+  if (set.has(key)) return key;
+
+  if (stepMinutes === 60 && mm !== "00") {
+    const hourOnly = `${hh}:00`;
+    if (set.has(hourOnly)) return hourOnly;
+  }
+
+  return "";
 }
 
-/** 単日登録用（必須選択、空オプションなし） */
-export const TIME_OPTIONS_REQUIRED = TIME_OPTIONS.filter((opt) => opt.value !== "");
+/** 既定（15 分刻み）。後方互換・テスト用 */
+export const TIME_OPTIONS = getTimeOptions(15);
+
+/** @deprecated getTimeOptionsRequired(15) を使うか、店舗の刻みに合わせてください */
+export const TIME_OPTIONS_REQUIRED = getTimeOptionsRequired(15);

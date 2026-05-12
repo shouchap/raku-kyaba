@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
-import { TIME_OPTIONS_REQUIRED } from "@/lib/time-options";
+import { getTimeOptionsRequired, parseShiftTimeStepMinutes } from "@/lib/time-options";
 
 type Cast = {
   id: string;
@@ -15,6 +15,7 @@ type Store = {
   id: string;
   name: string;
   is_dohan_sabaki_enabled?: boolean;
+  shift_time_step_minutes?: number | null;
 };
 
 export default function AdminSchedulePage() {
@@ -39,11 +40,24 @@ export default function AdminSchedulePage() {
     text: string;
   } | null>(null);
 
+  const timeOptionsRequired = useMemo(
+    () => getTimeOptionsRequired(parseShiftTimeStepMinutes(store?.shift_time_step_minutes)),
+    [store?.shift_time_step_minutes]
+  );
+
+  useEffect(() => {
+    if (!store) return;
+    const opts = getTimeOptionsRequired(parseShiftTimeStepMinutes(store.shift_time_step_minutes));
+    const allowed = new Set(opts.map((o) => o.value));
+    setScheduledTime((prev) => (allowed.has(prev) ? prev : opts[0]?.value ?? "20:00"));
+    setScheduledEndTime((prev) => (prev && !allowed.has(prev) ? "" : prev));
+  }, [store]);
+
   useEffect(() => {
     async function fetchData() {
       const storeId = activeStoreId;
       try {
-        const [castsRes, storesRes] = await Promise.all([
+        const [castsRes, storesResFirst] = await Promise.all([
           supabase
             .from("casts")
             .select("id, name, store_id")
@@ -52,10 +66,22 @@ export default function AdminSchedulePage() {
             .order("name"),
           supabase
             .from("stores")
-            .select("id, name, is_dohan_sabaki_enabled")
+            .select("id, name, is_dohan_sabaki_enabled, shift_time_step_minutes")
             .eq("id", storeId)
             .single(),
         ]);
+
+        let storesRes = storesResFirst;
+        if (
+          storesRes.error &&
+          String(storesRes.error.message ?? "").includes("shift_time_step_minutes")
+        ) {
+          storesRes = await supabase
+            .from("stores")
+            .select("id, name, is_dohan_sabaki_enabled")
+            .eq("id", storeId)
+            .single();
+        }
 
         if (castsRes.data) setCasts(castsRes.data as Cast[]);
         if (storesRes.error?.code === "42703") {
@@ -65,7 +91,7 @@ export default function AdminSchedulePage() {
             .eq("id", storeId)
             .single();
           if (legacyStoreRes.data) {
-            setStore({ ...(legacyStoreRes.data as Store), is_dohan_sabaki_enabled: true });
+            setStore({ ...(legacyStoreRes.data as Store), is_dohan_sabaki_enabled: true, shift_time_step_minutes: 15 });
           }
         } else if (storesRes.data) {
           setStore(storesRes.data as Store);
@@ -230,7 +256,7 @@ export default function AdminSchedulePage() {
                 required
                 className="w-full min-h-[48px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
               >
-                {TIME_OPTIONS_REQUIRED.map((opt) => (
+                {timeOptionsRequired.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
@@ -244,7 +270,7 @@ export default function AdminSchedulePage() {
                 className="w-full min-h-[48px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
               >
                 <option value="">退勤未定</option>
-                {TIME_OPTIONS_REQUIRED.map((opt) => (
+                {timeOptionsRequired.map((opt) => (
                   <option key={`end-${opt.value}`} value={opt.value}>
                     {opt.label}
                   </option>
