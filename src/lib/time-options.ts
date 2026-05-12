@@ -59,7 +59,9 @@ export function normalizeDbTimeToShiftOption(raw: string | null | undefined): st
   if (!m) return "";
   const hh = m[1].padStart(2, "0");
   const mm = m[2];
-  const key = `${hh}:${mm}`;
+  let key = `${hh}:${mm}`;
+  // DB の日跨ぎ終端は 24:00:00 となることがあるが、プルダウンは翌日側 00:00〜
+  if (key === "24:00") key = "00:00";
   return SHIFT_TIME_VALUE_SET.has(key) ? key : "";
 }
 
