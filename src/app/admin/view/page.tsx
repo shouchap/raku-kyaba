@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { getTodayJst } from "@/lib/date-utils";
+import { getCastDisplaySortWeight } from "@/lib/cast-display-sort";
 import { SubmitSuccessToast } from "./SubmitSuccessToast";
 
 /** 未返信アラートを出すまでの経過時間（時間） */
@@ -14,6 +15,8 @@ type Cast = {
   id: string;
   name: string;
   store_id: string;
+  role?: string | null;
+  employment_type?: string | null;
 };
 
 type Store = {
@@ -144,6 +147,10 @@ export default function AdminViewPage() {
     if (!baseDateStr) return [...casts];
 
     return [...casts].sort((a, b) => {
+      const wA = getCastDisplaySortWeight(a);
+      const wB = getCastDisplaySortWeight(b);
+      if (wA !== wB) return wA - wB;
+
       const timeA = matrix[a.id]?.[baseDateStr]?.time;
       const timeB = matrix[b.id]?.[baseDateStr]?.time;
       const minutesA = parseTimeToMinutes(timeA);
@@ -166,7 +173,7 @@ export default function AdminViewPage() {
       const [castsRes, storesRes] = await Promise.all([
         supabase
           .from("casts")
-          .select("id, name, store_id")
+          .select("id, name, store_id, role, employment_type")
           .eq("store_id", storeId)
           .eq("is_active", true)
           .order("name"),
@@ -177,7 +184,32 @@ export default function AdminViewPage() {
           .single(),
       ]);
 
-      if (castsRes.data) setCasts(castsRes.data as Cast[]);
+      if (
+        castsRes.error &&
+        (String(castsRes.error.message).includes("role") || castsRes.error.code === "42703")
+      ) {
+        const fallback = await supabase
+          .from("casts")
+          .select("id, name, store_id, employment_type")
+          .eq("store_id", storeId)
+          .eq("is_active", true)
+          .order("name");
+        if (fallback.data) {
+          setCasts(
+            (fallback.data as Cast[]).map((c) => ({
+              ...c,
+              role: "cast" as const,
+            }))
+          );
+        } else {
+          setCasts([]);
+        }
+      } else if (castsRes.data) {
+        setCasts(castsRes.data as Cast[]);
+      } else {
+        if (castsRes.error) console.error(castsRes.error);
+        setCasts([]);
+      }
       if (storesRes.data) setStore(storesRes.data as Store);
     } catch (err) {
       console.error(err);

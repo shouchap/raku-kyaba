@@ -4,13 +4,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { addCalendarDaysJst, getTodayJst, getWeekdayJst } from "@/lib/date-utils";
+import { sortCastsForShiftDisplay } from "@/lib/cast-display-sort";
 import { normalizeDbTimeToShiftOption, TIME_OPTIONS } from "@/lib/time-options";
 
 type Cast = {
   id: string;
   name: string;
   store_id: string;
-  employment_type?: "admin" | "regular" | "part_time" | null;
+  role?: string | null;
+  employment_type?: "admin" | "regular" | "part_time" | "employee" | null;
 };
 
 type Store = {
@@ -93,7 +95,7 @@ export default function AdminWeeklyPage() {
       const [castsRes, storesRes] = await Promise.all([
         supabase
           .from("casts")
-          .select("id, name, store_id, employment_type")
+          .select("id, name, store_id, employment_type, role")
           .eq("store_id", storeId)
           .eq("is_active", true)
           .order("name"),
@@ -104,7 +106,31 @@ export default function AdminWeeklyPage() {
           .single(),
       ]);
 
-      if (castsRes.data) setCasts(castsRes.data as Cast[]);
+      if (
+        castsRes.error &&
+        (String(castsRes.error.message).includes("role") || castsRes.error.code === "42703")
+      ) {
+        const fallback = await supabase
+          .from("casts")
+          .select("id, name, store_id, employment_type")
+          .eq("store_id", storeId)
+          .eq("is_active", true)
+          .order("name");
+        if (fallback.data) {
+          setCasts(
+            sortCastsForShiftDisplay(
+              (fallback.data as Cast[]).map((c) => ({ ...c, role: "cast" as const }))
+            )
+          );
+        } else {
+          setCasts([]);
+        }
+      } else if (castsRes.data) {
+        setCasts(sortCastsForShiftDisplay(castsRes.data as Cast[]));
+      } else {
+        if (castsRes.error) console.error(castsRes.error);
+        setCasts([]);
+      }
       let storeRaw: Record<string, unknown> | null = null;
       if (storesRes.error?.code === "42703") {
         const legacyStoreRes = await supabase
