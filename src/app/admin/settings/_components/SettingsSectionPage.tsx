@@ -20,6 +20,11 @@ import {
 } from "@/lib/pre-open-report-customization";
 import { buildEditableWeeklyReportTemplate } from "@/lib/weekly-report-customization";
 import { buildEditableDailyBarSummaryTemplate } from "@/lib/daily-bar-summary-customization";
+import {
+  DEFAULT_WELFARE_MESSAGE_EVENING,
+  DEFAULT_WELFARE_MESSAGE_MIDDAY,
+  DEFAULT_WELFARE_MESSAGE_MORNING,
+} from "@/lib/welfare-line-flex";
 
 type Section = "store" | "line" | "features" | "admins";
 type BusinessType = "cabaret" | "welfare_b" | "bar" | "fuzoku";
@@ -84,6 +89,7 @@ type SnapshotShape = {
   termCast: string;
   shiftTimeStepMinutes: ShiftTimeStepMinutes;
   lineCustomizationText: string;
+  welfareLineSettingsText: string;
   preOpenReportTemplateText: string;
   weeklyReportTemplateText: string;
   dailyBarSummaryTemplateText: string;
@@ -171,6 +177,21 @@ const DEFAULT_CONFIG: ReminderConfig = {
   welcome_message:
     "{name}さん、はじめまして。出勤・退勤の連絡はこのLINEから行えます。よろしくお願いいたします。",
 };
+const DEFAULT_WELFARE_BUTTON_LABELS: {
+  morningStartButtonLabel: string;
+  healthGoodButtonLabel: string;
+  healthBadButtonLabel: string;
+  healthContactButtonLabel: string;
+  endWorkNormalButtonLabel: string;
+  endWorkHospitalButtonLabel: string;
+} = {
+  morningStartButtonLabel: "作業を開始する",
+  healthGoodButtonLabel: "良好",
+  healthBadButtonLabel: "不調",
+  healthContactButtonLabel: "担当者に連絡",
+  endWorkNormalButtonLabel: "通常の作業終了",
+  endWorkHospitalButtonLabel: "通院報告をして終了",
+};
 
 const CONTROL_CLASS =
   "rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500 disabled:border-slate-300";
@@ -236,6 +257,29 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [menuSettings, setMenuSettings] = useState<MenuSettingsMap>({});
   const [reminderConfigExtras, setReminderConfigExtras] = useState<Record<string, unknown>>({});
   const [lineCustomizationText, setLineCustomizationText] = useState("{}");
+  const [welfareMessageMorning, setWelfareMessageMorning] = useState(DEFAULT_WELFARE_MESSAGE_MORNING);
+  const [welfareMessageMidday, setWelfareMessageMidday] = useState(DEFAULT_WELFARE_MESSAGE_MIDDAY);
+  const [welfareMessageEvening, setWelfareMessageEvening] = useState(DEFAULT_WELFARE_MESSAGE_EVENING);
+  const [welfareMessageWelcome, setWelfareMessageWelcome] = useState("");
+  const [welfareWorkItems, setWelfareWorkItems] = useState("");
+  const [welfareMorningStartButtonLabel, setWelfareMorningStartButtonLabel] = useState(
+    DEFAULT_WELFARE_BUTTON_LABELS.morningStartButtonLabel
+  );
+  const [welfareHealthGoodButtonLabel, setWelfareHealthGoodButtonLabel] = useState(
+    DEFAULT_WELFARE_BUTTON_LABELS.healthGoodButtonLabel
+  );
+  const [welfareHealthBadButtonLabel, setWelfareHealthBadButtonLabel] = useState(
+    DEFAULT_WELFARE_BUTTON_LABELS.healthBadButtonLabel
+  );
+  const [welfareHealthContactButtonLabel, setWelfareHealthContactButtonLabel] = useState(
+    DEFAULT_WELFARE_BUTTON_LABELS.healthContactButtonLabel
+  );
+  const [welfareEndWorkNormalButtonLabel, setWelfareEndWorkNormalButtonLabel] = useState(
+    DEFAULT_WELFARE_BUTTON_LABELS.endWorkNormalButtonLabel
+  );
+  const [welfareEndWorkHospitalButtonLabel, setWelfareEndWorkHospitalButtonLabel] = useState(
+    DEFAULT_WELFARE_BUTTON_LABELS.endWorkHospitalButtonLabel
+  );
   const [preOpenReportTemplateText, setPreOpenReportTemplateText] = useState(
     PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER
   );
@@ -306,6 +350,19 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       termCast,
       shiftTimeStepMinutes,
       lineCustomizationText,
+      welfareLineSettingsText: JSON.stringify({
+        welfareMessageMorning,
+        welfareMessageMidday,
+        welfareMessageEvening,
+        welfareMessageWelcome,
+        welfareWorkItems,
+        welfareMorningStartButtonLabel,
+        welfareHealthGoodButtonLabel,
+        welfareHealthBadButtonLabel,
+        welfareHealthContactButtonLabel,
+        welfareEndWorkNormalButtonLabel,
+        welfareEndWorkHospitalButtonLabel,
+      }),
       preOpenReportTemplateText,
       weeklyReportTemplateText,
       dailyBarSummaryTemplateText,
@@ -343,6 +400,17 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     termCast,
     shiftTimeStepMinutes,
     lineCustomizationText,
+    welfareMessageMorning,
+    welfareMessageMidday,
+    welfareMessageEvening,
+    welfareMessageWelcome,
+    welfareWorkItems,
+    welfareMorningStartButtonLabel,
+    welfareHealthGoodButtonLabel,
+    welfareHealthBadButtonLabel,
+    welfareHealthContactButtonLabel,
+    welfareEndWorkNormalButtonLabel,
+    welfareEndWorkHospitalButtonLabel,
     preOpenReportTemplateText,
     weeklyReportTemplateText,
     dailyBarSummaryTemplateText,
@@ -388,6 +456,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     termCast: "キャストラベル",
     shiftTimeStepMinutes: "シフト時刻の刻み",
     lineCustomizationText: "LINE詳細カスタム(JSON)",
+    welfareLineSettingsText: "福祉LINE定期配信文面",
     preOpenReportTemplateText: "営業前サマリーテンプレート",
     weeklyReportTemplateText: "週間レポートテンプレート",
     dailyBarSummaryTemplateText: "出勤確認サマリーテンプレート",
@@ -474,6 +543,31 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setShiftTimeStepMinutes(parseShiftTimeStepMinutes(data.shift_time_step_minutes));
       setReminderConfigExtras({});
       setLineCustomizationText("{}");
+      setWelfareMessageMorning(
+        typeof data.welfare_message_morning === "string" && data.welfare_message_morning.trim()
+          ? data.welfare_message_morning
+          : DEFAULT_WELFARE_MESSAGE_MORNING
+      );
+      setWelfareMessageMidday(
+        typeof data.welfare_message_midday === "string" && data.welfare_message_midday.trim()
+          ? data.welfare_message_midday
+          : DEFAULT_WELFARE_MESSAGE_MIDDAY
+      );
+      setWelfareMessageEvening(
+        typeof data.welfare_message_evening === "string" && data.welfare_message_evening.trim()
+          ? data.welfare_message_evening
+          : DEFAULT_WELFARE_MESSAGE_EVENING
+      );
+      setWelfareMessageWelcome(
+        typeof data.welfare_message_welcome === "string" ? data.welfare_message_welcome : ""
+      );
+      setWelfareWorkItems(typeof data.welfare_work_items === "string" ? data.welfare_work_items : "");
+      setWelfareMorningStartButtonLabel(DEFAULT_WELFARE_BUTTON_LABELS.morningStartButtonLabel);
+      setWelfareHealthGoodButtonLabel(DEFAULT_WELFARE_BUTTON_LABELS.healthGoodButtonLabel);
+      setWelfareHealthBadButtonLabel(DEFAULT_WELFARE_BUTTON_LABELS.healthBadButtonLabel);
+      setWelfareHealthContactButtonLabel(DEFAULT_WELFARE_BUTTON_LABELS.healthContactButtonLabel);
+      setWelfareEndWorkNormalButtonLabel(DEFAULT_WELFARE_BUTTON_LABELS.endWorkNormalButtonLabel);
+      setWelfareEndWorkHospitalButtonLabel(DEFAULT_WELFARE_BUTTON_LABELS.endWorkHospitalButtonLabel);
       setPreOpenReportTemplateText(PRE_OPEN_REPORT_TEMPLATE_PLACEHOLDER);
       setWeeklyReportTemplateText("{weekly_report_body}");
       setDailyBarSummaryTemplateText("{daily_bar_summary_body}");
@@ -538,6 +632,43 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
         const lc = rc.line_customization;
         if (lc && typeof lc === "object" && !Array.isArray(lc)) {
           setLineCustomizationText(JSON.stringify(lc, null, 2));
+          const welfareLc = (lc as { welfare?: Record<string, unknown> }).welfare;
+          if (welfareLc && typeof welfareLc === "object" && !Array.isArray(welfareLc)) {
+            setWelfareMorningStartButtonLabel(
+              typeof welfareLc.morningStartButtonLabel === "string" &&
+                welfareLc.morningStartButtonLabel.trim()
+                ? welfareLc.morningStartButtonLabel
+                : DEFAULT_WELFARE_BUTTON_LABELS.morningStartButtonLabel
+            );
+            setWelfareHealthGoodButtonLabel(
+              typeof welfareLc.healthGoodButtonLabel === "string" && welfareLc.healthGoodButtonLabel.trim()
+                ? welfareLc.healthGoodButtonLabel
+                : DEFAULT_WELFARE_BUTTON_LABELS.healthGoodButtonLabel
+            );
+            setWelfareHealthBadButtonLabel(
+              typeof welfareLc.healthBadButtonLabel === "string" && welfareLc.healthBadButtonLabel.trim()
+                ? welfareLc.healthBadButtonLabel
+                : DEFAULT_WELFARE_BUTTON_LABELS.healthBadButtonLabel
+            );
+            setWelfareHealthContactButtonLabel(
+              typeof welfareLc.healthContactButtonLabel === "string" &&
+                welfareLc.healthContactButtonLabel.trim()
+                ? welfareLc.healthContactButtonLabel
+                : DEFAULT_WELFARE_BUTTON_LABELS.healthContactButtonLabel
+            );
+            setWelfareEndWorkNormalButtonLabel(
+              typeof welfareLc.endWorkNormalButtonLabel === "string" &&
+                welfareLc.endWorkNormalButtonLabel.trim()
+                ? welfareLc.endWorkNormalButtonLabel
+                : DEFAULT_WELFARE_BUTTON_LABELS.endWorkNormalButtonLabel
+            );
+            setWelfareEndWorkHospitalButtonLabel(
+              typeof welfareLc.endWorkHospitalButtonLabel === "string" &&
+                welfareLc.endWorkHospitalButtonLabel.trim()
+                ? welfareLc.endWorkHospitalButtonLabel
+                : DEFAULT_WELFARE_BUTTON_LABELS.endWorkHospitalButtonLabel
+            );
+          }
         } else {
           setLineCustomizationText("{}");
         }
@@ -661,12 +792,37 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
         }
         lineCustomizationValue = parsed as Record<string, unknown>;
       } catch (e) {
-        throw new Error(
-          e instanceof Error
-            ? `LINE詳細カスタム(JSON)の形式が不正です: ${e.message}`
-            : "LINE詳細カスタム(JSON)の形式が不正です。"
-        );
+        console.warn("[settings] line_customization parse failed; fallback to empty object", e);
+        lineCustomizationValue = {};
       }
+      const currentWelfare =
+        lineCustomizationValue.welfare &&
+        typeof lineCustomizationValue.welfare === "object" &&
+        !Array.isArray(lineCustomizationValue.welfare)
+          ? (lineCustomizationValue.welfare as Record<string, unknown>)
+          : {};
+      const nextWelfare: Record<string, unknown> = {
+        ...currentWelfare,
+        morningStartButtonLabel:
+          welfareMorningStartButtonLabel.trim() ||
+          DEFAULT_WELFARE_BUTTON_LABELS.morningStartButtonLabel,
+        healthGoodButtonLabel:
+          welfareHealthGoodButtonLabel.trim() || DEFAULT_WELFARE_BUTTON_LABELS.healthGoodButtonLabel,
+        healthBadButtonLabel:
+          welfareHealthBadButtonLabel.trim() || DEFAULT_WELFARE_BUTTON_LABELS.healthBadButtonLabel,
+        healthContactButtonLabel:
+          welfareHealthContactButtonLabel.trim() || DEFAULT_WELFARE_BUTTON_LABELS.healthContactButtonLabel,
+        endWorkNormalButtonLabel:
+          welfareEndWorkNormalButtonLabel.trim() ||
+          DEFAULT_WELFARE_BUTTON_LABELS.endWorkNormalButtonLabel,
+        endWorkHospitalButtonLabel:
+          welfareEndWorkHospitalButtonLabel.trim() ||
+          DEFAULT_WELFARE_BUTTON_LABELS.endWorkHospitalButtonLabel,
+      };
+      lineCustomizationValue = {
+        ...lineCustomizationValue,
+        welfare: nextWelfare,
+      };
 
       const reminder_config: Record<string, unknown> = {
         ...reminderConfigExtras,
@@ -737,6 +893,27 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       });
       if (!res.ok) throw new Error("設定保存に失敗しました");
 
+      if (businessType === "welfare_b") {
+        const welfareRes = await fetch("/api/admin/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            storeId: activeStoreId,
+            welfare_settings_patch: true,
+            welfare_message_morning: welfareMessageMorning,
+            welfare_message_midday: welfareMessageMidday,
+            welfare_message_evening: welfareMessageEvening,
+            welfare_message_welcome: welfareMessageWelcome,
+            welfare_work_items: welfareWorkItems,
+            regular_holidays: regularHolidays,
+            regular_start_time: regularStartTime.trim() || null,
+            is_guide_enabled: isGuideMasterEnabled,
+            is_dohan_sabaki_enabled: isDohanSabakiEnabled,
+          }),
+        });
+        if (!welfareRes.ok) throw new Error("福祉LINE定期配信設定の保存に失敗しました");
+      }
+
       const guideStaffNames = parseGuideStaffNamesFromText(guideStaffNamesText);
       const guideRes = await fetch("/api/admin/guide-hearing", {
         method: "PATCH",
@@ -792,6 +969,17 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     router,
     reminderConfigExtras,
     lineCustomizationText,
+    welfareMessageMorning,
+    welfareMessageMidday,
+    welfareMessageEvening,
+    welfareMessageWelcome,
+    welfareWorkItems,
+    welfareMorningStartButtonLabel,
+    welfareHealthGoodButtonLabel,
+    welfareHealthBadButtonLabel,
+    welfareHealthContactButtonLabel,
+    welfareEndWorkNormalButtonLabel,
+    welfareEndWorkHospitalButtonLabel,
     preOpenReportTemplateText,
     weeklyReportTemplateText,
     dailyBarSummaryTemplateText,
@@ -1524,10 +1712,99 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               <p className="text-xs font-semibold text-slate-700">この業態で送信される主なLINE</p>
               <p className="mt-1 text-xs text-slate-600">
                 {businessType === "welfare_b"
-                  ? "出勤確認 / 営業前サマリー / 週間レポート / 未返信アラート / 福祉（朝開始・昼体調確認・夕方終了）"
+                  ? "福祉定期配信（朝9:00開始 / 昼12:00体調確認 / 夕17:00終了）"
                   : "出勤確認 / 営業前サマリー / 週間レポート / 未返信アラート"}
               </p>
             </div>
+            {businessType === "welfare_b" ? (
+              <div className="rounded-lg border border-teal-200 bg-teal-50/60 p-3 space-y-3">
+                <p className="text-sm font-semibold text-teal-900">福祉 定期配信（朝・昼・夕）</p>
+                <p className="text-xs text-teal-800">
+                  福祉で重要な3配信をここで編集できます。下記文面はそのままLINEで送信されます。
+                </p>
+                <label className="block text-sm text-slate-700">
+                  朝（9:00）本文
+                  <textarea
+                    value={welfareMessageMorning}
+                    onChange={(e) => setWelfareMessageMorning(e.target.value)}
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  朝（9:00）ボタン文言
+                  <input
+                    value={welfareMorningStartButtonLabel}
+                    onChange={(e) => setWelfareMorningStartButtonLabel(e.target.value)}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  昼（12:00）本文
+                  <textarea
+                    value={welfareMessageMidday}
+                    onChange={(e) => setWelfareMessageMidday(e.target.value)}
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <label className="block text-sm text-slate-700">
+                    昼ボタン（良好）
+                    <input
+                      value={welfareHealthGoodButtonLabel}
+                      onChange={(e) => setWelfareHealthGoodButtonLabel(e.target.value)}
+                      className={`mt-1 w-full ${CONTROL_CLASS}`}
+                    />
+                  </label>
+                  <label className="block text-sm text-slate-700">
+                    昼ボタン（不調）
+                    <input
+                      value={welfareHealthBadButtonLabel}
+                      onChange={(e) => setWelfareHealthBadButtonLabel(e.target.value)}
+                      className={`mt-1 w-full ${CONTROL_CLASS}`}
+                    />
+                  </label>
+                  <label className="block text-sm text-slate-700">
+                    昼ボタン（担当者に連絡）
+                    <input
+                      value={welfareHealthContactButtonLabel}
+                      onChange={(e) => setWelfareHealthContactButtonLabel(e.target.value)}
+                      className={`mt-1 w-full ${CONTROL_CLASS}`}
+                    />
+                  </label>
+                </div>
+                <label className="block text-sm text-slate-700">
+                  夕（17:00）本文
+                  <textarea
+                    value={welfareMessageEvening}
+                    onChange={(e) => setWelfareMessageEvening(e.target.value)}
+                    rows={2}
+                    className={`mt-1 w-full ${CONTROL_CLASS}`}
+                  />
+                </label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="block text-sm text-slate-700">
+                    夕ボタン（通常の作業終了）
+                    <input
+                      value={welfareEndWorkNormalButtonLabel}
+                      onChange={(e) => setWelfareEndWorkNormalButtonLabel(e.target.value)}
+                      className={`mt-1 w-full ${CONTROL_CLASS}`}
+                    />
+                  </label>
+                  <label className="block text-sm text-slate-700">
+                    夕ボタン（通院報告をして終了）
+                    <input
+                      value={welfareEndWorkHospitalButtonLabel}
+                      onChange={(e) => setWelfareEndWorkHospitalButtonLabel(e.target.value)}
+                      className={`mt-1 w-full ${CONTROL_CLASS}`}
+                    />
+                  </label>
+                </div>
+              </div>
+            ) : null}
+            {businessType !== "welfare_b" ? (
+              <>
             <label className="flex items-start gap-2 text-sm text-slate-700">
               <input type="checkbox" checked={config.enabled} onChange={(e) => setConfig((c) => ({ ...c, enabled: e.target.checked }))} className="mt-0.5 h-4 w-4 accent-blue-600 disabled:accent-slate-400" />
               リマインドを有効化
@@ -1904,6 +2181,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               </div>
               {barSummaryTestDetail ? <p className="text-xs text-slate-600">{barSummaryTestDetail}</p> : null}
             </div>
+              </>
+            ) : null}
 
             {businessType === "welfare_b" ? (
               <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
