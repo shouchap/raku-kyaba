@@ -246,6 +246,9 @@ export interface Database {
           last_reminder_sent_date: string | null;
           /** 福祉: かかりつけ病院（通院報告のクイックリプライ・複数可） */
           default_hospital_names: string[];
+          /** 退店日（キャバクラ・BAR・風俗）。NULL のとき未退店 */
+          departed_at: string | null;
+          departure_reason: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -258,6 +261,8 @@ export interface Database {
           | "is_guide_target"
           | "display_name"
           | "role"
+          | "departed_at"
+          | "departure_reason"
         > & {
           id?: string;
           is_active?: boolean;
@@ -266,6 +271,8 @@ export interface Database {
           default_hospital_names?: string[];
           display_name?: string | null;
           role?: "cast" | "nakai";
+          departed_at?: string | null;
+          departure_reason?: string | null;
           created_at?: string;
           updated_at?: string;
         };

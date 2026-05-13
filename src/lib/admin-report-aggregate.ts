@@ -48,6 +48,9 @@ export type AdminReportIncident = {
 export type AdminReportCastRow = {
   castId: string;
   name: string;
+  /** 集計期間内に退店した場合のみ（JST YYYY-MM-DD） */
+  departedAt: string | null;
+  departureReason: string | null;
   attendanceDays: number;
   dohanCount: number;
   sabakiCount: number;
@@ -74,6 +77,9 @@ type UnfilledCountMode = "calendar_excluding_regular_holidays" | "sent_confirmat
 export type AdminReportCastInput = {
   id: string;
   name: string;
+  /** 集計期間内の退店日（退店済み行のみ） */
+  departed_at?: string | null;
+  departure_reason?: string | null;
 };
 
 function rowIsAbsent(row: AdminReportScheduleRow): boolean {
@@ -327,6 +333,8 @@ export function buildAdminReportCastRows(
     return {
       castId: cast.id,
       name: cast.name,
+      departedAt: cast.departed_at ?? null,
+      departureReason: cast.departure_reason ?? null,
       attendanceDays,
       dohanCount,
       sabakiCount,

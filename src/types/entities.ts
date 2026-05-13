@@ -19,6 +19,10 @@ export type Cast = {
   employment_type?: CastEmploymentType;
   role?: CastRole;
   is_guide_target?: boolean;
+  /** 退店日（YYYY-MM-DD、JST 暦日） */
+  departed_at?: string | null;
+  /** 退店理由 */
+  departure_reason?: string | null;
   created_at?: string;
 };
 

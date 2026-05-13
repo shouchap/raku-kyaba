@@ -5,6 +5,7 @@ import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { sortCastsForShiftDisplay } from "@/lib/cast-display-sort";
 import { normalizeDefaultHospitalNames } from "@/lib/welfare-line-flex";
+import { getTodayJst } from "@/lib/date-utils";
 import type { CastEmploymentType } from "@/types/entities";
 
 type Cast = {
@@ -51,6 +52,9 @@ export default function AdminCastsPage() {
   const [editHospitalNames, setEditHospitalNames] = useState<string[]>([""]);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [departingId, setDepartingId] = useState<string | null>(null);
+  const [departModalCast, setDepartModalCast] = useState<Cast | null>(null);
+  const [departReason, setDepartReason] = useState("");
   const [message, setMessage] = useState<"success" | "error" | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -255,6 +259,37 @@ export default function AdminCastsPage() {
     }
   };
 
+  const handleDepartSubmit = async () => {
+    const cast = departModalCast;
+    if (!cast) return;
+    const reason = departReason.trim();
+    if (!reason) return;
+    setDepartingId(cast.id);
+    setMessage(null);
+    try {
+      const { error } = await supabase
+        .from("casts")
+        .update({
+          is_active: false,
+          departed_at: getTodayJst(),
+          departure_reason: reason,
+        })
+        .eq("id", cast.id)
+        .eq("store_id", activeStoreId);
+      if (error) throw error;
+      setCasts((prev) => prev.filter((c) => c.id !== cast.id));
+      if (editingId === cast.id) handleCancelEdit();
+      setDepartModalCast(null);
+      setDepartReason("");
+      setMessage("success");
+    } catch (err) {
+      console.error(err);
+      setMessage("error");
+    } finally {
+      setDepartingId(null);
+    }
+  };
+
   const handleDelete = async (cast: Cast) => {
     const ok = window.confirm(
       `「${cast.name}」さんを削除しますか？\n関連するシフト・出勤記録も削除されます。`
@@ -301,6 +336,12 @@ export default function AdminCastsPage() {
   }
 
   const isWelfare = store?.business_type === "welfare_b";
+  const storeBusinessType = store?.business_type ?? "cabaret";
+  const allowDepartCast =
+    !isWelfare &&
+    (storeBusinessType === "cabaret" ||
+      storeBusinessType === "bar" ||
+      storeBusinessType === "fuzoku");
   const listTitle = isWelfare ? "利用者一覧" : "キャスト一覧";
   const editPanelTitle = isWelfare ? "利用者情報の編集" : "キャスト情報の編集";
 
@@ -385,19 +426,32 @@ export default function AdminCastsPage() {
                           👑 管理通知先
                         </span>
                       )}
-                      <div className="flex flex-none shrink-0 gap-2">
+                      <div className="flex flex-none shrink-0 flex-wrap justify-end gap-2">
                         <button
                           type="button"
                           onClick={() => handleStartEdit(cast)}
-                          disabled={deletingId !== null}
+                          disabled={deletingId !== null || departingId !== null}
                           className="min-h-[40px] rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-800 hover:bg-white disabled:opacity-50 sm:text-sm touch-manipulation"
                         >
                           編集
                         </button>
+                        {allowDepartCast && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDepartModalCast(cast);
+                              setDepartReason("");
+                            }}
+                            disabled={deletingId !== null || departingId !== null}
+                            className="min-h-[40px] rounded-lg border border-amber-300 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 sm:text-sm touch-manipulation"
+                          >
+                            退店
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleDelete(cast)}
-                          disabled={deletingId !== null}
+                          disabled={deletingId !== null || departingId !== null}
                           className="min-h-[40px] rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 sm:text-sm touch-manipulation"
                         >
                           {deletingId === cast.id ? "削除中..." : "削除"}
@@ -592,6 +646,52 @@ export default function AdminCastsPage() {
       )}
       {message === "error" && (
         <p className="mt-6 text-sm text-red-600">処理に失敗しました。再度お試しください。</p>
+      )}
+
+      {departModalCast && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-5 shadow-xl">
+            <h2 className="text-base font-semibold text-gray-900">退店の登録</h2>
+            <p className="mt-1 text-xs text-gray-600">
+              「{departModalCast.display_name?.trim()
+                ? `${departModalCast.display_name}（${departModalCast.name}）`
+                : departModalCast.name}
+              」を退店扱いにします。一覧からは外れ、LINE の出勤確認の対象外になります。月間レポートの対象月に退店者として表示されます。
+            </p>
+            <label className="mt-4 block">
+              <span className="mb-1.5 block text-xs font-medium text-gray-600">退店理由（必須）</span>
+              <textarea
+                value={departReason}
+                onChange={(e) => setDepartReason(e.target.value)}
+                rows={4}
+                className="w-full min-h-[100px] rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                placeholder="例：自己都合、契約満了、他店移籍 など"
+                autoFocus
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (departingId) return;
+                  setDepartModalCast(null);
+                  setDepartReason("");
+                }}
+                className="min-h-[40px] rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDepartSubmit()}
+                disabled={departingId !== null || !departReason.trim()}
+                className="min-h-[40px] rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {departingId ? "処理中..." : "退店を確定"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {createModalOpen && (

@@ -7,6 +7,7 @@ import {
   normalizeRegularHolidays,
   type AdminReportScheduleRow,
 } from "@/lib/admin-report-aggregate";
+import { loadCabaretLikeReportCastInputs } from "@/lib/admin-report-cabaret-casts";
 import {
   computeWeeklyReportPeriod,
   mergeBarActionDetailCountsInto,
@@ -118,19 +119,16 @@ export async function loadWeeklyReportBuildInput(
     return { ok: true, input };
   }
 
-  const { data: castRows, error: castListErr } = await admin
-    .from("casts")
-    .select("id, name")
-    .eq("store_id", storeId)
-    .eq("is_active", true)
-    .order("name");
-
-  if (castListErr) {
-    logPostgrestError("weekly-report casts", castListErr);
-    return { ok: false, error: castListErr.message };
+  const { casts, error: castLoadErr } = await loadCabaretLikeReportCastInputs(
+    admin,
+    "weekly-report",
+    storeId,
+    periodStartYmd,
+    periodEndYmd
+  );
+  if (castLoadErr) {
+    return { ok: false, error: castLoadErr };
   }
-
-  const casts = (castRows ?? []) as { id: string; name: string }[];
   const castIds = casts.map((c) => c.id);
 
   let schedules: AdminReportScheduleRow[] = [];

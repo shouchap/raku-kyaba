@@ -65,6 +65,9 @@ type Incident = {
 type CastReport = {
   castId: string;
   name: string;
+  /** 集計期間内に退店した場合のみ（YYYY-MM-DD） */
+  departedAt: string | null;
+  departureReason: string | null;
   attendanceDays: number;
   dohanCount: number;
   sabakiCount: number;
@@ -690,6 +693,11 @@ function AdminReportContent() {
           return {
             castId: String(r.castId ?? ""),
             name: String(r.name ?? ""),
+            departedAt:
+              typeof r.departedAt === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.departedAt)
+                ? r.departedAt
+                : null,
+            departureReason: typeof r.departureReason === "string" ? r.departureReason : null,
             attendanceDays: typeof r.attendanceDays === "number" ? r.attendanceDays : 0,
             dohanCount: typeof r.dohanCount === "number" ? r.dohanCount : 0,
             sabakiCount: typeof r.sabakiCount === "number" ? r.sabakiCount : 0,
@@ -761,6 +769,18 @@ function AdminReportContent() {
     });
     return list;
   }, [cabaretReports, sortKey, sortDir]);
+
+  const departedInPeriod = useMemo(
+    () =>
+      [...cabaretReports]
+        .filter((r) => r.departedAt)
+        .sort(
+          (a, b) =>
+            (a.departedAt ?? "").localeCompare(b.departedAt ?? "") ||
+            a.name.localeCompare(b.name, "ja")
+        ),
+    [cabaretReports]
+  );
 
   type FilterOption = { id: string; name: string };
 
@@ -1638,14 +1658,29 @@ function AdminReportContent() {
                           )}
                         </td>
                         <td className="px-3 py-3 font-medium text-gray-900">
-                          <span className="inline-flex items-center gap-1.5 flex-wrap">
-                            {r.name}
-                            {r.sabakiCount > 0 && (
-                              <span
-                                className="inline-flex items-center justify-center rounded border border-amber-500 bg-amber-50 px-1.5 py-0.5 text-xs font-semibold text-amber-900 tabular-nums"
-                                title="期間内に捌き出勤のシフトあり"
-                              >
-                                捌
+                          <span className="inline-flex flex-col items-start gap-1">
+                            <span className="inline-flex items-center gap-1.5 flex-wrap">
+                              {r.name}
+                              {r.departedAt && (
+                                <span className="inline-flex shrink-0 items-center rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-xs font-semibold text-rose-900">
+                                  退店
+                                </span>
+                              )}
+                              {r.sabakiCount > 0 && (
+                                <span
+                                  className="inline-flex items-center justify-center rounded border border-amber-500 bg-amber-50 px-1.5 py-0.5 text-xs font-semibold text-amber-900 tabular-nums"
+                                  title="期間内に捌き出勤のシフトあり"
+                                >
+                                  捌
+                                </span>
+                              )}
+                            </span>
+                            {r.departedAt && (
+                              <span className="text-xs font-normal text-gray-600">
+                                退店日 {formatJaMonthDay(r.departedAt)}
+                                {r.departureReason?.trim()
+                                  ? ` · ${r.departureReason.trim()}`
+                                  : " · （理由の記載なし）"}
                               </span>
                             )}
                           </span>
@@ -1734,6 +1769,31 @@ function AdminReportContent() {
             </tbody>
           </table>
         </div>
+        )}
+
+        {showBasicAttendanceTable && departedInPeriod.length > 0 && (
+          <div className="mt-6 rounded-xl border border-rose-200/90 bg-rose-50/40 px-4 py-4 shadow-sm print:mt-4 print:border print:rounded-none print:shadow-none">
+            <h3 className="text-sm font-semibold text-rose-950">
+              期間内の退店者（{departedInPeriod.length}名）
+            </h3>
+            <ul className="mt-3 space-y-3 text-sm text-gray-900">
+              {departedInPeriod.map((r) => (
+                <li
+                  key={r.castId}
+                  className="border-b border-rose-100 pb-3 last:border-0 last:pb-0"
+                >
+                  <div className="font-medium text-gray-900">{r.name}</div>
+                  <div className="mt-0.5 text-xs text-gray-600">
+                    退店日 {r.departedAt ? formatJaMonthDay(r.departedAt) : "—"}
+                  </div>
+                  <p className="mt-1.5 whitespace-pre-wrap break-words text-gray-800">
+                    <span className="font-medium text-gray-700">退店理由: </span>
+                    {r.departureReason?.trim() || "（記載なし）"}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {castSubTab === "bar_actions" && attendanceFlowBarExtended && (

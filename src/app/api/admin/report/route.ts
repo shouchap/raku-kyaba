@@ -11,6 +11,7 @@ import {
   normalizeRegularHolidays,
   type AdminReportScheduleRow,
 } from "@/lib/admin-report-aggregate";
+import { loadCabaretLikeReportCastInputs } from "@/lib/admin-report-cabaret-casts";
 
 export const dynamic = "force-dynamic";
 
@@ -189,22 +190,19 @@ export async function GET(request: Request) {
       (storeRow as { regular_holidays?: unknown }).regular_holidays
     );
 
-    const { data: castRows, error: castListErr } = await admin
-      .from("casts")
-      .select("id, name")
-      .eq("store_id", storeId)
-      .eq("is_active", true)
-      .order("name");
-
-    if (castListErr) {
-      logPostgrestError("GET /api/admin/report casts (cabaret/bar)", castListErr);
+    const { casts, error: castLoadErr } = await loadCabaretLikeReportCastInputs(
+      admin,
+      "GET /api/admin/report",
+      storeId,
+      start,
+      end
+    );
+    if (castLoadErr) {
       return NextResponse.json(
-        { error: "Failed to load casts", details: castListErr.message },
+        { error: "Failed to load casts", details: castLoadErr },
         { status: 500 }
       );
     }
-
-    const casts = (castRows ?? []) as { id: string; name: string }[];
     const castIds = casts.map((c) => c.id);
 
     let schedules: AdminReportScheduleRow[] = [];
