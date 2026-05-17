@@ -22,6 +22,7 @@ import {
 import { ChevronDown, ChevronRight, Printer } from "lucide-react";
 import { GuideReportTab } from "./GuideReportTab";
 import { CastAttendanceManualModal } from "./CastAttendanceManualModal";
+import { CastInterviewRecordsPanel } from "./CastInterviewRecordsPanel";
 import { StoreAttendanceEditHistoryModal } from "./StoreAttendanceEditHistoryModal";
 import type { ReportAttendanceLogPeriodRow } from "@/app/api/admin/report/route";
 import "./report-print.css";
@@ -106,7 +107,7 @@ type ViewMode = "month" | "week" | "day";
 
 type ReportMainTab = "cast" | "guide";
 type SortPreset = "attendance" | "absent" | "late" | "dohan";
-type CastAttendanceSubTab = "basic" | "bar_actions";
+type CastAttendanceSubTab = "basic" | "bar_actions" | "interviews";
 type TopKpi = {
   label: string;
   value: string;
@@ -298,8 +299,13 @@ function AdminReportContent() {
   const reportTab: ReportMainTab =
     searchParams.get("tab") === "guide" ? "guide" : "cast";
 
+  const castViewParam = searchParams.get("castView");
   const castSubTab: CastAttendanceSubTab =
-    searchParams.get("castView") === "bar" ? "bar_actions" : "basic";
+    castViewParam === "bar"
+      ? "bar_actions"
+      : castViewParam === "interview"
+        ? "interviews"
+        : "basic";
 
   const ymFromUrl = parseYmParam(searchParams.get("ym"));
   const [year, setYear] = useState(ymFromUrl?.year ?? defaultYm.year);
@@ -478,6 +484,7 @@ function AdminReportContent() {
     (next: CastAttendanceSubTab) => {
       const params = new URLSearchParams(searchParams.toString());
       if (next === "bar_actions") params.set("castView", "bar");
+      else if (next === "interviews") params.set("castView", "interview");
       else params.delete("castView");
       router.push(`/admin/report?${params.toString()}`);
     },
@@ -530,6 +537,16 @@ function AdminReportContent() {
     params.delete("castView");
     router.replace(`/admin/report?${params.toString()}`);
   }, [loading, store, router, searchParams]);
+
+  /** キャバクラ以外では castView=interview を付けられないようにする */
+  useEffect(() => {
+    if (loading) return;
+    if (businessType === "cabaret") return;
+    if (searchParams.get("castView") !== "interview") return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("castView");
+    router.replace(`/admin/report?${params.toString()}`);
+  }, [loading, businessType, router, searchParams]);
 
   /** 日別は B型のみ。キャバクラ・BAR で view=day の URL なら月表示へ戻す（業態確定後） */
   useEffect(() => {
@@ -888,9 +905,10 @@ function AdminReportContent() {
       (store.is_guide_enabled !== false && store.attendance_flow_type !== "bar_extended"));
   const attendanceFlowBarExtended = store?.attendance_flow_type === "bar_extended";
 
-  /** 基本勤怠サマリー表: BAR行動モードでは非表示（排他） */
-  const showBasicAttendanceTable =
-    !attendanceFlowBarExtended || castSubTab === "basic";
+  const showCabaretInterviewTab = businessType === "cabaret";
+
+  /** 基本勤怠サマリー表: 基本勤怠タブのときのみ表示 */
+  const showBasicAttendanceTable = castSubTab === "basic";
 
   const guideMonthRange = useMemo(() => getMonthRangeIso(year, month), [year, month]);
   const businessTheme = BUSINESS_THEME[businessType];
@@ -986,9 +1004,11 @@ function AdminReportContent() {
             ? " · LINEで記録した案内組数を月別に集計します。"
             : businessType === "welfare_b"
               ? " · 就労継続支援B型の日次記録（作業・体調）を一覧表示します。"
-              : castSubTab === "bar_actions" && attendanceFlowBarExtended
-                ? " · BAR 拡張フローの行動入力（確定組数・配信・声かけ・SNS 等）のみを表示しています。"
-                : " · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。"}
+              : castSubTab === "interviews"
+                ? " · キャストとの面談内容を日付付きで記録・一覧表示します。"
+                : castSubTab === "bar_actions" && attendanceFlowBarExtended
+                  ? " · BAR 拡張フローの行動入力（確定組数・配信・声かけ・SNS 等）のみを表示しています。"
+                  : " · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。"}
         </p>
       </div>
 
@@ -1191,14 +1211,14 @@ function AdminReportContent() {
       {reportTab === "cast" &&
         !loading &&
         businessType !== "welfare_b" &&
-        attendanceFlowBarExtended && (
+        (attendanceFlowBarExtended || showCabaretInterviewTab) && (
           <div
             className="mb-4 print:hidden"
             role="tablist"
             aria-label={`${castLabel}${attendanceLabel}レポートの表示切替`}
           >
             <p className="text-xs font-medium text-gray-500 mb-2">出勤レポートの見え方</p>
-            <div className="inline-flex rounded-xl border border-slate-200/90 bg-slate-100/70 p-1 shadow-inner">
+            <div className="inline-flex flex-wrap rounded-xl border border-slate-200/90 bg-slate-100/70 p-1 shadow-inner gap-1">
               <button
                 type="button"
                 role="tab"
@@ -1212,19 +1232,36 @@ function AdminReportContent() {
               >
                 基本勤怠
               </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={castSubTab === "bar_actions"}
-                onClick={() => setCastAttendanceSubTab("bar_actions")}
-                className={`rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
-                  castSubTab === "bar_actions"
-                    ? "bg-white text-gray-900 shadow-sm ring-1 ring-teal-200/90"
-                    : "text-gray-600 hover:text-gray-900"
-                }`}
-              >
-                行動履歴（BAR）
-              </button>
+              {attendanceFlowBarExtended && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={castSubTab === "bar_actions"}
+                  onClick={() => setCastAttendanceSubTab("bar_actions")}
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
+                    castSubTab === "bar_actions"
+                      ? "bg-white text-gray-900 shadow-sm ring-1 ring-teal-200/90"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  行動履歴（BAR）
+                </button>
+              )}
+              {showCabaretInterviewTab && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={castSubTab === "interviews"}
+                  onClick={() => setCastAttendanceSubTab("interviews")}
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
+                    castSubTab === "interviews"
+                      ? "bg-white text-gray-900 shadow-sm ring-1 ring-fuchsia-200/90"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  面談記録
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1794,6 +1831,17 @@ function AdminReportContent() {
               ))}
             </ul>
           </div>
+        )}
+
+        {castSubTab === "interviews" && showCabaretInterviewTab && activeStoreId && (
+          <CastInterviewRecordsPanel
+            storeId={activeStoreId}
+            periodStartYmd={start}
+            periodEndYmd={end}
+            castOptions={manualModalCastOptions}
+            filterCastId={filterCastId}
+            castLabel={castLabel}
+          />
         )}
 
         {castSubTab === "bar_actions" && attendanceFlowBarExtended && (
