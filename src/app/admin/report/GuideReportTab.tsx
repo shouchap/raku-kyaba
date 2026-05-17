@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import type { DailyGuideResult } from "@/types/entities";
 import { getTodayJst } from "@/lib/date-utils";
+import { aggregateGuideRows } from "./guide-report-aggregate";
+import { GuideStaffTotalsTable } from "./GuideStaffTotalsTable";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -29,15 +31,27 @@ function formatJaDateCell(isoDate: string): string {
   return `${m}月${d}日`;
 }
 
+function formatJaMonthDayYmd(ymd: string): string {
+  const [, m, d] = ymd.split("-").map(Number);
+  return `${m}月${d}日`;
+}
+
 type Props = {
   storeId: string;
+  storeName?: string;
   year: number;
   month: number;
   /** 「2026年4月」など */
   monthTitleLabel: string;
 };
 
-export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props) {
+export function GuideReportTab({
+  storeId,
+  storeName = "",
+  year,
+  month,
+  monthTitleLabel,
+}: Props) {
   const router = useRouter();
   const ym = useMemo(() => formatYm(year, month), [year, month]);
   const monthBounds = useMemo(() => getMonthRangeIso(year, month), [year, month]);
@@ -267,71 +281,35 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
     }
   };
 
-  const totalGuides = useMemo(
-    () => rows.reduce((sum, r) => sum + (typeof r.guide_count === "number" ? r.guide_count : 0), 0),
-    [rows]
-  );
-  const totalPeople = useMemo(
+  const screenAggregate = useMemo(() => aggregateGuideRows(rows), [rows]);
+  const {
+    totalGuides,
+    totalPeople,
+    totalSekGroups,
+    totalSekPeople,
+    totalGoldGroups,
+    totalGoldPeople,
+    staffTotals,
+  } = screenAggregate;
+
+  /** 印刷用: 月初〜今日（JST）までの実績のみ */
+  const printEndYmd = useMemo(() => {
+    const today = getTodayJst();
+    if (today < monthBounds.start) return monthBounds.end;
+    return today <= monthBounds.end ? today : monthBounds.end;
+  }, [monthBounds]);
+
+  const rowsForPrint = useMemo(
     () =>
-      rows.reduce(
-        (sum, r) => sum + (typeof r.people_count === "number" ? r.people_count : 0),
-        0
-      ),
-    [rows]
-  );
-  const totalSekGroups = useMemo(
-    () => rows.reduce((sum, r) => sum + (typeof r.sek_guide_count === "number" ? r.sek_guide_count : 0), 0),
-    [rows]
-  );
-  const totalSekPeople = useMemo(
-    () => rows.reduce((sum, r) => sum + (typeof r.sek_people_count === "number" ? r.sek_people_count : 0), 0),
-    [rows]
-  );
-  const totalGoldGroups = useMemo(
-    () => rows.reduce((sum, r) => sum + (typeof r.gold_guide_count === "number" ? r.gold_guide_count : 0), 0),
-    [rows]
-  );
-  const totalGoldPeople = useMemo(
-    () => rows.reduce((sum, r) => sum + (typeof r.gold_people_count === "number" ? r.gold_people_count : 0), 0),
-    [rows]
+      rows.filter((r) => {
+        const d = String(r.target_date);
+        return d >= monthBounds.start && d <= printEndYmd;
+      }),
+    [rows, monthBounds.start, printEndYmd]
   );
 
-  const staffTotals = useMemo(() => {
-    const m = new Map<
-      string,
-      { sekG: number; sekP: number; goldG: number; goldP: number; guide: number; people: number }
-    >();
-    for (const r of rows) {
-      const name = String(r.staff_name ?? "").trim() || "（無名）";
-      const prev =
-        m.get(name) ?? { sekG: 0, sekP: 0, goldG: 0, goldP: 0, guide: 0, people: 0 };
-      const sekG = typeof r.sek_guide_count === "number" ? r.sek_guide_count : 0;
-      const sekP = typeof r.sek_people_count === "number" ? r.sek_people_count : 0;
-      const goldG = typeof r.gold_guide_count === "number" ? r.gold_guide_count : 0;
-      const goldP = typeof r.gold_people_count === "number" ? r.gold_people_count : 0;
-      const g = typeof r.guide_count === "number" ? r.guide_count : 0;
-      const p = typeof r.people_count === "number" ? r.people_count : 0;
-      m.set(name, {
-        sekG: prev.sekG + sekG,
-        sekP: prev.sekP + sekP,
-        goldG: prev.goldG + goldG,
-        goldP: prev.goldP + goldP,
-        guide: prev.guide + g,
-        people: prev.people + p,
-      });
-    }
-    return [...m.entries()]
-      .map(([staff_name, t]) => ({
-        staff_name,
-        sekGroups: t.sekG,
-        sekPeople: t.sekP,
-        goldGroups: t.goldG,
-        goldPeople: t.goldP,
-        guideTotal: t.guide,
-        peopleTotal: t.people,
-      }))
-      .sort((a, b) => b.guideTotal - a.guideTotal || a.staff_name.localeCompare(b.staff_name, "ja"));
-  }, [rows]);
+  const printAggregate = useMemo(() => aggregateGuideRows(rowsForPrint), [rowsForPrint]);
+  const printPeriodLabel = `${formatJaMonthDayYmd(monthBounds.start)}〜${formatJaMonthDayYmd(printEndYmd)}`;
 
   /** 日付新しい順。同一日はスタッフ名で安定ソート */
   const detailRows = useMemo(() => {
@@ -350,8 +328,46 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
 
   const namesReady = guideStaffNames.length > 0;
 
+  const summaryBlock = (
+    totals: typeof screenAggregate,
+    title: string,
+    headingId = "guide-summary-heading"
+  ) => (
+    <section
+      aria-labelledby={headingId}
+      className="guide-report-summary rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-teal-50/60 p-6 shadow-sm print:p-4 print:shadow-none print:border print:border-gray-400 print:bg-white print:rounded-lg"
+    >
+      <h2
+        id={headingId}
+        className="text-sm font-medium text-emerald-900/90 print:text-gray-800"
+      >
+        {title}
+      </h2>
+      <p className="mt-3 text-4xl font-bold tabular-nums tracking-tight text-emerald-950 sm:text-5xl print:mt-2 print:text-3xl print:text-gray-900">
+        {totals.totalGuides}
+        <span className="ml-2 text-lg font-semibold text-emerald-800 sm:text-xl print:text-base print:text-gray-700">
+          組
+        </span>
+      </p>
+      <p className="mt-2 text-sm font-medium text-emerald-900/90 space-y-1 print:text-xs print:text-gray-700">
+        <span className="block">
+          GOLD: <span className="tabular-nums">{totals.totalGoldGroups}</span>組・
+          <span className="tabular-nums">{totals.totalGoldPeople}</span>人
+        </span>
+        <span className="block">
+          セクキャバ: <span className="tabular-nums">{totals.totalSekGroups}</span>組・
+          <span className="tabular-nums">{totals.totalSekPeople}</span>人
+        </span>
+        <span className="block pt-1 border-t border-emerald-200/80 print:border-gray-300">
+          合計人数: <span className="tabular-nums">{totals.totalPeople}</span>人
+        </span>
+      </p>
+    </section>
+  );
+
   return (
-    <div className="space-y-8">
+    <div className="guide-report-panel">
+      <div className="print:hidden space-y-8">
       {toast && (
         <div
           role="status"
@@ -371,90 +387,13 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
         </div>
       )}
 
-      <section
-        aria-labelledby="guide-summary-heading"
-        className="rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-teal-50/60 p-6 shadow-sm"
-      >
-        <h2 id="guide-summary-heading" className="text-sm font-medium text-emerald-900/90">
-          {monthTitleLabel} · 全体の総案内数
-        </h2>
-        <p className="mt-3 text-4xl font-bold tabular-nums tracking-tight text-emerald-950 sm:text-5xl">
-          {totalGuides}
-          <span className="ml-2 text-lg font-semibold text-emerald-800 sm:text-xl">組</span>
-        </p>
-        <p className="mt-2 text-sm font-medium text-emerald-900/90 space-y-1">
-          <span className="block">
-            GOLD: <span className="tabular-nums">{totalGoldGroups}</span>組・
-            <span className="tabular-nums">{totalGoldPeople}</span>人
-          </span>
-          <span className="block">
-            セクキャバ: <span className="tabular-nums">{totalSekGroups}</span>組・
-            <span className="tabular-nums">{totalSekPeople}</span>人
-          </span>
-          <span className="block pt-1 border-t border-emerald-200/80">
-            合計人数: <span className="tabular-nums">{totalPeople}</span>人
-          </span>
-        </p>
-      </section>
+      {summaryBlock(screenAggregate, `${monthTitleLabel} · 全体の総案内数`)}
 
       <section aria-labelledby="guide-staff-heading">
-        <h2
-          id="guide-staff-heading"
-          className="mb-3 text-base font-semibold text-gray-900"
-        >
+        <h2 id="guide-staff-heading" className="mb-3 text-base font-semibold text-gray-900">
           スタッフ別集計
         </h2>
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
-          <table className="min-w-[640px] w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="px-3 py-3 font-semibold text-gray-900">スタッフ名</th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  GOLD（組数）
-                </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  GOLD（人数）
-                </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  セクキャバ（組数）
-                </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  セクキャバ（人数）
-                </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  計（組数）
-                </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  計（人数）
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {staffTotals.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-gray-500">
-                    この月の案内実績データはありません。
-                  </td>
-                </tr>
-              ) : (
-                staffTotals.map((row) => (
-                  <tr
-                    key={row.staff_name}
-                    className="border-b border-gray-100 hover:bg-gray-50/80"
-                  >
-                    <td className="px-3 py-3 font-medium text-gray-900">{row.staff_name}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.goldGroups}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.goldPeople}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.sekGroups}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.sekPeople}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.guideTotal}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{row.peopleTotal}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <GuideStaffTotalsTable staffTotals={staffTotals} />
       </section>
 
       <section aria-labelledby="guide-detail-heading">
@@ -572,6 +511,34 @@ export function GuideReportTab({ storeId, year, month, monthTitleLabel }: Props)
           </table>
         </div>
       </section>
+      </div>
+
+      <div className="hidden print:block guide-report-print space-y-5">
+        <div className="guide-report-print-header border-b border-gray-400 pb-2">
+          <h2 className="text-lg font-bold text-gray-900">案内数レポート</h2>
+          {storeName ? <p className="mt-1 text-sm font-medium text-gray-800">{storeName}</p> : null}
+          <p className="mt-0.5 text-sm text-gray-700">
+            集計期間: {printPeriodLabel}
+            {printAggregate.staffTotals.length > 0
+              ? ` · ${printAggregate.staffTotals.length}名`
+              : ""}
+          </p>
+        </div>
+        {summaryBlock(
+          printAggregate,
+          `${monthTitleLabel} · 総案内数（${printPeriodLabel}）`,
+          "guide-summary-print-heading"
+        )}
+        <section aria-labelledby="guide-staff-print-heading">
+          <h2
+            id="guide-staff-print-heading"
+            className="mb-2 text-base font-semibold text-gray-900"
+          >
+            スタッフ別集計
+          </h2>
+          <GuideStaffTotalsTable staffTotals={printAggregate.staffTotals} forPrint />
+        </section>
+      </div>
 
       {modalOpen && (
         <div

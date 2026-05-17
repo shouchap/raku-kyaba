@@ -23,8 +23,14 @@ import { ChevronDown, ChevronRight, Printer } from "lucide-react";
 import { GuideReportTab } from "./GuideReportTab";
 import { CastAttendanceManualModal } from "./CastAttendanceManualModal";
 import { CastInterviewRecordsPanel } from "./CastInterviewRecordsPanel";
+import { BasicAttendanceReportTable } from "./BasicAttendanceReportTable";
 import { StoreAttendanceEditHistoryModal } from "./StoreAttendanceEditHistoryModal";
-import type { ReportAttendanceLogPeriodRow } from "@/app/api/admin/report/route";
+import {
+  fetchCastReportsForPeriod,
+  sortCastReports,
+  type CastReport,
+  type CastReportSortKey,
+} from "./cast-report-types";
 import "./report-print.css";
 
 type Store = {
@@ -57,51 +63,7 @@ type WelfareReportRow = {
   visit_duration: string | null;
 };
 
-type Incident = {
-  dateStr: string;
-  kind: "late" | "absent" | "public_holiday" | "half_holiday";
-  reason: string | null;
-};
-
-type CastReport = {
-  castId: string;
-  name: string;
-  /** 集計期間内に退店した場合のみ（YYYY-MM-DD） */
-  departedAt: string | null;
-  departureReason: string | null;
-  attendanceDays: number;
-  dohanCount: number;
-  sabakiCount: number;
-  sabakiDates: string[];
-  lateCount: number;
-  /** 欠勤（absent / is_absent）。半休・公休は含まない */
-  absentCount: number;
-  halfHolidayCount: number;
-  publicHolidayCount: number;
-  /** 定休を除く月初〜今日までの範囲で、回答のない日数（サーバー集計） */
-  unfilledDays: number;
-  incidents: Incident[];
-  attendanceLogsInPeriod: ReportAttendanceLogPeriodRow[];
-  actionDetails: Array<{
-    dateStr: string;
-    attendanceLogId: string | null;
-    plannedGroups: number | null;
-    tentativeGroups: number | null;
-    actionType: string | null;
-    actionDetail: string | null;
-  }>;
-};
-
-type SortKey =
-  | "name"
-  | "attendance"
-  | "dohan"
-  | "sabaki"
-  | "late"
-  | "absent"
-  | "halfHoliday"
-  | "publicHoliday"
-  | "unfilled";
+type SortKey = CastReportSortKey;
 
 type ViewMode = "month" | "week" | "day";
 
@@ -382,6 +344,14 @@ function AdminReportContent() {
     return getMonthRangeIso(year, month);
   }, [viewMode, dayDate, weekMonday, year, month]);
 
+  /** 月間表示の印刷時: 集計終了日を今日（JST）までにする */
+  const printEndYmd = useMemo(() => {
+    if (viewMode !== "month") return end;
+    const today = getTodayJst();
+    if (today < start) return end;
+    return today <= end ? today : end;
+  }, [viewMode, start, end]);
+
   const setMonthParams = useCallback(
     (y: number, m: number) => {
       const params = new URLSearchParams();
@@ -504,6 +474,10 @@ function AdminReportContent() {
   const [welfareRows, setWelfareRows] = useState<WelfareReportRow[]>([]);
   /** キャバクラ・BAR: GET /api/admin/report の cast_reports */
   const [cabaretReports, setCabaretReports] = useState<CastReport[]>([]);
+  /** 月間印刷用（月初〜今日）。画面はフル月、印刷のみ別集計 */
+  const [printPeriodCastReports, setPrintPeriodCastReports] = useState<CastReport[] | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -636,102 +610,8 @@ function AdminReportContent() {
       }
 
       setWelfareRows([]);
-      const reportUrl = `/api/admin/report?storeId=${encodeURIComponent(tenantId)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
-      const reportRes = await fetch(reportUrl, { credentials: "include" });
-      const payload = (await reportRes.json().catch(() => ({}))) as {
-        ok?: boolean;
-        cast_reports?: Record<string, unknown>[];
-        error?: string;
-        details?: string;
-      };
-      if (!reportRes.ok) {
-        throw new Error(
-          [payload.error, payload.details].filter(Boolean).join(" — ") ||
-            "レポートの取得に失敗しました"
-        );
-      }
-      const rows = Array.isArray(payload.cast_reports) ? payload.cast_reports : [];
-      setCabaretReports(
-        rows.map((raw) => {
-          const r = raw as Record<string, unknown>;
-          const logsRaw = r.attendance_logs_in_period;
-          const attendanceLogsInPeriod: ReportAttendanceLogPeriodRow[] = Array.isArray(logsRaw)
-            ? (logsRaw as Record<string, unknown>[]).map((row) => ({
-                attendanceLogId: String(row.attendanceLogId ?? ""),
-                attendedDate: String(row.attendedDate ?? ""),
-                status: String(row.status ?? "attending"),
-                plannedGroups:
-                  row.plannedGroups === null || row.plannedGroups === undefined
-                    ? null
-                    : typeof row.plannedGroups === "number"
-                      ? row.plannedGroups
-                      : Number(row.plannedGroups),
-                tentativeGroups:
-                  typeof row.tentativeGroups === "number"
-                    ? Math.trunc(row.tentativeGroups)
-                    : Number(row.tentativeGroups ?? 0),
-                actionType: (row.actionType ?? null) as string | null,
-                actionDetail: (row.actionDetail ?? null) as string | null,
-                isSabaki: Boolean(row.isSabaki),
-                publicHolidayReason: (row.publicHolidayReason ?? null) as string | null,
-                halfHolidayReason: (row.halfHolidayReason ?? null) as string | null,
-                hasReservation:
-                  typeof row.hasReservation === "boolean" ? row.hasReservation : null,
-                reservationDetails: (row.reservationDetails ?? null) as string | null,
-                respondedAt: String(row.respondedAt ?? ""),
-              }))
-            : [];
-          const detailsRaw = r.actionDetails;
-          const actionDetails = Array.isArray(detailsRaw)
-            ? (detailsRaw as Record<string, unknown>[]).map((d) => ({
-                dateStr: String(d.dateStr ?? ""),
-                attendanceLogId:
-                  typeof d.attendanceLogId === "string"
-                    ? d.attendanceLogId
-                    : d.attendanceLogId != null
-                      ? String(d.attendanceLogId)
-                      : null,
-                plannedGroups:
-                  typeof d.plannedGroups === "number"
-                    ? d.plannedGroups
-                    : d.plannedGroups != null
-                      ? Number(d.plannedGroups)
-                      : null,
-                tentativeGroups:
-                  typeof d.tentativeGroups === "number"
-                    ? d.tentativeGroups
-                    : d.tentativeGroups != null
-                      ? Number(d.tentativeGroups)
-                      : null,
-                actionType: (d.actionType ?? null) as string | null,
-                actionDetail: (d.actionDetail ?? null) as string | null,
-              }))
-            : [];
-          return {
-            castId: String(r.castId ?? ""),
-            name: String(r.name ?? ""),
-            departedAt:
-              typeof r.departedAt === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.departedAt)
-                ? r.departedAt
-                : null,
-            departureReason: typeof r.departureReason === "string" ? r.departureReason : null,
-            attendanceDays: typeof r.attendanceDays === "number" ? r.attendanceDays : 0,
-            dohanCount: typeof r.dohanCount === "number" ? r.dohanCount : 0,
-            sabakiCount: typeof r.sabakiCount === "number" ? r.sabakiCount : 0,
-            sabakiDates: Array.isArray(r.sabakiDates) ? (r.sabakiDates as string[]) : [],
-            lateCount: typeof r.lateCount === "number" ? r.lateCount : 0,
-            absentCount: typeof r.absentCount === "number" ? r.absentCount : 0,
-            halfHolidayCount:
-              typeof r.halfHolidayCount === "number" ? r.halfHolidayCount : 0,
-            publicHolidayCount:
-              typeof r.publicHolidayCount === "number" ? r.publicHolidayCount : 0,
-            unfilledDays: typeof r.unfilledDays === "number" ? r.unfilledDays : 0,
-            incidents: Array.isArray(r.incidents) ? (r.incidents as Incident[]) : [],
-            attendanceLogsInPeriod,
-            actionDetails,
-          };
-        })
-      );
+      const rows = await fetchCastReportsForPeriod(tenantId, start, end);
+      setCabaretReports(rows);
     } catch (e: unknown) {
       console.error(e);
       setError(e instanceof Error ? e.message : "データの取得に失敗しました");
@@ -746,46 +626,39 @@ function AdminReportContent() {
     fetchData();
   }, [fetchData]);
 
-  const sortedReports = useMemo(() => {
-    const list = [...cabaretReports];
-    const dir = sortDir === "asc" ? 1 : -1;
-    list.sort((a, b) => {
-      let cmp = 0;
-      switch (sortKey) {
-        case "name":
-          cmp = a.name.localeCompare(b.name, "ja");
-          break;
-        case "attendance":
-          cmp = a.attendanceDays - b.attendanceDays;
-          break;
-        case "dohan":
-          cmp = a.dohanCount - b.dohanCount;
-          break;
-        case "sabaki":
-          cmp = a.sabakiCount - b.sabakiCount;
-          break;
-        case "late":
-          cmp = a.lateCount - b.lateCount;
-          break;
-        case "absent":
-          cmp = a.absentCount - b.absentCount;
-          break;
-        case "halfHoliday":
-          cmp = a.halfHolidayCount - b.halfHolidayCount;
-          break;
-        case "publicHoliday":
-          cmp = a.publicHolidayCount - b.publicHolidayCount;
-          break;
-        case "unfilled":
-          cmp = a.unfilledDays - b.unfilledDays;
-          break;
-        default:
-          cmp = 0;
+  useEffect(() => {
+    if (
+      reportTab !== "cast" ||
+      businessType === "welfare_b" ||
+      printEndYmd >= end ||
+      !activeStoreId
+    ) {
+      setPrintPeriodCastReports(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await fetchCastReportsForPeriod(activeStoreId, start, printEndYmd);
+        if (!cancelled) setPrintPeriodCastReports(rows);
+      } catch {
+        if (!cancelled) setPrintPeriodCastReports([]);
       }
-      return cmp * dir;
-    });
-    return list;
-  }, [cabaretReports, sortKey, sortDir]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reportTab, businessType, printEndYmd, end, activeStoreId, start]);
+
+  const sortedReports = useMemo(
+    () => sortCastReports(cabaretReports, sortKey, sortDir),
+    [cabaretReports, sortKey, sortDir]
+  );
+
+  const sortedPrintPeriodReports = useMemo(() => {
+    if (printEndYmd >= end || !printPeriodCastReports) return null;
+    return sortCastReports(printPeriodCastReports, sortKey, sortDir);
+  }, [printEndYmd, end, printPeriodCastReports, sortKey, sortDir]);
 
   const departedInPeriod = useMemo(
     () =>
@@ -827,6 +700,31 @@ function AdminReportContent() {
     if (!filterCastId) return sortedReports;
     return sortedReports.filter((r) => r.castId === filterCastId);
   }, [sortedReports, filterCastId]);
+
+  const filteredPrintPeriodReports = useMemo(() => {
+    if (!sortedPrintPeriodReports) return null;
+    if (!filterCastId) return sortedPrintPeriodReports;
+    return sortedPrintPeriodReports.filter((r) => r.castId === filterCastId);
+  }, [sortedPrintPeriodReports, filterCastId]);
+
+  const printTableReports =
+    printEndYmd < end
+      ? (filteredPrintPeriodReports ?? [])
+      : filteredSortedReports;
+
+  const printPeriodSource = printEndYmd < end ? printPeriodCastReports : cabaretReports;
+
+  const departedForPrint = useMemo(
+    () =>
+      [...(printPeriodSource ?? [])]
+        .filter((r) => r.departedAt)
+        .sort(
+          (a, b) =>
+            (a.departedAt ?? "").localeCompare(b.departedAt ?? "") ||
+            a.name.localeCompare(b.name, "ja")
+        ),
+    [printPeriodSource]
+  );
 
   const manualModalCastOptions = useMemo(
     () =>
@@ -910,6 +808,13 @@ function AdminReportContent() {
   /** 基本勤怠サマリー表: 基本勤怠タブのときのみ表示 */
   const showBasicAttendanceTable = castSubTab === "basic";
 
+  const isCastSubTabPrintView =
+    reportTab === "cast" &&
+    businessType !== "welfare_b" &&
+    (castSubTab === "basic" || (castSubTab === "interviews" && showCabaretInterviewTab));
+
+  const isGuidePrintView = reportTab === "guide";
+
   const guideMonthRange = useMemo(() => getMonthRangeIso(year, month), [year, month]);
   const businessTheme = BUSINESS_THEME[businessType];
   const customTerms = useMemo(() => resolveCustomTerms(store?.custom_terms), [store?.custom_terms]);
@@ -989,7 +894,11 @@ function AdminReportContent() {
   }, [businessType, filteredSortedReports, filteredWelfareRows, attendanceLabel, castLabel]);
 
   return (
-    <div className={`admin-report-print-root p-3 sm:p-6 ${businessTheme.pageBackgroundClass}`}>
+    <div
+      className={`admin-report-print-root p-3 sm:p-6 ${businessTheme.pageBackgroundClass}${
+        isCastSubTabPrintView ? " admin-report-cast-subtab-print" : ""
+      }${isGuidePrintView ? " admin-report-guide-print" : ""}`}
+    >
       <div className="mb-6">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
           {businessType === "welfare_b"
@@ -1361,6 +1270,7 @@ function AdminReportContent() {
         activeStoreId ? (
           <GuideReportTab
             storeId={activeStoreId}
+            storeName={store?.name ?? ""}
             year={year}
             month={month}
             monthTitleLabel={`${year}年${month}月`}
@@ -1499,296 +1409,22 @@ function AdminReportContent() {
       ) : (
         <>
         {showBasicAttendanceTable && (
-        <div className="report-table-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
-          <table className="report-table min-w-[880px] w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="print:hidden px-1 py-3 w-10" />
-                <th className="px-3 py-3">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("name")}
-                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700 inline-flex items-center gap-1"
-                  >
-                    利用者名
-                    {sortKey === "name" && (sortDir === "asc" ? " ↑" : " ↓")}
-                  </button>
-                  <span className="hidden font-semibold text-gray-900 print:inline">
-                    利用者名
-                  </span>
-                </th>
-                <th className="px-3 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("attendance")}
-                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
-                  >
-                    {attendanceLabel}日数
-                    {sortKey === "attendance" &&
-                      (sortDir === "asc" ? " ↑" : " ↓")}
-                  </button>
-                  <span className="hidden font-semibold text-gray-900 print:inline">
-                    {attendanceLabel}日数
-                  </span>
-                </th>
-                <th className="px-3 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("dohan")}
-                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
-                  >
-                    同伴
-                    {sortKey === "dohan" && (sortDir === "asc" ? " ↑" : " ↓")}
-                  </button>
-                  <span className="hidden font-semibold text-gray-900 print:inline">
-                    同伴
-                  </span>
-                </th>
-                <th className="px-3 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("sabaki")}
-                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
-                    title="捌き出勤の日数"
-                  >
-                    捌き
-                    {sortKey === "sabaki" && (sortDir === "asc" ? " ↑" : " ↓")}
-                  </button>
-                  <span className="hidden font-semibold text-gray-900 print:inline">
-                    捌き
-                  </span>
-                </th>
-                <th className="px-3 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("late")}
-                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
-                  >
-                    遅刻
-                    {sortKey === "late" && (sortDir === "asc" ? " ↑" : " ↓")}
-                  </button>
-                  <span className="hidden font-semibold text-gray-900 print:inline">
-                    遅刻
-                  </span>
-                </th>
-                <th className="px-3 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("absent")}
-                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
-                  >
-                    欠勤
-                    {sortKey === "absent" && (sortDir === "asc" ? " ↑" : " ↓")}
-                  </button>
-                  <span className="hidden font-semibold text-gray-900 print:inline">
-                    欠勤
-                  </span>
-                </th>
-                <th className="px-3 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("halfHoliday")}
-                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
-                  >
-                    半休
-                    {sortKey === "halfHoliday" &&
-                      (sortDir === "asc" ? " ↑" : " ↓")}
-                  </button>
-                  <span className="hidden font-semibold text-gray-900 print:inline">
-                    半休
-                  </span>
-                </th>
-                <th className="px-3 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("publicHoliday")}
-                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
-                  >
-                    公休
-                    {sortKey === "publicHoliday" &&
-                      (sortDir === "asc" ? " ↑" : " ↓")}
-                  </button>
-                  <span className="hidden font-semibold text-gray-900 print:inline">
-                    公休
-                  </span>
-                </th>
-                <th className="px-3 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("unfilled")}
-                    className="print:hidden font-semibold text-gray-900 hover:text-blue-700"
-                    title="定休日を除く、月初から今日までの暦日のうちシフト未登録または未回答の日数"
-                  >
-                    未入力
-                    {sortKey === "unfilled" && (sortDir === "asc" ? " ↑" : " ↓")}
-                  </button>
-                  <span className="hidden font-semibold text-gray-900 print:inline">
-                    未入力
-                  </span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedReports.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={10}
-                    className="px-3 py-8 text-center text-gray-500"
-                  >
-                    {emptyMessage}
-                  </td>
-                </tr>
-              ) : filteredSortedReports.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={10}
-                    className="px-3 py-8 text-center text-gray-500"
-                  >
-                    {filterEmptyMessage}
-                  </td>
-                </tr>
-              ) : (
-                filteredSortedReports.map((r) => {
-                  const open = expanded.has(r.castId);
-                  const showToggle = hasAccordionDetail(r);
-                  return (
-                    <Fragment key={r.castId}>
-                      <tr className="border-b border-gray-100 hover:bg-gray-50/80">
-                        <td className="print:hidden px-1 py-2 text-center">
-                          {showToggle ? (
-                            <button
-                              type="button"
-                              onClick={() => toggleExpand(r.castId)}
-                              className="p-1 rounded-md text-gray-600 hover:bg-gray-200"
-                              aria-expanded={open}
-                              aria-label="遅刻・休み・捌きの詳細を表示"
-                            >
-                              {open ? (
-                                <ChevronDown className="h-5 w-5" />
-                              ) : (
-                                <ChevronRight className="h-5 w-5" />
-                              )}
-                            </button>
-                          ) : (
-                            <span className="inline-block w-7" />
-                          )}
-                        </td>
-                        <td className="px-3 py-3 font-medium text-gray-900">
-                          <span className="inline-flex flex-col items-start gap-1">
-                            <span className="inline-flex items-center gap-1.5 flex-wrap">
-                              {r.name}
-                              {r.departedAt && (
-                                <span className="inline-flex shrink-0 items-center rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-xs font-semibold text-rose-900">
-                                  退店
-                                </span>
-                              )}
-                              {r.sabakiCount > 0 && (
-                                <span
-                                  className="inline-flex items-center justify-center rounded border border-amber-500 bg-amber-50 px-1.5 py-0.5 text-xs font-semibold text-amber-900 tabular-nums"
-                                  title="期間内に捌き出勤のシフトあり"
-                                >
-                                  捌
-                                </span>
-                              )}
-                            </span>
-                            {r.departedAt && (
-                              <span className="text-xs font-normal text-gray-600">
-                                退店日 {formatJaMonthDay(r.departedAt)}
-                                {r.departureReason?.trim()
-                                  ? ` · ${r.departureReason.trim()}`
-                                  : " · （理由の記載なし）"}
-                              </span>
-                            )}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums">
-                          {r.attendanceDays}
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums">
-                          {r.dohanCount}
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums">
-                          {r.sabakiCount}
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums">
-                          {r.lateCount}
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums">
-                          {r.absentCount}
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums">
-                          {r.halfHolidayCount}
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums">
-                          {r.publicHolidayCount}
-                        </td>
-                        <td
-                          className={`px-3 py-3 text-right tabular-nums ${
-                            r.unfilledDays >= 1 ? "text-red-500 font-semibold" : "text-gray-900"
-                          }`}
-                        >
-                          {r.unfilledDays}
-                        </td>
-                      </tr>
-                      {showToggle && (
-                        <tr
-                          className={`report-detail-row bg-gray-50/90 ${open ? "" : "hidden"}`}
-                        >
-                          <td colSpan={10} className="px-4 py-3 text-sm text-gray-700">
-                            <ul className="space-y-2 pl-2 border-l-2 border-blue-200">
-                              {r.sabakiDates.length > 0 && (
-                                <li className="list-none text-amber-950">
-                                  <span className="inline-flex items-center gap-1.5">
-                                    <span
-                                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-amber-600 bg-amber-100 text-xs font-bold text-amber-900"
-                                      aria-hidden
-                                    >
-                                      捌
-                                    </span>
-                                    <span>
-                                      捌き出勤:{" "}
-                                      {r.sabakiDates.map(formatJaMonthDay).join("、")}
-                                    </span>
-                                  </span>
-                                </li>
-                              )}
-                              {r.incidents.map((inc, idx) => {
-                                const label =
-                                  inc.kind === "late"
-                                    ? "遅刻"
-                                    : inc.kind === "absent"
-                                      ? "欠勤"
-                                      : inc.kind === "half_holiday"
-                                        ? "半休"
-                                        : inc.kind === "public_holiday"
-                                          ? "公休"
-                                          : "—";
-                                const reasonText =
-                                  inc.reason?.trim() || "（理由なし）";
-                                return (
-                                  <li key={`${inc.dateStr}-${inc.kind}-${idx}`}>
-                                    {formatJaMonthDay(inc.dateStr)} [{label}]：{reasonText}
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                            <p className="mt-3 text-xs text-gray-600 print:hidden border-t border-gray-200/80 pt-3">
-                              打刻の新規追加・編集・削除は、画面上部の「+ 勤怠を手動編集・追加」から行えます。
-                            </p>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        )}
-
-        {showBasicAttendanceTable && departedInPeriod.length > 0 && (
-          <div className="mt-6 rounded-xl border border-rose-200/90 bg-rose-50/40 px-4 py-4 shadow-sm print:mt-4 print:border print:rounded-none print:shadow-none">
+        <>
+        <div className="print:hidden">
+        <BasicAttendanceReportTable
+          rows={filteredSortedReports}
+          totalReportCount={sortedReports.length}
+          attendanceLabel={attendanceLabel}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onToggleSort={toggleSort}
+          expanded={expanded}
+          onToggleExpand={toggleExpand}
+          emptyMessage={emptyMessage}
+          filterEmptyMessage={filterEmptyMessage}
+        />
+        {departedInPeriod.length > 0 && (
+          <div className="mt-6 rounded-xl border border-rose-200/90 bg-rose-50/40 px-4 py-4 shadow-sm">
             <h3 className="text-sm font-semibold text-rose-950">
               期間内の退店者（{departedInPeriod.length}名）
             </h3>
@@ -1811,12 +1447,60 @@ function AdminReportContent() {
             </ul>
           </div>
         )}
-
+        </div>
+        <div className="hidden print:block basic-attendance-print">
+          <div className="basic-attendance-print-header mb-3 border-b border-gray-400 pb-2">
+            <h2 className="text-lg font-bold text-gray-900">基本勤怠一覧</h2>
+            {store?.name ? <p className="mt-1 text-sm font-medium text-gray-800">{store.name}</p> : null}
+            <p className="mt-0.5 text-sm text-gray-700">
+              集計期間: {formatJaMonthDay(start)}〜{formatJaMonthDay(printEndYmd)}
+              {printTableReports.length > 0 ? ` · ${printTableReports.length}名` : ""}
+            </p>
+          </div>
+          <BasicAttendanceReportTable
+            rows={printTableReports}
+            totalReportCount={printTableReports.length}
+            attendanceLabel={attendanceLabel}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onToggleSort={toggleSort}
+            expanded={expanded}
+            onToggleExpand={toggleExpand}
+            emptyMessage={emptyMessage}
+            filterEmptyMessage={filterEmptyMessage}
+            forPrint
+          />
+          {departedForPrint.length > 0 && (
+            <div className="mt-4 rounded-lg border border-rose-300 bg-rose-50/50 px-3 py-3">
+              <h3 className="text-sm font-semibold text-rose-950">
+                期間内の退店者（{departedForPrint.length}名）
+              </h3>
+              <ul className="mt-2 space-y-2 text-sm text-gray-900">
+                {departedForPrint.map((r) => (
+                  <li key={r.castId} className="border-b border-rose-100 pb-2 last:border-0 last:pb-0">
+                    <div className="font-medium">{r.name}</div>
+                    <div className="text-xs text-gray-600">
+                      退店日 {r.departedAt ? formatJaMonthDay(r.departedAt) : "—"}
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap break-words text-gray-800">
+                      <span className="font-medium text-gray-700">退店理由: </span>
+                      {r.departureReason?.trim() || "（記載なし）"}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+        </>
+        )}
         {castSubTab === "interviews" && showCabaretInterviewTab && activeStoreId && (
           <CastInterviewRecordsPanel
             storeId={activeStoreId}
+            storeName={store?.name ?? ""}
             periodStartYmd={start}
             periodEndYmd={end}
+            printPeriodEndYmd={printEndYmd}
             castOptions={manualModalCastOptions}
             filterCastId={filterCastId}
             castLabel={castLabel}

@@ -89,4 +89,164 @@
     background: #f3f4f6 !important;
     font-size: 7.5pt;
   }
+
+  /* 基本勤怠・面談記録・案内数: ページ上部UIを隠し、コンテンツのみ印刷 */
+  .admin-report-print-root.admin-report-cast-subtab-print > .mb-6:first-child,
+  .admin-report-print-root.admin-report-guide-print > .mb-6:first-child {
+    display: none !important;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print
+    > .mb-4.flex.flex-wrap.items-center.justify-between,
+  .admin-report-print-root.admin-report-guide-print
+    > .mb-4.flex.flex-wrap.items-center.justify-between {
+    display: none !important;
+  }
+
+  .admin-report-print-root.admin-report-guide-print .mb-6.print\:hidden {
+    display: none !important;
+  }
+
+  .admin-report-print-root.admin-report-guide-print .guide-report-panel {
+    margin: 0;
+  }
+
+  .admin-report-print-root.admin-report-guide-print .guide-report-print-header h2 {
+    font-size: 14pt !important;
+    margin: 0;
+  }
+
+  .admin-report-print-root.admin-report-guide-print table.guide-report-staff-table--print {
+    width: 100%;
+    table-layout: auto;
+    border-collapse: collapse;
+    font-size: 9pt;
+  }
+
+  .admin-report-print-root.admin-report-guide-print
+    table.guide-report-staff-table--print
+    thead {
+    display: table-header-group;
+  }
+
+  .admin-report-print-root.admin-report-guide-print
+    table.guide-report-staff-table--print
+    th,
+  .admin-report-print-root.admin-report-guide-print
+    table.guide-report-staff-table--print
+    td {
+    border: 1px solid #d1d5db;
+    padding: 5px 6px;
+    vertical-align: middle;
+  }
+
+  .admin-report-print-root.admin-report-guide-print
+    table.guide-report-staff-table--print
+    thead
+    th {
+    background: #e5e7eb !important;
+    font-size: 8.5pt;
+    white-space: nowrap;
+  }
+
+  .admin-report-print-root.admin-report-guide-print
+    .guide-report-staff-name-col {
+    writing-mode: horizontal-tb !important;
+    text-orientation: mixed !important;
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    overflow-wrap: normal !important;
+    min-width: 5.5em;
+    max-width: none;
+    text-align: left !important;
+    vertical-align: middle !important;
+  }
+
+  .admin-report-print-root.admin-report-guide-print
+    table.guide-report-staff-table--print
+    tbody
+    tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .interview-records-panel {
+    margin: 0;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .interview-records-list {
+    border: 1px solid #9ca3af !important;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .interview-records-list-header {
+    border-bottom: 2px solid #374151 !important;
+    padding-bottom: 8px !important;
+    margin-bottom: 4px;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .interview-records-list-header h2 {
+    font-size: 14pt !important;
+    margin: 0;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .interview-records-cast-section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .interview-records-cast-header {
+    background: #e5e7eb !important;
+    border-bottom: 1px solid #6b7280 !important;
+    padding: 6px 10px !important;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .interview-records-cast-header h3 {
+    font-size: 11pt !important;
+    font-weight: 700;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .interview-record-entry {
+    border-bottom: 1px solid #e5e7eb;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .interview-record-entry:last-child {
+    border-bottom: none;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .interview-record-date {
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .interview-record-content {
+    color: #111827 !important;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .basic-attendance-print-header h2 {
+    font-size: 14pt !important;
+    margin: 0;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .basic-attendance-table-wrap {
+    border: 1px solid #9ca3af !important;
+    margin-top: 4px;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .basic-attendance-table thead th {
+    background: #e5e7eb !important;
+    font-size: 9pt;
+    padding: 5px 6px !important;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .basic-attendance-table td {
+    font-size: 9pt;
+    padding: 5px 6px !important;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print .basic-attendance-table .report-detail-row td {
+    font-size: 8.5pt;
+    background: #f9fafb !important;
+  }
 }
