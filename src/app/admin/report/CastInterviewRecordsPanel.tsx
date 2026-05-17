@@ -362,7 +362,7 @@ export function CastInterviewRecordsPanel({
         </div>
       )}
 
-      <div className="interview-records-list rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden print:rounded-none print:border print:shadow-none">
+      <div className="interview-records-list report-print-monochrome rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden print:rounded-none print:border print:shadow-none">
         <div className="interview-records-list-header border-b border-gray-100 px-4 py-3 sm:px-5 print:py-2">
           <h2 className="text-base font-semibold text-gray-900 print:text-lg">面談記録一覧</h2>
           <p className="mt-0.5 text-xs text-gray-600 print:hidden">

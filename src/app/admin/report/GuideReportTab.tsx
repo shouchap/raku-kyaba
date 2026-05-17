@@ -513,7 +513,7 @@ export function GuideReportTab({
       </section>
       </div>
 
-      <div className="hidden print:block guide-report-print space-y-5">
+      <div className="hidden print:block guide-report-print report-print-monochrome space-y-5">
         <div className="guide-report-print-header border-b border-gray-400 pb-2">
           <h2 className="text-lg font-bold text-gray-900">案内数レポート</h2>
           {storeName ? <p className="mt-1 text-sm font-medium text-gray-800">{storeName}</p> : null}
@@ -529,7 +529,10 @@ export function GuideReportTab({
           `${monthTitleLabel} · 総案内数（${printPeriodLabel}）`,
           "guide-summary-print-heading"
         )}
-        <section aria-labelledby="guide-staff-print-heading">
+        <section
+          aria-labelledby="guide-staff-print-heading"
+          className="guide-report-staff-print-section"
+        >
           <h2
             id="guide-staff-print-heading"
             className="mb-2 text-base font-semibold text-gray-900"

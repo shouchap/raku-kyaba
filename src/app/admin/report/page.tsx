@@ -1448,7 +1448,7 @@ function AdminReportContent() {
           </div>
         )}
         </div>
-        <div className="hidden print:block basic-attendance-print">
+        <div className="hidden print:block basic-attendance-print report-print-monochrome">
           <div className="basic-attendance-print-header mb-3 border-b border-gray-400 pb-2">
             <h2 className="text-lg font-bold text-gray-900">基本勤怠一覧</h2>
             {store?.name ? <p className="mt-1 text-sm font-medium text-gray-800">{store.name}</p> : null}
@@ -1471,13 +1471,16 @@ function AdminReportContent() {
             forPrint
           />
           {departedForPrint.length > 0 && (
-            <div className="mt-4 rounded-lg border border-rose-300 bg-rose-50/50 px-3 py-3">
+            <div className="basic-attendance-departed-print mt-4 rounded-lg border border-rose-300 bg-rose-50/50 px-3 py-3">
               <h3 className="text-sm font-semibold text-rose-950">
                 期間内の退店者（{departedForPrint.length}名）
               </h3>
               <ul className="mt-2 space-y-2 text-sm text-gray-900">
                 {departedForPrint.map((r) => (
-                  <li key={r.castId} className="border-b border-rose-100 pb-2 last:border-0 last:pb-0">
+                  <li
+                    key={r.castId}
+                    className="basic-attendance-departed-item border-b border-rose-100 pb-2 last:border-0 last:pb-0"
+                  >
                     <div className="font-medium">{r.name}</div>
                     <div className="text-xs text-gray-600">
                       退店日 {r.departedAt ? formatJaMonthDay(r.departedAt) : "—"}

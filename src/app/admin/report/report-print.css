@@ -249,4 +249,132 @@
     font-size: 8.5pt;
     background: #f9fafb !important;
   }
+
+  /* ── 印刷共通: モノトーン（面談記録・基本勤怠・案内数） ── */
+  .admin-report-print-root .report-print-monochrome {
+    filter: grayscale(100%);
+    -webkit-filter: grayscale(100%);
+    color: #111827;
+  }
+
+  .admin-report-print-root .report-print-monochrome * {
+    box-shadow: none !important;
+  }
+
+  .admin-report-print-root .report-print-monochrome [class*="bg-gradient"],
+  .admin-report-print-root .report-print-monochrome [class*="from-emerald"],
+  .admin-report-print-root .report-print-monochrome [class*="to-teal"],
+  .admin-report-print-root .report-print-monochrome [class*="bg-rose"],
+  .admin-report-print-root .report-print-monochrome [class*="bg-amber"],
+  .admin-report-print-root .report-print-monochrome [class*="bg-emerald"],
+  .admin-report-print-root .report-print-monochrome [class*="bg-teal"],
+  .admin-report-print-root .report-print-monochrome [class*="bg-fuchsia"],
+  .admin-report-print-root .report-print-monochrome [class*="bg-red"] {
+    background: #f3f4f6 !important;
+    background-image: none !important;
+  }
+
+  .admin-report-print-root .report-print-monochrome [class*="border-rose"],
+  .admin-report-print-root .report-print-monochrome [class*="border-amber"],
+  .admin-report-print-root .report-print-monochrome [class*="border-emerald"],
+  .admin-report-print-root .report-print-monochrome [class*="border-teal"],
+  .admin-report-print-root .report-print-monochrome [class*="border-fuchsia"],
+  .admin-report-print-root .report-print-monochrome [class*="border-blue"],
+  .admin-report-print-root .report-print-monochrome [class*="border-red"] {
+    border-color: #9ca3af !important;
+  }
+
+  .admin-report-print-root .report-print-monochrome [class*="text-rose"],
+  .admin-report-print-root .report-print-monochrome [class*="text-amber"],
+  .admin-report-print-root .report-print-monochrome [class*="text-emerald"],
+  .admin-report-print-root .report-print-monochrome [class*="text-teal"],
+  .admin-report-print-root .report-print-monochrome [class*="text-fuchsia"],
+  .admin-report-print-root .report-print-monochrome [class*="text-red"] {
+    color: #111827 !important;
+  }
+
+  .admin-report-print-root .report-print-monochrome .border-l-2 {
+    border-left-color: #6b7280 !important;
+  }
+
+  .admin-report-print-root .report-print-monochrome .interview-record-date,
+  .admin-report-print-root .report-print-monochrome .interview-record-content {
+    color: #111827 !important;
+  }
+
+  /* ── 改ページ: 見出し・ブロック単位で区切る ── */
+  .admin-report-print-root .basic-attendance-print-header,
+  .admin-report-print-root .guide-report-print-header,
+  .admin-report-print-root .interview-records-list-header {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .admin-report-print-root .guide-report-summary {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .admin-report-print-root .guide-report-staff-print-section {
+    break-before: auto;
+    page-break-before: auto;
+  }
+
+  .admin-report-print-root .guide-report-staff-table-wrap {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .admin-report-print-root .basic-attendance-table-wrap {
+    break-before: auto;
+    page-break-before: auto;
+  }
+
+  /* 基本勤怠: 1行目と詳細行を分断しない */
+  .admin-report-print-root .basic-attendance-table tbody tr:not(.report-detail-row) {
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+
+  .admin-report-print-root .basic-attendance-table tbody tr.report-detail-row {
+    break-before: avoid-page;
+    page-break-before: avoid;
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  /* 基本勤怠: 退店者は表の後で改ページ */
+  .admin-report-print-root .basic-attendance-departed-print {
+    break-before: page;
+    page-break-before: always;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    background: #fff !important;
+    border-color: #9ca3af !important;
+  }
+
+  .admin-report-print-root .basic-attendance-departed-item {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* 面談記録: キャストごとにまとめ、キャスト間で改ページ可 */
+  .admin-report-print-root .interview-records-cast-section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .admin-report-print-root .interview-record-entry {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* 案内数・基本勤怠・面談: 表の行は行単位で分断しない */
+  .admin-report-print-root .guide-report-staff-table--print tbody tr,
+  .admin-report-print-root .basic-attendance-table tbody tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }
