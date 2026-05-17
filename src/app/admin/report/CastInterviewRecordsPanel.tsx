@@ -282,7 +282,7 @@ export function CastInterviewRecordsPanel({
       <div className="rounded-xl border border-fuchsia-200/90 bg-white p-4 shadow-sm sm:p-5">
         <h2 className="text-base font-semibold text-gray-900">面談記録を追加</h2>
         <p className="mt-1 text-xs text-gray-600">
-          面談日と内容を入力して保存します。一覧は{castLabel}ごとにまとめ、面談日の新しい順で表示します（集計期間:{" "}
+          面談日と内容を入力して保存します。一覧は{castLabel}ごとにまとめて表示します（集計期間:{" "}
           {formatJaMonthDay(periodStartYmd)}〜{formatJaMonthDay(periodEndYmd)}）。
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -372,21 +372,19 @@ export function CastInterviewRecordsPanel({
           <div className="divide-y divide-gray-200">
             {groupedByCast.map((group) => (
               <section key={group.castId} className="print:break-inside-avoid">
-                <header className="border-b border-fuchsia-100 bg-fuchsia-50/70 px-4 py-3 sm:px-5">
+                <header className="flex flex-wrap items-baseline justify-between gap-x-3 border-b border-fuchsia-100 bg-fuchsia-50/70 px-4 py-2.5 sm:px-5">
                   <h3 className="text-sm font-semibold text-gray-900">{group.castName}</h3>
-                  <p className="mt-0.5 text-xs text-gray-600">
-                    面談 {group.records.length}件（新しい日付が上）
-                  </p>
+                  <span className="text-xs text-gray-600 tabular-nums">{group.records.length}件</span>
                 </header>
                 <ul className="divide-y divide-gray-100">
                   {group.records.map((row) => {
-              const isEditing = editingId === row.id;
-              return (
-                <li
+                    const isEditing = editingId === row.id;
+                    return (
+                      <li
                         key={row.id}
-                        className="px-4 py-4 sm:px-5 sm:pl-8 border-l-4 border-fuchsia-200/80 ml-0 sm:ml-4"
+                        className="px-4 py-2.5 sm:px-5 sm:pl-6 border-l-2 border-fuchsia-200/90"
                       >
-                  {isEditing ? (
+                        {isEditing ? (
                     <div className="space-y-3">
                       <label className="block">
                         <span className="mb-1 block text-xs font-medium text-gray-600">面談日</span>
@@ -427,36 +425,36 @@ export function CastInterviewRecordsPanel({
                         </button>
                       </div>
                     </div>
-                  ) : (
-                    <>
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                              <p className="text-sm font-semibold text-fuchsia-950 tabular-nums">
+                        ) : (
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <p className="text-sm font-semibold text-fuchsia-950 tabular-nums leading-tight">
                                 {formatJaMonthDay(row.interview_date)}
                               </p>
-                        <div className="flex shrink-0 gap-2 print:hidden">
-                          <button
-                            type="button"
-                            onClick={() => startEdit(row)}
-                            disabled={deletingId !== null || saving}
-                            className="min-h-[36px] rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
-                          >
-                            編集
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleDelete(row)}
-                            disabled={deletingId === row.id || saving}
-                            className="min-h-[36px] rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                          >
-                            {deletingId === row.id ? "削除中..." : "削除"}
-                          </button>
-                        </div>
-                      </div>
-                      <p className="mt-2 whitespace-pre-wrap break-words text-sm text-gray-800 leading-relaxed">
-                        {row.content}
-                      </p>
-                    </>
-                  )}
+                              <p className="whitespace-pre-wrap break-words text-sm text-gray-800 leading-snug">
+                                {row.content}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 gap-1.5 print:hidden">
+                              <button
+                                type="button"
+                                onClick={() => startEdit(row)}
+                                disabled={deletingId !== null || saving}
+                                className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                              >
+                                編集
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDelete(row)}
+                                disabled={deletingId === row.id || saving}
+                                className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                              >
+                                {deletingId === row.id ? "削除中..." : "削除"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                 </li>
               );
                   })}
