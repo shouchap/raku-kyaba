@@ -129,6 +129,34 @@ export function CastInterviewRecordsPanel({
     return rows.filter((r) => r.cast_id === filterCastId);
   }, [rows, filterCastId]);
 
+  /** キャストごとにまとめ、各キャスト内は面談日の新しい順 */
+  const groupedByCast = useMemo(() => {
+    const map = new Map<
+      string,
+      { castName: string; records: CastInterviewRecordRow[] }
+    >();
+    for (const row of displayRows) {
+      const castId = row.cast_id;
+      const castName = row.cast_name?.trim() || "—";
+      const bucket = map.get(castId);
+      if (bucket) {
+        bucket.records.push(row);
+      } else {
+        map.set(castId, { castName, records: [row] });
+      }
+    }
+    const groups = [...map.entries()].map(([castId, { castName, records }]) => {
+      records.sort((a, b) => {
+        const byDate = b.interview_date.localeCompare(a.interview_date);
+        if (byDate !== 0) return byDate;
+        return b.created_at.localeCompare(a.created_at);
+      });
+      return { castId, castName, records };
+    });
+    groups.sort((a, b) => a.castName.localeCompare(b.castName, "ja"));
+    return groups;
+  }, [displayRows]);
+
   const handleCreate = async () => {
     const castId = formCastId.trim();
     const interviewDate = formDate.trim();
@@ -254,8 +282,8 @@ export function CastInterviewRecordsPanel({
       <div className="rounded-xl border border-fuchsia-200/90 bg-white p-4 shadow-sm sm:p-5">
         <h2 className="text-base font-semibold text-gray-900">面談記録を追加</h2>
         <p className="mt-1 text-xs text-gray-600">
-          面談日と内容を入力して保存します。集計期間（{formatJaMonthDay(periodStartYmd)}〜
-          {formatJaMonthDay(periodEndYmd)}）内の記録が下に表示されます。
+          面談日と内容を入力して保存します。一覧は{castLabel}ごとにまとめ、面談日の新しい順で表示します（集計期間:{" "}
+          {formatJaMonthDay(periodStartYmd)}〜{formatJaMonthDay(periodEndYmd)}）。
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="block sm:col-span-1">
@@ -327,7 +355,11 @@ export function CastInterviewRecordsPanel({
         <div className="border-b border-gray-100 px-4 py-3 sm:px-5">
           <h2 className="text-base font-semibold text-gray-900">面談記録一覧</h2>
           <p className="mt-0.5 text-xs text-gray-600">
-            {loading ? "読み込み中…" : `${displayRows.length}件`}
+            {loading
+              ? "読み込み中…"
+              : displayRows.length === 0
+                ? "0件"
+                : `${displayRows.length}件 · ${groupedByCast.length}名`}
           </p>
         </div>
         {loading ? (
@@ -337,11 +369,23 @@ export function CastInterviewRecordsPanel({
             この期間の面談記録はまだありません。上のフォームから追加できます。
           </p>
         ) : (
-          <ul className="divide-y divide-gray-100">
-            {displayRows.map((row) => {
+          <div className="divide-y divide-gray-200">
+            {groupedByCast.map((group) => (
+              <section key={group.castId} className="print:break-inside-avoid">
+                <header className="border-b border-fuchsia-100 bg-fuchsia-50/70 px-4 py-3 sm:px-5">
+                  <h3 className="text-sm font-semibold text-gray-900">{group.castName}</h3>
+                  <p className="mt-0.5 text-xs text-gray-600">
+                    面談 {group.records.length}件（新しい日付が上）
+                  </p>
+                </header>
+                <ul className="divide-y divide-gray-100">
+                  {group.records.map((row) => {
               const isEditing = editingId === row.id;
               return (
-                <li key={row.id} className="px-4 py-4 sm:px-5">
+                <li
+                        key={row.id}
+                        className="px-4 py-4 sm:px-5 sm:pl-8 border-l-4 border-fuchsia-200/80 ml-0 sm:ml-4"
+                      >
                   {isEditing ? (
                     <div className="space-y-3">
                       <label className="block">
@@ -386,12 +430,9 @@ export function CastInterviewRecordsPanel({
                   ) : (
                     <>
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <p className="font-medium text-gray-900">{row.cast_name || "—"}</p>
-                          <p className="mt-0.5 text-xs text-gray-600 tabular-nums">
-                            面談日 {formatJaMonthDay(row.interview_date)}
-                          </p>
-                        </div>
+                              <p className="text-sm font-semibold text-fuchsia-950 tabular-nums">
+                                {formatJaMonthDay(row.interview_date)}
+                              </p>
                         <div className="flex shrink-0 gap-2 print:hidden">
                           <button
                             type="button"
@@ -411,15 +452,18 @@ export function CastInterviewRecordsPanel({
                           </button>
                         </div>
                       </div>
-                      <p className="mt-3 whitespace-pre-wrap break-words text-sm text-gray-800 leading-relaxed">
+                      <p className="mt-2 whitespace-pre-wrap break-words text-sm text-gray-800 leading-relaxed">
                         {row.content}
                       </p>
                     </>
                   )}
                 </li>
               );
-            })}
-          </ul>
+                  })}
+                </ul>
+              </section>
+            ))}
+          </div>
         )}
       </div>
     </div>
