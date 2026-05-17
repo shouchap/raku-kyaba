@@ -42,7 +42,7 @@ const NAV_ITEMS_BY_BUSINESS: Record<BusinessType, NavItem[]> = {
     { id: "shift-single", href: "/admin/schedule", label: "単日登録", icon: CalendarPlus2 },
     { id: "special-shift", href: "/admin/shifts/special", label: "特別シフト募集", icon: Megaphone },
     { id: "cast-manage", href: "/admin/casts", label: "キャスト管理", icon: Users },
-    { id: "report", href: "/admin/report", label: "月間レポート", icon: BarChart3 },
+    { id: "report", href: "/admin/report", label: "レポート", icon: BarChart3 },
     { id: "settings", href: "/admin/settings", label: "システム設定", icon: Settings },
   ],
   bar: [
@@ -50,7 +50,7 @@ const NAV_ITEMS_BY_BUSINESS: Record<BusinessType, NavItem[]> = {
     { id: "shift-list", href: "/admin/view", label: "出勤一覧", icon: ClipboardList },
     { id: "shift-single", href: "/admin/schedule", label: "単日登録", icon: CalendarPlus2 },
     { id: "cast-manage", href: "/admin/casts", label: "キャスト管理", icon: Users },
-    { id: "report", href: "/admin/report", label: "BARレポート", icon: BarChart3 },
+    { id: "report", href: "/admin/report", label: "レポート", icon: BarChart3 },
     { id: "settings", href: "/admin/settings", label: "BAR設定", icon: Settings },
   ],
   welfare_b: [
@@ -64,7 +64,7 @@ const NAV_ITEMS_BY_BUSINESS: Record<BusinessType, NavItem[]> = {
     { id: "shift-single", href: "/admin/schedule", label: "単日登録", icon: CalendarPlus2 },
     { id: "special-shift", href: "/admin/shifts/special", label: "特別シフト募集", icon: Megaphone },
     { id: "cast-manage", href: "/admin/casts", label: "キャスト管理", icon: Users },
-    { id: "report", href: "/admin/report", label: "月間レポート", icon: BarChart3 },
+    { id: "report", href: "/admin/report", label: "レポート", icon: BarChart3 },
     { id: "settings", href: "/admin/settings", label: "システム設定", icon: Settings },
   ],
 };
@@ -108,7 +108,7 @@ export default function AdminNav({
     .map((item, idx) => {
       let label = item.label;
       if (item.href === "/admin/casts") label = `${customTerms.term_cast}管理`;
-      if (item.href === "/admin/report") label = `${customTerms.term_cast}${customTerms.term_attendance}レポート`;
+      if (item.href === "/admin/report") label = "レポート";
 
       const setting = menuSettings?.[item.id];
       if (setting?.isHidden === true) return null;

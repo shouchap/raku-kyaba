@@ -109,7 +109,7 @@ const MENU_PRESET_BY_BUSINESS: Record<BusinessType, MenuPreset[]> = {
     { id: "shift-single", label: "単日登録" },
     { id: "special-shift", label: "特別シフト募集" },
     { id: "cast-manage", label: "キャスト管理" },
-    { id: "report", label: "月間レポート" },
+    { id: "report", label: "レポート" },
     { id: "settings", label: "システム設定" },
   ],
   bar: [
@@ -117,7 +117,7 @@ const MENU_PRESET_BY_BUSINESS: Record<BusinessType, MenuPreset[]> = {
     { id: "shift-list", label: "出勤一覧" },
     { id: "shift-single", label: "単日登録" },
     { id: "cast-manage", label: "キャスト管理" },
-    { id: "report", label: "BARレポート" },
+    { id: "report", label: "レポート" },
     { id: "settings", label: "BAR設定" },
   ],
   welfare_b: [
@@ -131,7 +131,7 @@ const MENU_PRESET_BY_BUSINESS: Record<BusinessType, MenuPreset[]> = {
     { id: "shift-single", label: "単日登録" },
     { id: "special-shift", label: "特別シフト募集" },
     { id: "cast-manage", label: "キャスト管理" },
-    { id: "report", label: "月間レポート" },
+    { id: "report", label: "レポート" },
     { id: "settings", label: "システム設定" },
   ],
 };
@@ -1351,7 +1351,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     const base = MENU_PRESET_BY_BUSINESS[businessType].map((item, idx) => {
       let defaultLabel = item.label;
       if (item.id === "cast-manage") defaultLabel = `${termCast}管理`;
-      if (item.id === "report") defaultLabel = `${termCast}${termAttendance}レポート`;
+      if (item.id === "report") defaultLabel = "レポート";
       const setting = menuSettings[item.id];
       const label = setting?.label?.trim() || defaultLabel;
       const isHidden = setting?.isHidden === true;
@@ -1372,7 +1372,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           const base = MENU_PRESET_BY_BUSINESS[businessType].find((x) => x.id === id);
           let fallbackLabel = base?.label ?? id;
           if (id === "cast-manage") fallbackLabel = `${termCast}管理`;
-          if (id === "report") fallbackLabel = `${termCast}${termAttendance}レポート`;
+          if (id === "report") fallbackLabel = "レポート";
           next[id] = {
             label: existing?.label?.trim() || fallbackLabel,
             isHidden: existing?.isHidden === true,

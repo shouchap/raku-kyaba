@@ -992,24 +992,11 @@ function AdminReportContent() {
     <div className={`admin-report-print-root p-3 sm:p-6 ${businessTheme.pageBackgroundClass}`}>
       <div className="mb-6">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
-          {reportTab === "guide"
-            ? "案内数レポート（月間）"
-            : businessType === "welfare_b"
-              ? `日報一覧（${periodKindLabel}）`
-              : `${castLabel}${attendanceLabel}レポート（${periodKindLabel}集計）`}
+          {businessType === "welfare_b"
+            ? `日報（${periodKindLabel}）`
+            : `レポート（${periodKindLabel}）`}
         </h1>
-        <p className="mt-1 text-sm text-gray-600 print:text-xs">
-          {store?.name ?? "店舗"}
-          {reportTab === "guide"
-            ? " · LINEで記録した案内組数を月別に集計します。"
-            : businessType === "welfare_b"
-              ? " · 就労継続支援B型の日次記録（作業・体調）を一覧表示します。"
-              : castSubTab === "interviews"
-                ? " · キャストとの面談内容を日付付きで記録・一覧表示します。"
-                : castSubTab === "bar_actions" && attendanceFlowBarExtended
-                  ? " · BAR 拡張フローの行動入力（確定組数・配信・声かけ・SNS 等）のみを表示しています。"
-                  : " · 遅刻・休み（欠勤・半休・公休）の理由は、該当がある行を展開して確認できます（表示のみ）。"}
-        </p>
+        <p className="mt-1 text-sm text-gray-600 print:text-xs">{store?.name ?? "店舗"}</p>
       </div>
 
       {reportTab === "cast" && (
@@ -1044,8 +1031,6 @@ function AdminReportContent() {
             }`}
           >
             {castLabel}
-            {attendanceLabel}
-            レポート
           </button>
           {guideTabVisible && (
             <button
@@ -1059,7 +1044,7 @@ function AdminReportContent() {
                   : "text-gray-600 hover:text-gray-900"
               }`}
             >
-              案内数レポート
+              案内数
             </button>
           )}
         </div>
@@ -1067,19 +1052,14 @@ function AdminReportContent() {
 
       {reportTab === "cast" && (
         <div className="mb-4 print:hidden rounded-xl border border-gray-200 bg-white/90 p-3 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-semibold text-slate-700">
-              まずここから: 1. 期間を選択 → 2. {castLabel}を絞り込み → 3. 手動編集
-            </p>
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setShowMobileFilters((v) => !v)}
-              className="sm:hidden inline-flex items-center rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700"
+              className="sm:hidden ml-auto order-last w-full sm:order-none sm:ml-auto sm:w-auto inline-flex items-center rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700"
             >
               {showMobileFilters ? "詳細を閉じる" : "詳細を表示"}
             </button>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
             {businessType !== "welfare_b" && activeStoreId ? (
               <>
                 <button
@@ -1215,9 +1195,8 @@ function AdminReportContent() {
           <div
             className="mb-4 print:hidden"
             role="tablist"
-            aria-label={`${castLabel}${attendanceLabel}レポートの表示切替`}
+            aria-label="表示切替"
           >
-            <p className="text-xs font-medium text-gray-500 mb-2">出勤レポートの見え方</p>
             <div className="inline-flex flex-wrap rounded-xl border border-slate-200/90 bg-slate-100/70 p-1 shadow-inner gap-1">
               <button
                 type="button"
