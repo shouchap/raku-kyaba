@@ -11,12 +11,59 @@
 
   body {
     background: white !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    -webkit-print-color-adjust: economy;
+    print-color-adjust: economy;
+  }
+
+  /* 基本勤怠・案内数・面談記録: 管理画面のテーマ色（ページ/カード背景）を白に */
+  body:has(.admin-report-guide-print),
+  body:has(.admin-report-cast-subtab-print) {
+    background: #ffffff !important;
+    background-image: none !important;
+  }
+
+  body:has(.admin-report-guide-print) .min-h-dvh,
+  body:has(.admin-report-cast-subtab-print) .min-h-dvh {
+    background: #ffffff !important;
+    background-image: none !important;
+  }
+
+  body:has(.admin-report-guide-print) main > div,
+  body:has(.admin-report-cast-subtab-print) main > div {
+    background: #ffffff !important;
+    background-image: none !important;
+    border-color: #d1d5db !important;
+    box-shadow: none !important;
+  }
+
+  body:has(.admin-report-guide-print) .print\:hidden,
+  body:has(.admin-report-cast-subtab-print) .print\:hidden {
+    display: none !important;
+    visibility: hidden !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+  }
+
+  body:has(.admin-report-guide-print) .hidden.print\:block,
+  body:has(.admin-report-cast-subtab-print) .hidden.print\:block {
+    display: block !important;
+    visibility: visible !important;
+    max-height: none !important;
   }
 
   .admin-report-print-root {
     padding: 0 !important;
+  }
+
+  .admin-report-print-root.admin-report-guide-print,
+  .admin-report-print-root.admin-report-cast-subtab-print {
+    background: #ffffff !important;
+    background-image: none !important;
+    filter: grayscale(100%);
+    -webkit-filter: grayscale(100%);
   }
 
   /* アコーディオン詳細: 画面では折りたたみ、印刷時は常に表示 */
@@ -252,9 +299,9 @@
 
   /* ── 印刷共通: モノトーン（面談記録・基本勤怠・案内数） ── */
   .admin-report-print-root .report-print-monochrome {
-    filter: grayscale(100%);
-    -webkit-filter: grayscale(100%);
     color: #111827;
+    background: #ffffff !important;
+    background-image: none !important;
   }
 
   .admin-report-print-root .report-print-monochrome * {
@@ -289,8 +336,37 @@
   .admin-report-print-root .report-print-monochrome [class*="text-emerald"],
   .admin-report-print-root .report-print-monochrome [class*="text-teal"],
   .admin-report-print-root .report-print-monochrome [class*="text-fuchsia"],
-  .admin-report-print-root .report-print-monochrome [class*="text-red"] {
+  .admin-report-print-root .report-print-monochrome [class*="text-red"],
+  .admin-report-print-root.admin-report-cast-subtab-print [class*="text-red"],
+  .admin-report-print-root.admin-report-guide-print [class*="text-red"] {
     color: #111827 !important;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print [class*="bg-rose"],
+  .admin-report-print-root.admin-report-cast-subtab-print [class*="bg-amber"],
+  .admin-report-print-root.admin-report-cast-subtab-print [class*="bg-emerald"],
+  .admin-report-print-root.admin-report-cast-subtab-print [class*="bg-fuchsia"],
+  .admin-report-print-root.admin-report-cast-subtab-print [class*="bg-red"],
+  .admin-report-print-root.admin-report-cast-subtab-print [class*="from-"],
+  .admin-report-print-root.admin-report-cast-subtab-print [class*="to-"],
+  .admin-report-print-root.admin-report-guide-print [class*="bg-rose"],
+  .admin-report-print-root.admin-report-guide-print [class*="bg-amber"],
+  .admin-report-print-root.admin-report-guide-print [class*="bg-emerald"],
+  .admin-report-print-root.admin-report-guide-print [class*="bg-teal"],
+  .admin-report-print-root.admin-report-guide-print [class*="from-"],
+  .admin-report-print-root.admin-report-guide-print [class*="to-"] {
+    background: #f3f4f6 !important;
+    background-image: none !important;
+  }
+
+  .admin-report-print-root.admin-report-cast-subtab-print [class*="border-rose"],
+  .admin-report-print-root.admin-report-cast-subtab-print [class*="border-amber"],
+  .admin-report-print-root.admin-report-cast-subtab-print [class*="border-emerald"],
+  .admin-report-print-root.admin-report-cast-subtab-print [class*="border-fuchsia"],
+  .admin-report-print-root.admin-report-guide-print [class*="border-rose"],
+  .admin-report-print-root.admin-report-guide-print [class*="border-emerald"],
+  .admin-report-print-root.admin-report-guide-print [class*="border-teal"] {
+    border-color: #9ca3af !important;
   }
 
   .admin-report-print-root .report-print-monochrome .border-l-2 {

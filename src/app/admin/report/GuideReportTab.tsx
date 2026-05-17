@@ -335,7 +335,7 @@ export function GuideReportTab({
   ) => (
     <section
       aria-labelledby={headingId}
-      className="guide-report-summary rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-teal-50/60 p-6 shadow-sm print:p-4 print:shadow-none print:border print:border-gray-400 print:bg-white print:rounded-lg"
+      className="guide-report-summary rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-teal-50/60 p-6 shadow-sm print:p-4 print:shadow-none print:!border-gray-400 print:!bg-white print:!bg-none print:rounded-lg print:!text-gray-900"
     >
       <h2
         id={headingId}
@@ -343,13 +343,13 @@ export function GuideReportTab({
       >
         {title}
       </h2>
-      <p className="mt-3 text-4xl font-bold tabular-nums tracking-tight text-emerald-950 sm:text-5xl print:mt-2 print:text-3xl print:text-gray-900">
+      <p className="mt-3 text-4xl font-bold tabular-nums tracking-tight text-emerald-950 sm:text-5xl print:mt-2 print:text-3xl print:!text-gray-900">
         {totals.totalGuides}
-        <span className="ml-2 text-lg font-semibold text-emerald-800 sm:text-xl print:text-base print:text-gray-700">
+        <span className="ml-2 text-lg font-semibold text-emerald-800 sm:text-xl print:text-base print:!text-gray-700">
           組
         </span>
       </p>
-      <p className="mt-2 text-sm font-medium text-emerald-900/90 space-y-1 print:text-xs print:text-gray-700">
+      <p className="mt-2 text-sm font-medium text-emerald-900/90 space-y-1 print:text-xs print:!text-gray-700">
         <span className="block">
           GOLD: <span className="tabular-nums">{totals.totalGoldGroups}</span>組・
           <span className="tabular-nums">{totals.totalGoldPeople}</span>人
@@ -358,7 +358,7 @@ export function GuideReportTab({
           セクキャバ: <span className="tabular-nums">{totals.totalSekGroups}</span>組・
           <span className="tabular-nums">{totals.totalSekPeople}</span>人
         </span>
-        <span className="block pt-1 border-t border-emerald-200/80 print:border-gray-300">
+        <span className="block pt-1 border-t border-emerald-200/80 print:!border-gray-300">
           合計人数: <span className="tabular-nums">{totals.totalPeople}</span>人
         </span>
       </p>

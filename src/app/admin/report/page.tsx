@@ -897,7 +897,11 @@ function AdminReportContent() {
     <div
       className={`admin-report-print-root p-3 sm:p-6 ${businessTheme.pageBackgroundClass}${
         isCastSubTabPrintView ? " admin-report-cast-subtab-print" : ""
-      }${isGuidePrintView ? " admin-report-guide-print" : ""}`}
+      }${isGuidePrintView ? " admin-report-guide-print" : ""}${
+        isCastSubTabPrintView || isGuidePrintView
+          ? " print:!bg-white print:bg-none"
+          : ""
+      }`}
     >
       <div className="mb-6">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
