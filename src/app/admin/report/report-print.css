@@ -4,9 +4,24 @@
  */
 
 @media print {
-  @page {
+  @page report-portrait {
     size: A4 portrait;
     margin: 10mm 12mm;
+  }
+
+  @page report-landscape {
+    size: A4 landscape;
+    margin: 8mm 10mm;
+  }
+
+  html.report-print-layout-standard,
+  html.report-print-layout-compact,
+  html.report-print-layout-fit {
+    page: report-portrait;
+  }
+
+  html.report-print-layout-landscape {
+    page: report-landscape;
   }
 
   body {
@@ -452,5 +467,91 @@
   .admin-report-print-root .basic-attendance-table tbody tr {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  /* ── 印刷レイアウト共通: はみ出し防止 ── */
+  .admin-report-print-root {
+    max-width: 100% !important;
+    overflow: hidden !important;
+    box-sizing: border-box;
+  }
+
+  .admin-report-print-root .overflow-x-auto,
+  .admin-report-print-root [class*="overflow-x"] {
+    overflow: visible !important;
+    max-width: 100% !important;
+  }
+
+  .admin-report-print-root table {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    table-layout: fixed;
+  }
+
+  .admin-report-print-root table th,
+  .admin-report-print-root table td {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    hyphens: auto;
+  }
+
+  .admin-report-print-root .interview-record-content,
+  .admin-report-print-root .interview-record-content p {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  /* ── コンパクト ── */
+  html.report-print-layout-compact .admin-report-print-root table.report-table,
+  html.report-print-layout-compact .admin-report-print-root .basic-attendance-table,
+  html.report-print-layout-compact .admin-report-print-root table.guide-report-staff-table--print {
+    font-size: 8pt;
+  }
+
+  html.report-print-layout-compact .admin-report-print-root table.report-table-welfare {
+    font-size: 6.5pt;
+  }
+
+  html.report-print-layout-compact .admin-report-print-root table.report-table th,
+  html.report-print-layout-compact .admin-report-print-root table.report-table td {
+    padding: 3px 4px !important;
+  }
+
+  html.report-print-layout-compact
+    .admin-report-print-root.admin-report-guide-print
+    table.guide-report-staff-table--print
+    thead
+    th {
+    font-size: 7.5pt;
+    white-space: normal !important;
+  }
+
+  html.report-print-layout-compact .admin-report-print-root .interview-record-content {
+    font-size: 9.5pt !important;
+  }
+
+  /* ── 縮小フィット（Chromium 等の zoom） ── */
+  html.report-print-layout-fit .admin-report-print-root {
+    zoom: 0.88;
+  }
+
+  @supports not (zoom: 1) {
+    html.report-print-layout-fit .admin-report-print-root {
+      transform: scale(0.88);
+      transform-origin: top left;
+      width: 113.64%;
+    }
+  }
+
+  /* ── 横向き: 余白・B型の字サイズ ── */
+  html.report-print-layout-landscape .admin-report-print-root table.report-table-welfare {
+    font-size: 7pt;
+  }
+
+  html.report-print-layout-landscape .admin-report-print-root table.report-table-welfare th,
+  html.report-print-layout-landscape .admin-report-print-root table.report-table-welfare td {
+    padding: 3px 4px;
   }
 }

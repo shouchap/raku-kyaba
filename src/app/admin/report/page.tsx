@@ -31,6 +31,16 @@ import {
   type CastReport,
   type CastReportSortKey,
 } from "./cast-report-types";
+import { compareDateYmd, type DateSortDir } from "./date-sort";
+import {
+  applyReportPrintLayout,
+  clearReportPrintLayout,
+  loadReportPrintLayout,
+  REPORT_PRINT_LAYOUT_OPTIONS,
+  saveReportPrintLayout,
+  suggestReportPrintLayout,
+  type ReportPrintLayout,
+} from "./report-print-settings";
 import "./report-print.css";
 
 type Store = {
@@ -482,12 +492,17 @@ function AdminReportContent() {
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  /** 日付列・日付明細の表示順（新しい順 / 古い順） */
+  const [dateSortDir, setDateSortDir] = useState<DateSortDir>("desc");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   /** 空文字 = 全員表示 */
   const [filterCastId, setFilterCastId] = useState("");
   const [manualAttendanceModalOpen, setManualAttendanceModalOpen] = useState(false);
   const [storeAttendanceHistoryModalOpen, setStoreAttendanceHistoryModalOpen] = useState(false);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [printLayout, setPrintLayout] = useState<ReportPrintLayout>(() =>
+    loadReportPrintLayout()
+  );
 
   /** 案内数レポート非対応店舗（OFF / BAR拡張）で tab=guide のときキャスト側へ戻す */
   useEffect(() => {
@@ -735,9 +750,18 @@ function AdminReportContent() {
   );
 
   const filteredWelfareRows = useMemo(() => {
-    if (!filterCastId) return welfareRows;
-    return welfareRows.filter((w) => w.cast_id === filterCastId);
-  }, [welfareRows, filterCastId]);
+    let rows = filterCastId
+      ? welfareRows.filter((w) => w.cast_id === filterCastId)
+      : welfareRows;
+    if (viewMode !== "day") {
+      rows = [...rows].sort((a, b) => {
+        const byDate = compareDateYmd(a.work_date, b.work_date, dateSortDir);
+        if (byDate !== 0) return byDate;
+        return a.cast_name.localeCompare(b.cast_name, "ja");
+      });
+    }
+    return rows;
+  }, [welfareRows, filterCastId, viewMode, dateSortDir]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -766,9 +790,37 @@ function AdminReportContent() {
     });
   };
 
+  useEffect(() => {
+    saveReportPrintLayout(printLayout);
+  }, [printLayout]);
+
+  const suggestedPrintLayout = useMemo(
+    () =>
+      suggestReportPrintLayout({
+        reportTab,
+        businessType,
+        viewMode,
+        castSubTab,
+      }),
+    [reportTab, businessType, viewMode, castSubTab]
+  );
+
+  const suggestedPrintLayoutLabel = useMemo(
+    () =>
+      REPORT_PRINT_LAYOUT_OPTIONS.find((o) => o.value === suggestedPrintLayout)?.label ??
+      "",
+    [suggestedPrintLayout]
+  );
+
   const handlePrint = useCallback(() => {
+    applyReportPrintLayout(printLayout);
+    const onAfterPrint = () => {
+      clearReportPrintLayout();
+      window.removeEventListener("afterprint", onAfterPrint);
+    };
+    window.addEventListener("afterprint", onAfterPrint);
     window.print();
-  }, []);
+  }, [printLayout]);
 
   const titleLabel =
     viewMode === "day"
@@ -804,6 +856,22 @@ function AdminReportContent() {
   const attendanceFlowBarExtended = store?.attendance_flow_type === "bar_extended";
 
   const showCabaretInterviewTab = businessType === "cabaret";
+
+  const showDateSortControl = useMemo(() => {
+    if (reportTab === "guide") return true;
+    if (businessType === "welfare_b") return viewMode !== "day";
+    if (castSubTab === "interviews" && showCabaretInterviewTab) return true;
+    if (castSubTab === "bar_actions" && attendanceFlowBarExtended) return true;
+    if (castSubTab === "basic") return true;
+    return false;
+  }, [
+    reportTab,
+    businessType,
+    viewMode,
+    castSubTab,
+    showCabaretInterviewTab,
+    attendanceFlowBarExtended,
+  ]);
 
   /** 基本勤怠サマリー表: 基本勤怠タブのときのみ表示 */
   const showBasicAttendanceTable = castSubTab === "basic";
@@ -895,7 +963,7 @@ function AdminReportContent() {
 
   return (
     <div
-      className={`admin-report-print-root p-3 sm:p-6 ${businessTheme.pageBackgroundClass}${
+      className={`admin-report-print-root report-print-layout-${printLayout} p-3 sm:p-6 ${businessTheme.pageBackgroundClass}${
         isCastSubTabPrintView ? " admin-report-cast-subtab-print" : ""
       }${isGuidePrintView ? " admin-report-guide-print" : ""}${
         isCastSubTabPrintView || isGuidePrintView
@@ -1101,6 +1169,26 @@ function AdminReportContent() {
         </div>
       )}
 
+      {!loading && showDateSortControl && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 sm:gap-3 print:hidden">
+          <label
+            htmlFor="report-date-sort"
+            className="text-sm font-medium text-gray-700 whitespace-nowrap"
+          >
+            日付の並び
+          </label>
+          <select
+            id="report-date-sort"
+            value={dateSortDir}
+            onChange={(e) => setDateSortDir(e.target.value as DateSortDir)}
+            className="min-h-[44px] min-w-[10rem] max-w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 outline-none"
+          >
+            <option value="desc">新しい順（降順）</option>
+            <option value="asc">古い順（昇順）</option>
+          </select>
+        </div>
+      )}
+
       {reportTab === "cast" &&
         !loading &&
         businessType !== "welfare_b" &&
@@ -1244,21 +1332,59 @@ function AdminReportContent() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-500 w-full sm:w-auto print:text-[9pt]">
             {reportTab === "guide"
               ? `集計期間: ${guideMonthRange.start} 〜 ${guideMonthRange.end}`
               : viewMode === "day"
                 ? `表示日: ${dayDate}`
                 : `集計期間: ${start} 〜 ${end}`}
           </p>
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="print:hidden inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50"
-          >
-            <Printer className="h-4 w-4" aria-hidden />
-            PDFで保存（印刷）
-          </button>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 print:hidden">
+            <label
+              htmlFor="report-print-layout"
+              className="text-sm font-medium text-gray-700 whitespace-nowrap"
+            >
+              印刷レイアウト
+            </label>
+            <select
+              id="report-print-layout"
+              value={printLayout}
+              onChange={(e) => setPrintLayout(e.target.value as ReportPrintLayout)}
+              className="min-h-[44px] min-w-[11rem] max-w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 outline-none"
+              title={
+                REPORT_PRINT_LAYOUT_OPTIONS.find((o) => o.value === printLayout)?.description
+              }
+            >
+              {REPORT_PRINT_LAYOUT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            {printLayout !== suggestedPrintLayout && suggestedPrintLayoutLabel ? (
+              <button
+                type="button"
+                onClick={() => setPrintLayout(suggestedPrintLayout)}
+                className="text-xs text-blue-700 hover:text-blue-900 underline underline-offset-2"
+              >
+                おすすめ: {suggestedPrintLayoutLabel}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50"
+            >
+              <Printer className="h-4 w-4" aria-hidden />
+              PDFで保存（印刷）
+            </button>
+          </div>
+          <p className="w-full text-xs text-gray-500 print:hidden">
+            {REPORT_PRINT_LAYOUT_OPTIONS.find((o) => o.value === printLayout)?.description}
+            {printLayout !== suggestedPrintLayout && suggestedPrintLayoutLabel
+              ? `（この画面のおすすめ: ${suggestedPrintLayoutLabel}）`
+              : null}
+          </p>
         </div>
       </div>
 
@@ -1278,6 +1404,7 @@ function AdminReportContent() {
             year={year}
             month={month}
             monthTitleLabel={`${year}年${month}月`}
+            dateSortDir={dateSortDir}
           />
         ) : (
           <p className="text-gray-600">店舗を選択してください。</p>
@@ -1426,6 +1553,7 @@ function AdminReportContent() {
           onToggleExpand={toggleExpand}
           emptyMessage={emptyMessage}
           filterEmptyMessage={filterEmptyMessage}
+          dateSortDir={dateSortDir}
         />
         {departedInPeriod.length > 0 && (
           <div className="mt-6 rounded-xl border border-rose-200/90 bg-rose-50/40 px-4 py-4 shadow-sm">
@@ -1473,6 +1601,7 @@ function AdminReportContent() {
             emptyMessage={emptyMessage}
             filterEmptyMessage={filterEmptyMessage}
             forPrint
+            dateSortDir={dateSortDir}
           />
           {departedForPrint.length > 0 && (
             <div className="basic-attendance-departed-print mt-4 rounded-lg border border-rose-300 bg-rose-50/50 px-3 py-3">
@@ -1511,6 +1640,7 @@ function AdminReportContent() {
             castOptions={manualModalCastOptions}
             filterCastId={filterCastId}
             castLabel={castLabel}
+            dateSortDir={dateSortDir}
           />
         )}
 
@@ -1524,7 +1654,7 @@ function AdminReportContent() {
             </div>
             {filteredSortedReports.map((r) => {
               const sortedActions = [...r.actionDetails].sort((a, b) =>
-                a.dateStr.localeCompare(b.dateStr)
+                compareDateYmd(a.dateStr, b.dateStr, dateSortDir)
               );
               const rowsWithData = sortedActions.filter(
                 (d) =>

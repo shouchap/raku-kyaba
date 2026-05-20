@@ -3,6 +3,7 @@
 import { Fragment } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { CastReport, CastReportSortKey } from "./cast-report-types";
+import { compareDateYmd, type DateSortDir } from "./date-sort";
 
 function formatJaMonthDay(dateStr: string): string {
   const [, m, d] = dateStr.split("-").map(Number);
@@ -26,6 +27,7 @@ type Props = {
   filterEmptyMessage: string;
   /** 印刷用: 詳細行を常に展開・ソート操作なし */
   forPrint?: boolean;
+  dateSortDir?: DateSortDir;
 };
 
 export function BasicAttendanceReportTable({
@@ -40,6 +42,7 @@ export function BasicAttendanceReportTable({
   emptyMessage,
   filterEmptyMessage,
   forPrint = false,
+  dateSortDir = "desc",
 }: Props) {
   return (
     <div className="report-table-wrap basic-attendance-table-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
@@ -308,12 +311,20 @@ export function BasicAttendanceReportTable({
                                   捌
                                 </span>
                                 <span>
-                                  捌き出勤: {r.sabakiDates.map(formatJaMonthDay).join("、")}
+                                  捌き出勤:{" "}
+                                  {[...r.sabakiDates]
+                                    .sort((a, b) => compareDateYmd(a, b, dateSortDir))
+                                    .map(formatJaMonthDay)
+                                    .join("、")}
                                 </span>
                               </span>
                             </li>
                           )}
-                          {r.incidents.map((inc, idx) => {
+                          {[...r.incidents]
+                            .sort((a, b) =>
+                              compareDateYmd(a.dateStr, b.dateStr, dateSortDir)
+                            )
+                            .map((inc, idx) => {
                             const label =
                               inc.kind === "late"
                                 ? "遅刻"

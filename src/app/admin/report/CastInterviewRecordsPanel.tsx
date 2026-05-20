@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { getTodayJst } from "@/lib/date-utils";
 import type { CastInterviewRecordRow } from "@/app/api/admin/cast-interview-records/route";
+import { compareDateYmd, type DateSortDir } from "./date-sort";
 
 type CastOption = { castId: string; name: string };
 
@@ -23,6 +24,7 @@ type Props = {
   castOptions: CastOption[];
   filterCastId: string;
   castLabel: string;
+  dateSortDir?: DateSortDir;
 };
 
 export function CastInterviewRecordsPanel({
@@ -34,6 +36,7 @@ export function CastInterviewRecordsPanel({
   castOptions: castOptionsProp,
   filterCastId,
   castLabel,
+  dateSortDir = "desc",
 }: Props) {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [allCastOptions, setAllCastOptions] = useState<CastOption[]>([]);
@@ -134,7 +137,7 @@ export function CastInterviewRecordsPanel({
     return rows.filter((r) => r.cast_id === filterCastId);
   }, [rows, filterCastId]);
 
-  /** キャストごとにまとめ、各キャスト内は面談日の新しい順 */
+  /** キャストごとにまとめ、各キャスト内は面談日順 */
   const groupedByCast = useMemo(() => {
     const map = new Map<
       string,
@@ -152,15 +155,16 @@ export function CastInterviewRecordsPanel({
     }
     const groups = [...map.entries()].map(([castId, { castName, records }]) => {
       records.sort((a, b) => {
-        const byDate = b.interview_date.localeCompare(a.interview_date);
+        const byDate = compareDateYmd(a.interview_date, b.interview_date, dateSortDir);
         if (byDate !== 0) return byDate;
-        return b.created_at.localeCompare(a.created_at);
+        const byCreated = b.created_at.localeCompare(a.created_at);
+        return dateSortDir === "desc" ? byCreated : -byCreated;
       });
       return { castId, castName, records };
     });
     groups.sort((a, b) => a.castName.localeCompare(b.castName, "ja"));
     return groups;
-  }, [displayRows]);
+  }, [displayRows, dateSortDir]);
 
   const handleCreate = async () => {
     const castId = formCastId.trim();

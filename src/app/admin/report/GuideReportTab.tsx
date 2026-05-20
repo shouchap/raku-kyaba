@@ -7,6 +7,7 @@ import type { DailyGuideResult } from "@/types/entities";
 import { getTodayJst } from "@/lib/date-utils";
 import { aggregateGuideRows } from "./guide-report-aggregate";
 import { GuideStaffTotalsTable } from "./GuideStaffTotalsTable";
+import { compareDateYmd, type DateSortDir } from "./date-sort";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -43,6 +44,7 @@ type Props = {
   month: number;
   /** 「2026年4月」など */
   monthTitleLabel: string;
+  dateSortDir?: DateSortDir;
 };
 
 export function GuideReportTab({
@@ -51,6 +53,7 @@ export function GuideReportTab({
   year,
   month,
   monthTitleLabel,
+  dateSortDir = "desc",
 }: Props) {
   const router = useRouter();
   const ym = useMemo(() => formatYm(year, month), [year, month]);
@@ -311,16 +314,16 @@ export function GuideReportTab({
   const printAggregate = useMemo(() => aggregateGuideRows(rowsForPrint), [rowsForPrint]);
   const printPeriodLabel = `${formatJaMonthDayYmd(monthBounds.start)}〜${formatJaMonthDayYmd(printEndYmd)}`;
 
-  /** 日付新しい順。同一日はスタッフ名で安定ソート */
+  /** 日付順。同一日はスタッフ名で安定ソート */
   const detailRows = useMemo(() => {
     const list = [...rows];
     list.sort((a, b) => {
-      const d = String(b.target_date).localeCompare(String(a.target_date));
+      const d = compareDateYmd(String(a.target_date), String(b.target_date), dateSortDir);
       if (d !== 0) return d;
       return String(a.staff_name).localeCompare(String(b.staff_name), "ja");
     });
     return list;
-  }, [rows]);
+  }, [rows, dateSortDir]);
 
   if (loading) {
     return <p className="text-gray-600">案内実績を読み込み中…</p>;
