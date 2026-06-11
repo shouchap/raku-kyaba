@@ -40,6 +40,22 @@
   animation: fade-in 0.2s ease-out;
 }
 
+/* カード・一覧をふわっと表示（控えめ） */
+@keyframes app-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-rise {
+  animation: app-rise 0.28s ease-out both;
+}
+
 /* スマホ: セーフエリア（ノッチ対応） */
 @supports (padding: env(safe-area-inset-bottom)) {
   body {
@@ -48,23 +64,58 @@
   }
 }
 
+/* ===== ベース: 読みやすさ・操作性 ===== */
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
 /* 管理画面・ログイン共通: 読みやすいベース */
 body {
   -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* 日本語の約物を詰めて自然な字間に */
+  font-feature-settings: "palt";
   font-family:
     var(--font-inter),
     var(--font-noto-jp),
     "Hiragino Kaku Gothic ProN",
     "Yu Gothic UI",
     sans-serif;
-  line-height: 1.55;
+  line-height: 1.6;
+  color: rgb(15 23 42);
 }
 
+/* 見出しは行間をやや詰めてメリハリを */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+}
+
+/* テキスト選択色を統一 */
+::selection {
+  background-color: rgb(191 219 254);
+  color: rgb(15 23 42);
+}
+
+/* ===== フォーム: 一貫したフォーカス・角丸・触りやすさ ===== */
 input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
 select,
 textarea {
   color: rgb(15 23 42);
   background-color: rgb(255 255 255);
+  border-radius: 0.5rem;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
 }
 
 input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):disabled,
@@ -74,16 +125,118 @@ textarea:disabled {
   background-color: rgb(241 245 249);
   border-color: rgb(203 213 225);
   opacity: 1;
+  cursor: not-allowed;
 }
 
+input::placeholder,
+textarea::placeholder {
+  color: rgb(148 163 184);
+}
+
+/* キーボード操作時のみ見える明確なフォーカス（クリック時は出さない） */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: rgb(59 130 246);
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.25);
+}
+
+/* チェックボックス・ラジオの色をブランドに寄せる */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: rgb(37 99 235);
+}
+
+/* リンク・ボタンのキーボードフォーカス可視化（アクセシビリティ） */
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+summary:focus-visible {
+  outline: 2px solid rgb(59 130 246 / 0.7);
+  outline-offset: 2px;
+  border-radius: 0.375rem;
+}
+
+/* マウス・タッチ操作の押下感 */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.06s ease;
+}
+
+button:not(:disabled):active,
+[role="button"]:not([aria-disabled="true"]):active {
+  transform: translateY(0.5px);
+}
+
+/* ===== 共通プリミティブ ===== */
 .app-card {
-  @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+  @apply rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-200;
+}
+
+.app-card:hover {
+  @apply shadow-md;
 }
 
 .btn-primary {
-  @apply inline-flex min-h-[44px] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700;
+  @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60;
 }
 
 .btn-secondary {
-  @apply inline-flex min-h-[40px] items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50;
+  @apply inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:border-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.btn-danger {
+  @apply inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.btn-ghost {
+  @apply inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/40 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+/* ===== スクロールバー（控えめで上品に） ===== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(203 213 225) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(148 163 184);
+  background-clip: padding-box;
+}
+
+/* ===== 動きの低減設定を尊重 ===== */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
