@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   CalendarDays,
   CalendarPlus2,
+  Check,
+  ChevronDown,
   ClipboardList,
   LogOut,
   Menu,
@@ -123,6 +125,8 @@ export default function AdminNav({
   const pathname = usePathname();
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [storeMenuOpen, setStoreMenuOpen] = useState(false);
+  const storeMenuRef = useRef<HTMLDivElement | null>(null);
 
   const currentLabel =
     stores.find((s) => s.id === activeStoreId)?.name ??
@@ -130,7 +134,28 @@ export default function AdminNav({
 
   useEffect(() => {
     setMobileMenuOpen(false);
+    setStoreMenuOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!storeMenuOpen) return;
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      if (storeMenuRef.current && !storeMenuRef.current.contains(e.target as Node)) {
+        setStoreMenuOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStoreMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [storeMenuOpen]);
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -141,8 +166,8 @@ export default function AdminNav({
     };
   }, [mobileMenuOpen]);
 
-  const handleStoreChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const storeId = e.target.value;
+  const handleStoreSelect = async (storeId: string) => {
+    setStoreMenuOpen(false);
     if (!storeId || storeId === activeStoreId) return;
 
     try {
@@ -154,14 +179,12 @@ export default function AdminNav({
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         alert(j.error ?? "店舗の切り替えに失敗しました");
-        e.target.value = activeStoreId;
         return;
       }
       router.refresh();
     } catch (err) {
       console.error(err);
       alert("店舗の切り替えに失敗しました");
-      e.target.value = activeStoreId;
     }
   };
 
@@ -255,33 +278,75 @@ export default function AdminNav({
 
           <div className="min-w-0 flex-1">
             {isSuperAdmin ? (
-              <>
-                <label htmlFor="admin-store-select" className="sr-only">
-                  表示する店舗
-                </label>
-                <select
-                  id="admin-store-select"
-                  value={activeStoreId}
-                  onChange={handleStoreChange}
-                  className="h-11 w-full min-w-0 max-w-full rounded-lg border border-current/20 bg-white/80 px-3 text-sm font-medium text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 sm:max-w-md"
+              <div className="relative min-w-0 sm:max-w-md" ref={storeMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setStoreMenuOpen((o) => !o)}
+                  aria-haspopup="listbox"
+                  aria-expanded={storeMenuOpen}
+                  className="flex h-11 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-current/20 bg-white/80 px-3 text-sm font-medium text-slate-900 shadow-sm transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
                   title={currentLabel}
                 >
-                  {stores.length === 0 ? (
-                    <option value={activeStoreId}>{currentLabel}</option>
-                  ) : (
-                    stores.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Store className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+                    <span className="truncate">{currentLabel}</span>
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${
+                      storeMenuOpen ? "rotate-180" : ""
+                    }`}
+                    aria-hidden
+                  />
+                </button>
+
+                {storeMenuOpen && (
+                  <ul
+                    role="listbox"
+                    aria-label="表示する店舗"
+                    className="absolute left-0 top-[calc(100%+0.375rem)] z-[70] max-h-[min(60vh,22rem)] w-full min-w-[14rem] overflow-auto rounded-xl border border-slate-200 bg-white py-1 text-slate-900 shadow-xl ring-1 ring-black/5"
+                  >
+                    {stores.length === 0 ? (
+                      <li className="px-3 py-2.5 text-sm text-slate-500">
+                        切り替え可能な店舗がありません
+                      </li>
+                    ) : (
+                      stores.map((s) => {
+                        const isActive = s.id === activeStoreId;
+                        return (
+                          <li key={s.id} role="option" aria-selected={isActive}>
+                            <button
+                              type="button"
+                              onClick={() => handleStoreSelect(s.id)}
+                              className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors ${
+                                isActive
+                                  ? "bg-blue-50 font-semibold text-blue-900"
+                                  : "text-slate-700 hover:bg-slate-50"
+                              }`}
+                            >
+                              <Store
+                                className={`h-4 w-4 shrink-0 ${
+                                  isActive ? "text-blue-500" : "text-slate-400"
+                                }`}
+                                aria-hidden
+                              />
+                              <span className="truncate">{s.name}</span>
+                              {isActive && (
+                                <Check className="ml-auto h-4 w-4 shrink-0 text-blue-600" aria-hidden />
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>
+                )}
+              </div>
             ) : (
               <div
-                className="flex h-11 min-w-0 max-w-full items-center rounded-lg border border-current/20 bg-white/40 px-3 text-sm font-medium sm:max-w-md"
+                className="flex h-11 min-w-0 max-w-full items-center gap-2 rounded-lg border border-current/20 bg-white/40 px-3 text-sm font-medium sm:max-w-md"
                 title={currentLabel}
               >
+                <Store className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
                 <span className="truncate">{currentLabel}</span>
               </div>
             )}
