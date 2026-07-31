@@ -2,7 +2,7 @@
  * B型事業所（welfare_b）向け定期配信（Cloud Scheduler 等から GET）
  *
  * GET /api/welfare/cron?segment=morning|midday|evening
- * - morning: 9:00 作業開始
+ * - morning: 10:00 作業開始
  * - midday: 12:00 体調確認
  * - evening: 17:00 作業終了
  *

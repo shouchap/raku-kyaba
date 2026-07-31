@@ -1712,7 +1712,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               <p className="text-xs font-semibold text-slate-700">この業態で送信される主なLINE</p>
               <p className="mt-1 text-xs text-slate-600">
                 {businessType === "welfare_b"
-                  ? "福祉定期配信（朝9:00開始 / 昼12:00体調確認 / 夕17:00終了）"
+                  ? "福祉定期配信（朝10:00開始 / 昼12:00体調確認 / 夕17:00終了）"
                   : "出勤確認 / 営業前サマリー / 週間レポート / 未返信アラート"}
               </p>
             </div>
@@ -1723,7 +1723,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                   福祉で重要な3配信をここで編集できます。下記文面はそのままLINEで送信されます。
                 </p>
                 <label className="block text-sm text-slate-700">
-                  朝（9:00）本文
+                  朝（10:00）本文
                   <textarea
                     value={welfareMessageMorning}
                     onChange={(e) => setWelfareMessageMorning(e.target.value)}
@@ -1732,7 +1732,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                   />
                 </label>
                 <label className="block text-sm text-slate-700">
-                  朝（9:00）ボタン文言
+                  朝（10:00）ボタン文言
                   <input
                     value={welfareMorningStartButtonLabel}
                     onChange={(e) => setWelfareMorningStartButtonLabel(e.target.value)}
@@ -2204,7 +2204,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                     }
                     className={`w-full max-w-[220px] text-sm ${CONTROL_CLASS}`}
                   >
-                    <option value="morning">朝開始（9:00）</option>
+                    <option value="morning">朝開始（10:00）</option>
                     <option value="midday">昼体調確認（12:00）</option>
                     <option value="evening">夕方終了（17:00）</option>
                   </select>

@@ -189,7 +189,7 @@ export function buildWelfareHospitalEndTimeQuickReplyMessage(
   };
 }
 
-/** ① 朝9:00 作業開始 */
+/** ① 朝10:00 作業開始 */
 export function buildWelfareMorningStartFlexMessage(
   bodyText?: string | null,
   custom?: WelfareLineCustomization
