@@ -9,7 +9,12 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "update": "npm run typecheck && npm run build",
-    "deploy": "npm run update && npx vercel --prod"
+    "deploy": "npm run update && npx vercel --prod",
+    "db:login": "npx supabase login",
+    "db:link": "npx supabase link --project-ref hfywqyebxaootfgmcvfz",
+    "db:status": "npx supabase migration list",
+    "db:push": "npx supabase db push",
+    "db:repair-applied": "node scripts/supabase-mark-migrations-applied.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.9.0",
