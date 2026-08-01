@@ -447,7 +447,7 @@ export default function AdminViewPage() {
           <table className="min-w-[400px] sm:min-w-[480px] w-full border-collapse">
             <thead>
               <tr className="bg-gray-100">
-                <th className="border-b border-r border-gray-200 px-2 py-2 text-left text-[10px] sm:text-xs font-medium text-gray-700 sticky left-0 z-10 bg-gray-100 min-w-[72px] sm:min-w-[100px] border-r shadow-sm">
+                <th className="border-b border-r border-gray-200 px-2 py-2.5 text-left text-xs sm:text-sm font-semibold text-gray-800 sticky left-0 z-10 bg-gray-100 min-w-[88px] sm:min-w-[112px] border-r shadow-sm whitespace-nowrap">
                   キャスト
                 </th>
                 {dates.map((d) => {
@@ -461,7 +461,7 @@ export default function AdminViewPage() {
                   return (
                     <th
                       key={d}
-                      className={`border-b border-r border-gray-200 px-1 py-2 text-center text-[10px] sm:text-xs font-medium ${colorClass} whitespace-nowrap min-w-[48px] sm:min-w-0`}
+                      className={`border-b border-r border-gray-200 px-1.5 py-2.5 text-center text-xs sm:text-sm font-medium ${colorClass} whitespace-nowrap min-w-[52px] sm:min-w-0`}
                     >
                       <span className="sm:hidden">{formatDateShort(d)}</span>
                       <span className="hidden sm:inline">
@@ -490,7 +490,7 @@ export default function AdminViewPage() {
               ) : (
                 sortedCasts.map((cast) => (
                   <tr key={cast.id} className="hover:bg-gray-50">
-                    <td className="border-b border-r border-gray-200 px-2 py-2 text-[10px] sm:text-xs font-medium text-gray-900 sticky left-0 z-10 bg-white min-w-[72px] sm:min-w-[100px] border-r shadow-sm">
+                    <td className="border-b border-r border-gray-200 px-2 py-2.5 text-xs sm:text-sm font-medium text-gray-900 sticky left-0 z-10 bg-white min-w-[88px] sm:min-w-[112px] border-r shadow-sm whitespace-nowrap">
                       {cast.name}
                     </td>
                     {dates.map((dateStr) => {
@@ -527,7 +527,7 @@ export default function AdminViewPage() {
                       return (
                         <td
                           key={dateStr}
-                          className="border-b border-r border-gray-200 px-2 py-2 text-center text-[10px] sm:text-xs text-gray-700"
+                          className="border-b border-r border-gray-200 px-2 py-2.5 text-center text-xs sm:text-sm text-gray-800"
                         >
                           <div className="flex flex-col items-center gap-0.5">
                             <span>{timeDisplay}</span>
@@ -542,8 +542,8 @@ export default function AdminViewPage() {
                                 }
                                 className={
                                   showUnansweredAlert
-                                    ? "text-red-600 font-medium text-[9px] sm:text-[10px]"
-                                    : "text-gray-500 text-[9px] sm:text-[10px]"
+                                    ? "text-red-600 font-medium text-[10px] sm:text-xs"
+                                    : "text-gray-600 text-[10px] sm:text-xs"
                                 }
                               >
                                 {statusBadge}
@@ -560,7 +560,7 @@ export default function AdminViewPage() {
           </table>
           </div>
           {sortedCasts.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-gray-500">
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
               <span title="リマインド送信済み">✅ 送信済</span>
               <span
                 className="text-red-600"

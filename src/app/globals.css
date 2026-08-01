@@ -84,8 +84,18 @@ body {
     "Hiragino Kaku Gothic ProN",
     "Yu Gothic UI",
     sans-serif;
-  line-height: 1.6;
+  line-height: 1.65;
+  font-size: 16px;
   color: rgb(15 23 42);
+}
+
+/* 表の名前列が潰れて縦に1文字折り返すのを防ぐ */
+.guide-report-staff-name-col {
+  writing-mode: horizontal-tb;
+  text-orientation: mixed;
+  white-space: nowrap;
+  word-break: keep-all;
+  min-width: 6.5rem;
 }
 
 /* 見出しは行間をやや詰めてメリハリを */

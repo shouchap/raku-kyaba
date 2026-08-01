@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import type { DailyGuideResult } from "@/types/entities";
 import { getTodayJst } from "@/lib/date-utils";
@@ -292,15 +292,7 @@ export function GuideReportTab({
   };
 
   const screenAggregate = useMemo(() => aggregateGuideRows(rows), [rows]);
-  const {
-    totalGuides,
-    totalPeople,
-    totalSekGroups,
-    totalSekPeople,
-    totalGoldGroups,
-    totalGoldPeople,
-    staffTotals,
-  } = screenAggregate;
+  const { staffTotals } = screenAggregate;
 
   /** 印刷用: 月初〜今日（JST）までの実績のみ */
   const printEndYmd = useMemo(() => {
@@ -345,31 +337,43 @@ export function GuideReportTab({
   ) => (
     <section
       aria-labelledby={headingId}
-      className="guide-report-summary rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-teal-50/60 p-6 shadow-sm print:p-4 print:shadow-none print:!border-gray-400 print:!bg-white print:!bg-none print:rounded-lg print:!text-gray-900"
+      className="guide-report-summary rounded-2xl border border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-teal-50/60 p-5 shadow-sm sm:p-6 print:p-4 print:shadow-none print:!border-gray-400 print:!bg-white print:!bg-none print:rounded-lg print:!text-gray-900"
     >
       <h2
         id={headingId}
-        className="text-sm font-medium text-emerald-900/90 print:text-gray-800"
+        className="text-base font-semibold text-emerald-950 print:text-gray-800"
       >
         {title}
       </h2>
-      <p className="mt-3 text-4xl font-bold tabular-nums tracking-tight text-emerald-950 sm:text-5xl print:mt-2 print:text-3xl print:!text-gray-900">
-        {totals.totalGuides}
-        <span className="ml-2 text-lg font-semibold text-emerald-800 sm:text-xl print:text-base print:!text-gray-700">
-          組
-        </span>
-      </p>
-      <p className="mt-2 text-sm font-medium text-emerald-900/90 space-y-1 print:text-xs print:!text-gray-700">
-        {GUIDE_VENUES.map((v) => (
-          <span key={v.id} className="block">
-            {v.label}: <span className="tabular-nums">{totals.byVenue[v.id].groups}</span>組・
-            <span className="tabular-nums">{totals.byVenue[v.id].people}</span>人
+      <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-2">
+        <p className="text-4xl font-bold tabular-nums tracking-tight text-emerald-950 sm:text-5xl print:text-3xl print:!text-gray-900">
+          {totals.totalGuides}
+          <span className="ml-2 text-lg font-semibold text-emerald-800 sm:text-xl print:text-base print:!text-gray-700">
+            組
           </span>
+        </p>
+        <p className="text-2xl font-bold tabular-nums text-emerald-900 sm:text-3xl print:text-xl print:!text-gray-800">
+          {totals.totalPeople}
+          <span className="ml-1.5 text-base font-semibold text-emerald-700 print:text-sm print:!text-gray-600">
+            人
+          </span>
+        </p>
+      </div>
+      <ul className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 print:grid-cols-3 print:gap-1.5">
+        {GUIDE_VENUES.map((v) => (
+          <li
+            key={v.id}
+            className="rounded-lg border border-emerald-200/80 bg-white/80 px-2.5 py-2 text-sm text-emerald-950 print:border-gray-300 print:bg-white print:!text-gray-800"
+          >
+            <span className="block text-xs font-semibold text-emerald-800/90 print:!text-gray-600">
+              {v.label}
+            </span>
+            <span className="mt-0.5 block font-medium tabular-nums">
+              {totals.byVenue[v.id].groups}組・{totals.byVenue[v.id].people}人
+            </span>
+          </li>
         ))}
-        <span className="block pt-1 border-t border-emerald-200/80 print:!border-gray-300">
-          合計人数: <span className="tabular-nums">{totals.totalPeople}</span>人
-        </span>
-      </p>
+      </ul>
     </section>
   );
 
@@ -429,43 +433,70 @@ export function GuideReportTab({
             手動追加・編集には、システム設定の「案内スタッフの名前登録」に少なくとも1名を登録してください。
           </p>
         )}
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
-          <table className="min-w-[1200px] w-full text-left text-sm">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
+          <table className="min-w-[780px] w-full border-collapse text-left text-sm">
             <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="px-3 py-3 font-semibold text-gray-900 whitespace-nowrap">日付</th>
-                <th className="px-3 py-3 font-semibold text-gray-900">スタッフ名</th>
+              <tr className="border-b border-slate-200 bg-slate-100">
+                <th
+                  rowSpan={2}
+                  className="sticky left-0 z-10 whitespace-nowrap bg-slate-100 px-3 py-2.5 text-left text-sm font-bold text-slate-900 shadow-[2px_0_6px_-2px_rgba(15,23,42,0.12)]"
+                >
+                  日付
+                </th>
+                <th
+                  rowSpan={2}
+                  className="sticky left-[4.5rem] z-10 whitespace-nowrap bg-slate-100 px-3 py-2.5 text-left text-sm font-bold text-slate-900 shadow-[2px_0_6px_-2px_rgba(15,23,42,0.12)] sm:left-[5.5rem]"
+                >
+                  スタッフ名
+                </th>
                 {GUIDE_VENUES.map((v) => (
                   <th
-                    key={`h-${v.id}-g`}
-                    className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap"
+                    key={`h-${v.id}`}
+                    colSpan={2}
+                    className="border-l border-slate-200 px-2 py-2 text-center text-xs font-bold text-slate-800 sm:text-sm"
                   >
-                    {v.shortLabel}組
+                    {v.label}
                   </th>
                 ))}
+                <th
+                  colSpan={2}
+                  className="border-l border-slate-300 bg-slate-200/70 px-2 py-2 text-center text-xs font-bold text-slate-900 sm:text-sm"
+                >
+                  合計
+                </th>
+                <th
+                  rowSpan={2}
+                  className="print:hidden border-l border-slate-200 px-3 py-2.5 text-center text-sm font-bold text-slate-900"
+                >
+                  操作
+                </th>
+              </tr>
+              <tr className="border-b border-slate-200 bg-slate-50">
                 {GUIDE_VENUES.map((v) => (
-                  <th
-                    key={`h-${v.id}-p`}
-                    className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap"
-                  >
-                    {v.shortLabel}人
-                  </th>
+                  <Fragment key={`sub-${v.id}`}>
+                    <th className="border-l border-slate-200 px-2 py-1.5 text-center text-xs font-semibold text-slate-600">
+                      組
+                    </th>
+                    <th className="px-2 py-1.5 text-center text-xs font-semibold text-slate-600">
+                      人
+                    </th>
+                  </Fragment>
                 ))}
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  計組数
+                <th className="border-l border-slate-300 bg-slate-100 px-2 py-1.5 text-center text-xs font-semibold text-slate-700">
+                  組
                 </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  計人数
-                </th>
-                <th className="print:hidden px-3 py-3 text-center font-semibold text-gray-900 whitespace-nowrap w-[7rem]">
-                  アクション
+                <th className="bg-slate-100 px-2 py-1.5 text-center text-xs font-semibold text-slate-700">
+                  人
                 </th>
               </tr>
             </thead>
             <tbody>
               {detailRows.length === 0 ? (
                 <tr>
-                  <td colSpan={3 + GUIDE_VENUES.length * 2 + 2} className="px-4 py-10 text-center text-gray-500">
+                  <td
+                    colSpan={3 + GUIDE_VENUES.length * 2 + 2}
+                    className="px-4 py-10 text-center text-slate-500"
+                  >
                     この月の案内実績データはありません。
                   </td>
                 </tr>
@@ -473,50 +504,51 @@ export function GuideReportTab({
                 detailRows.map((r) => {
                   const vc = guideVenueCountsFromRow(r as unknown as Record<string, unknown>);
                   return (
-                  <tr
-                    key={r.id}
-                    className="border-b border-gray-100 hover:bg-gray-50/80"
-                  >
-                    <td className="px-3 py-3 tabular-nums text-gray-800 whitespace-nowrap">
-                      {formatJaDateCell(r.target_date)}
-                    </td>
-                    <td className="px-3 py-3 font-medium text-gray-900">{r.staff_name}</td>
-                    {GUIDE_VENUES.map((v) => (
-                      <td key={`${r.id}-${v.id}-g`} className="px-2 py-3 text-right tabular-nums text-gray-900">
-                        {vc[v.id].groups}
+                    <tr key={r.id} className="border-b border-slate-100 bg-white hover:bg-slate-50/90">
+                      <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-3 py-2.5 tabular-nums text-slate-800 shadow-[2px_0_6px_-2px_rgba(15,23,42,0.12)]">
+                        {formatJaDateCell(r.target_date)}
                       </td>
-                    ))}
-                    {GUIDE_VENUES.map((v) => (
-                      <td key={`${r.id}-${v.id}-p`} className="px-2 py-3 text-right tabular-nums text-gray-900">
-                        {vc[v.id].people}
+                      <td className="sticky left-[4.5rem] z-10 whitespace-nowrap bg-white px-3 py-2.5 font-medium text-slate-900 shadow-[2px_0_6px_-2px_rgba(15,23,42,0.12)] sm:left-[5.5rem]">
+                        {r.staff_name}
                       </td>
-                    ))}
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">{r.guide_count}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
-                      {typeof r.people_count === "number" ? r.people_count : 0}
-                    </td>
-                    <td className="print:hidden px-3 py-2 text-center">
-                      <div className="inline-flex items-center justify-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openEdit(r)}
-                          disabled={!namesReady}
-                          className="rounded-md p-2 text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
-                          aria-label={`${r.staff_name}の${formatJaDateCell(r.target_date)}を編集`}
-                        >
-                          <Pencil className="h-4 w-4" aria-hidden />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void confirmDelete(r)}
-                          className="rounded-md p-2 text-red-700 hover:bg-red-50"
-                          aria-label={`${r.staff_name}の${formatJaDateCell(r.target_date)}を削除`}
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                      {GUIDE_VENUES.map((v) => (
+                        <Fragment key={`${r.id}-${v.id}`}>
+                          <td className="border-l border-slate-100 px-2 py-2.5 text-center tabular-nums text-slate-900">
+                            {vc[v.id].groups}
+                          </td>
+                          <td className="px-2 py-2.5 text-center tabular-nums text-slate-900">
+                            {vc[v.id].people}
+                          </td>
+                        </Fragment>
+                      ))}
+                      <td className="border-l border-slate-200 bg-slate-50/80 px-2 py-2.5 text-center font-semibold tabular-nums text-slate-900">
+                        {r.guide_count}
+                      </td>
+                      <td className="bg-slate-50/80 px-2 py-2.5 text-center font-semibold tabular-nums text-slate-900">
+                        {typeof r.people_count === "number" ? r.people_count : 0}
+                      </td>
+                      <td className="print:hidden border-l border-slate-100 px-3 py-2 text-center">
+                        <div className="inline-flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openEdit(r)}
+                            disabled={!namesReady}
+                            className="rounded-md p-2 text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            aria-label={`${r.staff_name}の${formatJaDateCell(r.target_date)}を編集`}
+                          >
+                            <Pencil className="h-4 w-4" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void confirmDelete(r)}
+                            className="rounded-md p-2 text-red-700 hover:bg-red-50"
+                            aria-label={`${r.staff_name}の${formatJaDateCell(r.target_date)}を削除`}
+                          >
+                            <Trash2 className="h-4 w-4" aria-hidden />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   );
                 })
               )}

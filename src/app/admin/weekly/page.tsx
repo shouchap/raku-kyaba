@@ -607,7 +607,7 @@ export default function AdminWeeklyPage() {
           <table className="min-w-[400px] sm:min-w-[480px] w-full border-collapse">
             <thead>
               <tr className="bg-gray-100">
-                <th className="border-b border-r border-gray-200 px-2 py-2 text-left text-[10px] sm:text-xs font-medium text-gray-700 sticky left-0 z-10 bg-gray-100 min-w-[72px] sm:min-w-[100px] border-r shadow-sm">
+                <th className="border-b border-r border-gray-200 px-2 py-2.5 text-left text-xs sm:text-sm font-semibold text-gray-800 sticky left-0 z-10 bg-gray-100 min-w-[88px] sm:min-w-[112px] border-r shadow-sm whitespace-nowrap">
                   キャスト
                 </th>
                 {dates.map((d) => {
@@ -617,17 +617,17 @@ export default function AdminWeeklyPage() {
                   return (
                     <th
                       key={d}
-                      className={`border-b border-r border-gray-200 px-1 py-2 text-center text-[10px] sm:text-xs font-medium ${colorClass} whitespace-nowrap min-w-[48px] sm:min-w-0`}
+                      className={`border-b border-r border-gray-200 px-1.5 py-2.5 text-center text-xs sm:text-sm font-medium ${colorClass} whitespace-nowrap min-w-[52px] sm:min-w-0`}
                     >
                       <span className="sm:hidden">{formatDateShort(d)}</span>
                       <span className="hidden sm:inline">{formatDateWithWeekday(d)}</span>
                     </th>
                   );
                 })}
-                <th className="border-b border-r border-gray-200 px-1 sm:px-2 py-2 text-center text-[10px] sm:text-xs font-medium text-gray-700 min-w-[56px] sm:min-w-[72px]">
+                <th className="border-b border-r border-gray-200 px-1 sm:px-2 py-2.5 text-center text-xs sm:text-sm font-semibold text-gray-800 min-w-[56px] sm:min-w-[72px]">
                   個別
                 </th>
-                <th className="border-b border-gray-200 px-1 sm:px-2 py-2 text-center text-[10px] sm:text-xs font-medium text-gray-700 min-w-[56px] sm:min-w-[72px]">
+                <th className="border-b border-gray-200 px-1 sm:px-2 py-2.5 text-center text-xs sm:text-sm font-semibold text-gray-800 min-w-[56px] sm:min-w-[72px]">
                   変更通知
                 </th>
               </tr>
@@ -635,7 +635,7 @@ export default function AdminWeeklyPage() {
             <tbody>
               {casts.map((cast) => (
                 <tr key={cast.id} className="hover:bg-gray-50">
-                  <td className="border-b border-r border-gray-200 px-2 py-1 text-[10px] sm:text-xs font-medium text-gray-900 sticky left-0 z-10 bg-white min-w-[72px] sm:min-w-[100px] border-r shadow-sm">
+                  <td className="border-b border-r border-gray-200 px-2 py-2 text-xs sm:text-sm font-medium text-gray-900 sticky left-0 z-10 bg-white min-w-[88px] sm:min-w-[112px] border-r shadow-sm whitespace-nowrap">
                     {cast.name}
                   </td>
                   {dates.map((dateStr) => {
@@ -649,7 +649,7 @@ export default function AdminWeeklyPage() {
                             <select
                               value={matrix[cast.id]?.[dateStr] ?? ""}
                               onChange={(e) => updateCell(cast.id, dateStr, e.target.value)}
-                              className="w-full min-w-[52px] sm:w-20 min-h-[36px] sm:h-9 px-1 sm:px-1.5 text-[10px] sm:text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                              className="w-full min-w-[56px] sm:w-20 min-h-[40px] sm:h-10 px-1 sm:px-1.5 text-xs sm:text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
                             >
                               {timeOptions.map((opt) => (
                                 <option key={opt.value || "empty"} value={opt.value}>
@@ -657,11 +657,11 @@ export default function AdminWeeklyPage() {
                                 </option>
                               ))}
                             </select>
-                            <span className="text-[10px] text-slate-400">-</span>
+                            <span className="text-xs text-slate-400">-</span>
                             <select
                               value={endMatrix[cast.id]?.[dateStr] ?? ""}
                               onChange={(e) => updateEndCell(cast.id, dateStr, e.target.value)}
-                              className="w-full min-w-[52px] sm:w-20 min-h-[36px] sm:h-9 px-1 sm:px-1.5 text-[10px] sm:text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                              className="w-full min-w-[56px] sm:w-20 min-h-[40px] sm:h-10 px-1 sm:px-1.5 text-xs sm:text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
                             >
                               {timeOptions.map((opt) => (
                                 <option key={`end-${opt.value || "empty"}`} value={opt.value}>
@@ -676,10 +676,10 @@ export default function AdminWeeklyPage() {
                               <button
                                 type="button"
                                 onClick={() => toggleDohan(cast.id, dateStr)}
-                                className={`flex-1 min-h-[24px] text-[9px] sm:text-[10px] px-0.5 py-0.5 rounded border touch-manipulation transition-colors ${
+                                className={`flex-1 min-h-[28px] text-[10px] sm:text-xs px-0.5 py-0.5 rounded border touch-manipulation transition-colors ${
                                   isDohanOn
                                     ? "bg-pink-500 border-pink-600 text-white font-medium"
-                                    : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+                                    : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
                                 }`}
                               >
                                 同伴
@@ -687,10 +687,10 @@ export default function AdminWeeklyPage() {
                               <button
                                 type="button"
                                 onClick={() => toggleSabaki(cast.id, dateStr)}
-                                className={`flex-1 min-h-[24px] text-[9px] sm:text-[10px] px-0.5 py-0.5 rounded border touch-manipulation transition-colors ${
+                                className={`flex-1 min-h-[28px] text-[10px] sm:text-xs px-0.5 py-0.5 rounded border touch-manipulation transition-colors ${
                                   isSabakiOn
                                     ? "bg-amber-600 border-amber-700 text-white font-medium"
-                                    : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+                                    : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
                                 }`}
                               >
                                 捌き
@@ -706,7 +706,7 @@ export default function AdminWeeklyPage() {
                       type="button"
                       onClick={() => handleNotifyIndividual(cast.id, false)}
                       disabled={saving || notifying || notifyingOp !== null}
-                      className="w-full text-[10px] sm:text-xs px-1 sm:px-1.5 py-2 sm:py-1.5 min-h-[36px] rounded border border-[#06C755] text-[#06C755] hover:bg-[#06C755] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                      className="w-full text-xs sm:text-sm px-1 sm:px-1.5 py-2 sm:py-1.5 min-h-[40px] rounded border border-[#06C755] text-[#06C755] hover:bg-[#06C755] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
                     >
                       {notifyingOp?.castId === cast.id && !notifyingOp.isUpdate
                         ? "送信中..."
@@ -718,7 +718,7 @@ export default function AdminWeeklyPage() {
                       type="button"
                       onClick={() => handleNotifyIndividual(cast.id, true)}
                       disabled={saving || notifying || notifyingOp !== null}
-                      className="w-full text-[10px] sm:text-xs px-1 sm:px-1.5 py-2 sm:py-1.5 min-h-[36px] rounded border border-orange-500 text-orange-600 hover:bg-orange-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+                      className="w-full text-xs sm:text-sm px-1 sm:px-1.5 py-2 sm:py-1.5 min-h-[40px] rounded border border-orange-500 text-orange-600 hover:bg-orange-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
                     >
                       {notifyingOp?.castId === cast.id && notifyingOp.isUpdate
                         ? "送信中..."

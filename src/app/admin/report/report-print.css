@@ -213,6 +213,7 @@
 
   .admin-report-print-root.admin-report-guide-print
     .guide-report-staff-name-col {
+    position: static !important;
     writing-mode: horizontal-tb !important;
     text-orientation: mixed !important;
     white-space: nowrap !important;
@@ -222,6 +223,23 @@
     max-width: none;
     text-align: left !important;
     vertical-align: middle !important;
+    box-shadow: none !important;
+  }
+
+  .admin-report-print-root.admin-report-guide-print
+    table.guide-report-staff-table--print
+    thead
+    tr:first-child
+    th {
+    font-size: 8pt;
+  }
+
+  .admin-report-print-root.admin-report-guide-print
+    table.guide-report-staff-table--print
+    thead
+    tr:last-child
+    th {
+    font-size: 7.5pt;
   }
 
   .admin-report-print-root.admin-report-guide-print

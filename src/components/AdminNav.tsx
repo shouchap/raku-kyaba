@@ -34,8 +34,8 @@ type MenuSettingsMap = Record<string, { label: string; isHidden: boolean; order?
 
 // NOTE: 微調整や差し戻しが必要な場合は、この定数だけ変更すればOK。
 const NAV_ICON_CLASS = "h-4 w-4 shrink-0 transition-opacity";
-const NAV_ICON_ACTIVE_CLASS = "opacity-95";
-const NAV_ICON_IDLE_CLASS = "opacity-65";
+const NAV_ICON_ACTIVE_CLASS = "opacity-100";
+const NAV_ICON_IDLE_CLASS = "opacity-80";
 
 const NAV_ITEMS_BY_BUSINESS: Record<BusinessType, NavItem[]> = {
   cabaret: [
@@ -89,7 +89,7 @@ function navLinkClass(isActive: boolean, vertical: boolean, businessType: Busine
     ? "justify-start text-left w-full"
     : "justify-center";
   return [
-    "flex items-center min-h-[44px] px-4 rounded-lg text-sm font-medium transition-colors touch-manipulation",
+    "flex items-center min-h-[44px] px-3.5 sm:px-4 rounded-lg text-[13px] sm:text-sm font-medium transition-colors touch-manipulation whitespace-nowrap",
     align,
     "gap-2",
     "border",
@@ -251,7 +251,7 @@ export default function AdminNav({
     <header
       className={`sticky top-0 z-50 border-b shadow-sm backdrop-blur-md [padding-top:max(0.5rem,env(safe-area-inset-top))] print:hidden ${theme.headerClass}`}
     >
-      <div className="mx-auto max-w-6xl px-3 sm:px-5">
+      <div className="mx-auto max-w-7xl px-3 sm:px-5">
         <div className="flex items-center gap-2 sm:gap-3 py-2.5 sm:py-3">
           <button
             type="button"
