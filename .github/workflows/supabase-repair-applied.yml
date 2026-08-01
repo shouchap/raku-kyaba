@@ -1,0 +1,35 @@
+# 初回のみ: SQL Editor で手動適用済みの migrations を履歴上も applied にする
+name: Repair Supabase Migration History (once)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-migrate-production
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    name: mark local migrations as applied
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Mark migrations applied
+        run: node scripts/supabase-mark-migrations-applied.mjs
+
+      - name: Show migration status
+        run: supabase migration list
