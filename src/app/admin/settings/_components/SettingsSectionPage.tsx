@@ -2275,7 +2275,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 <Tip text="送信時刻・自動送信ON/OFF・受取担当・入力対象名をこのブロックで設定します。Cron は guidance_request_time（未適用時は guide_hearing_time）と JST 整時を照合します。業態別で案内ヒアリングがOFFの店舗では定期送信されません。" />
               </h2>
               <p className="text-xs text-slate-600">
-                「案内数の入力対象を選んでください（店舗名）。」とクイックリプライを送り、セクキャバ／GOLD の案内フローを開始します。
+                「案内数の入力対象を選んでください（店舗名）。」とクイックリプライを送り、GOLD／セクキャバ／ラウンジ／ガールズバー／コンカフェ／フィリピンパブの案内フローを開始します。
               </p>
               {!isGuideMasterEnabled ? (
                 <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">

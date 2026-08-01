@@ -5,9 +5,26 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import type { DailyGuideResult } from "@/types/entities";
 import { getTodayJst } from "@/lib/date-utils";
+import {
+  GUIDE_VENUES,
+  emptyGuideVenueCounts,
+  guideVenueCountsFromRow,
+  sumGuideVenueCounts,
+  type GuideVenueCounts,
+  type GuideVenueId,
+} from "@/lib/guide-venues";
 import { aggregateGuideRows } from "./guide-report-aggregate";
 import { GuideStaffTotalsTable } from "./GuideStaffTotalsTable";
 import { compareDateYmd, type DateSortDir } from "./date-sort";
+
+const BODY_VENUE_KEYS: Record<GuideVenueId, { g: string; p: string }> = {
+  gold: { g: "goldGuideCount", p: "goldPeopleCount" },
+  sek: { g: "sekGuideCount", p: "sekPeopleCount" },
+  lounge: { g: "loungeGuideCount", p: "loungePeopleCount" },
+  girls_bar: { g: "girlsBarGuideCount", p: "girlsBarPeopleCount" },
+  concecafe: { g: "concecafeGuideCount", p: "concecafePeopleCount" },
+  philippine_pub: { g: "philippinePubGuideCount", p: "philippinePubPeopleCount" },
+};
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -71,10 +88,7 @@ export function GuideReportTab({
   const [editingRow, setEditingRow] = useState<DailyGuideResult | null>(null);
   const [formDate, setFormDate] = useState("");
   const [formStaff, setFormStaff] = useState("");
-  const [formSekGuideCount, setFormSekGuideCount] = useState(0);
-  const [formSekPeopleCount, setFormSekPeopleCount] = useState(0);
-  const [formGoldGuideCount, setFormGoldGuideCount] = useState(0);
-  const [formGoldPeopleCount, setFormGoldPeopleCount] = useState(0);
+  const [formCounts, setFormCounts] = useState<GuideVenueCounts>(() => emptyGuideVenueCounts());
   const [modalSaving, setModalSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
@@ -149,10 +163,7 @@ export function GuideReportTab({
     setEditingRow(null);
     setFormDate(defaultTargetDate);
     setFormStaff(guideStaffNames[0] ?? "");
-    setFormSekGuideCount(0);
-    setFormSekPeopleCount(0);
-    setFormGoldGuideCount(0);
-    setFormGoldPeopleCount(0);
+    setFormCounts(emptyGuideVenueCounts());
     setModalError(null);
     setModalOpen(true);
   };
@@ -162,10 +173,7 @@ export function GuideReportTab({
     setEditingRow(r);
     setFormDate(r.target_date);
     setFormStaff(r.staff_name);
-    setFormSekGuideCount(typeof r.sek_guide_count === "number" ? r.sek_guide_count : 0);
-    setFormSekPeopleCount(typeof r.sek_people_count === "number" ? r.sek_people_count : 0);
-    setFormGoldGuideCount(typeof r.gold_guide_count === "number" ? r.gold_guide_count : 0);
-    setFormGoldPeopleCount(typeof r.gold_people_count === "number" ? r.gold_people_count : 0);
+    setFormCounts(guideVenueCountsFromRow(r as unknown as Record<string, unknown>));
     setModalError(null);
     setModalOpen(true);
   };
@@ -187,15 +195,20 @@ export function GuideReportTab({
       setModalError("スタッフ名を選択してください。");
       return;
     }
-    const fields = [
-      formSekGuideCount,
-      formSekPeopleCount,
-      formGoldGuideCount,
-      formGoldPeopleCount,
-    ];
+    const fields = GUIDE_VENUES.flatMap((v) => [
+      formCounts[v.id].groups,
+      formCounts[v.id].people,
+    ]);
     if (fields.some((n) => !Number.isInteger(n) || n < 0 || n > 9999)) {
-      setModalError("GOLD／セクキャバの組数・人数はそれぞれ 0〜9999 の整数で入力してください。");
+      setModalError("各業態の組数・人数はそれぞれ 0〜9999 の整数で入力してください。");
       return;
+    }
+
+    const venueBody: Record<string, number> = {};
+    for (const v of GUIDE_VENUES) {
+      const keys = BODY_VENUE_KEYS[v.id];
+      venueBody[keys.g] = formCounts[v.id].groups;
+      venueBody[keys.p] = formCounts[v.id].people;
     }
 
     setModalSaving(true);
@@ -210,10 +223,7 @@ export function GuideReportTab({
             id: editingRow.id,
             staffName: staff,
             targetDate: formDate,
-            sekGuideCount: formSekGuideCount,
-            sekPeopleCount: formSekPeopleCount,
-            goldGuideCount: formGoldGuideCount,
-            goldPeopleCount: formGoldPeopleCount,
+            ...venueBody,
           }),
         });
         const patchPayload = (await patchRes.json().catch(() => ({}))) as {
@@ -234,10 +244,7 @@ export function GuideReportTab({
             storeId,
             staffName: staff,
             targetDate: formDate,
-            sekGuideCount: formSekGuideCount,
-            sekPeopleCount: formSekPeopleCount,
-            goldGuideCount: formGoldGuideCount,
-            goldPeopleCount: formGoldPeopleCount,
+            ...venueBody,
           }),
         });
         const putPayload = (await putRes.json().catch(() => ({}))) as { error?: string };
@@ -353,14 +360,12 @@ export function GuideReportTab({
         </span>
       </p>
       <p className="mt-2 text-sm font-medium text-emerald-900/90 space-y-1 print:text-xs print:!text-gray-700">
-        <span className="block">
-          GOLD: <span className="tabular-nums">{totals.totalGoldGroups}</span>組・
-          <span className="tabular-nums">{totals.totalGoldPeople}</span>人
-        </span>
-        <span className="block">
-          セクキャバ: <span className="tabular-nums">{totals.totalSekGroups}</span>組・
-          <span className="tabular-nums">{totals.totalSekPeople}</span>人
-        </span>
+        {GUIDE_VENUES.map((v) => (
+          <span key={v.id} className="block">
+            {v.label}: <span className="tabular-nums">{totals.byVenue[v.id].groups}</span>組・
+            <span className="tabular-nums">{totals.byVenue[v.id].people}</span>人
+          </span>
+        ))}
         <span className="block pt-1 border-t border-emerald-200/80 print:!border-gray-300">
           合計人数: <span className="tabular-nums">{totals.totalPeople}</span>人
         </span>
@@ -425,23 +430,27 @@ export function GuideReportTab({
           </p>
         )}
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
-          <table className="min-w-[880px] w-full text-left text-sm">
+          <table className="min-w-[1200px] w-full text-left text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="px-3 py-3 font-semibold text-gray-900 whitespace-nowrap">日付</th>
                 <th className="px-3 py-3 font-semibold text-gray-900">スタッフ名</th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  GOLD組数
-                </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  GOLD人数
-                </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  セクキャバ組数
-                </th>
-                <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                  セクキャバ人数
-                </th>
+                {GUIDE_VENUES.map((v) => (
+                  <th
+                    key={`h-${v.id}-g`}
+                    className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap"
+                  >
+                    {v.shortLabel}組
+                  </th>
+                ))}
+                {GUIDE_VENUES.map((v) => (
+                  <th
+                    key={`h-${v.id}-p`}
+                    className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap"
+                  >
+                    {v.shortLabel}人
+                  </th>
+                ))}
                 <th className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
                   計組数
                 </th>
@@ -456,12 +465,14 @@ export function GuideReportTab({
             <tbody>
               {detailRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-gray-500">
+                  <td colSpan={3 + GUIDE_VENUES.length * 2 + 2} className="px-4 py-10 text-center text-gray-500">
                     この月の案内実績データはありません。
                   </td>
                 </tr>
               ) : (
-                detailRows.map((r) => (
+                detailRows.map((r) => {
+                  const vc = guideVenueCountsFromRow(r as unknown as Record<string, unknown>);
+                  return (
                   <tr
                     key={r.id}
                     className="border-b border-gray-100 hover:bg-gray-50/80"
@@ -470,18 +481,16 @@ export function GuideReportTab({
                       {formatJaDateCell(r.target_date)}
                     </td>
                     <td className="px-3 py-3 font-medium text-gray-900">{r.staff_name}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
-                      {typeof r.gold_guide_count === "number" ? r.gold_guide_count : 0}
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
-                      {typeof r.gold_people_count === "number" ? r.gold_people_count : 0}
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
-                      {typeof r.sek_guide_count === "number" ? r.sek_guide_count : 0}
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-gray-900">
-                      {typeof r.sek_people_count === "number" ? r.sek_people_count : 0}
-                    </td>
+                    {GUIDE_VENUES.map((v) => (
+                      <td key={`${r.id}-${v.id}-g`} className="px-2 py-3 text-right tabular-nums text-gray-900">
+                        {vc[v.id].groups}
+                      </td>
+                    ))}
+                    {GUIDE_VENUES.map((v) => (
+                      <td key={`${r.id}-${v.id}-p`} className="px-2 py-3 text-right tabular-nums text-gray-900">
+                        {vc[v.id].people}
+                      </td>
+                    ))}
                     <td className="px-3 py-3 text-right tabular-nums text-gray-900">{r.guide_count}</td>
                     <td className="px-3 py-3 text-right tabular-nums text-gray-900">
                       {typeof r.people_count === "number" ? r.people_count : 0}
@@ -508,7 +517,8 @@ export function GuideReportTab({
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -597,101 +607,68 @@ export function GuideReportTab({
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="guide-form-gold-g" className="block text-sm font-medium text-gray-700">
-                    GOLD・組数
-                  </label>
-                  <input
-                    id="guide-form-gold-g"
-                    type="number"
-                    min={0}
-                    max={9999}
-                    step={1}
-                    value={Number.isFinite(formGoldGuideCount) ? formGoldGuideCount : 0}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      if (raw === "") {
-                        setFormGoldGuideCount(0);
-                        return;
-                      }
-                      const n = parseInt(raw, 10);
-                      if (!Number.isNaN(n)) setFormGoldGuideCount(n);
-                    }}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="guide-form-gold-p" className="block text-sm font-medium text-gray-700">
-                    GOLD・人数
-                  </label>
-                  <input
-                    id="guide-form-gold-p"
-                    type="number"
-                    min={0}
-                    max={9999}
-                    step={1}
-                    value={Number.isFinite(formGoldPeopleCount) ? formGoldPeopleCount : 0}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      if (raw === "") {
-                        setFormGoldPeopleCount(0);
-                        return;
-                      }
-                      const n = parseInt(raw, 10);
-                      if (!Number.isNaN(n)) setFormGoldPeopleCount(n);
-                    }}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="guide-form-sek-g" className="block text-sm font-medium text-gray-700">
-                    セクキャバ・組数
-                  </label>
-                  <input
-                    id="guide-form-sek-g"
-                    type="number"
-                    min={0}
-                    max={9999}
-                    step={1}
-                    value={Number.isFinite(formSekGuideCount) ? formSekGuideCount : 0}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      if (raw === "") {
-                        setFormSekGuideCount(0);
-                        return;
-                      }
-                      const n = parseInt(raw, 10);
-                      if (!Number.isNaN(n)) setFormSekGuideCount(n);
-                    }}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="guide-form-sek-p" className="block text-sm font-medium text-gray-700">
-                    セクキャバ・人数
-                  </label>
-                  <input
-                    id="guide-form-sek-p"
-                    type="number"
-                    min={0}
-                    max={9999}
-                    step={1}
-                    value={Number.isFinite(formSekPeopleCount) ? formSekPeopleCount : 0}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      if (raw === "") {
-                        setFormSekPeopleCount(0);
-                        return;
-                      }
-                      const n = parseInt(raw, 10);
-                      if (!Number.isNaN(n)) setFormSekPeopleCount(n);
-                    }}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
-                  />
-                </div>
+                {GUIDE_VENUES.map((v) => (
+                  <div key={v.id} className="col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-gray-100 bg-gray-50/60 p-3">
+                    <p className="col-span-2 text-xs font-semibold text-gray-700">{v.label}</p>
+                    <div>
+                      <label
+                        htmlFor={`guide-form-${v.id}-g`}
+                        className="block text-sm font-medium text-gray-700"
+                      >
+                        組数
+                      </label>
+                      <input
+                        id={`guide-form-${v.id}-g`}
+                        type="number"
+                        min={0}
+                        max={9999}
+                        step={1}
+                        value={formCounts[v.id].groups}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const n = raw === "" ? 0 : parseInt(raw, 10);
+                          if (Number.isNaN(n)) return;
+                          setFormCounts((prev) => ({
+                            ...prev,
+                            [v.id]: { ...prev[v.id], groups: n },
+                          }));
+                        }}
+                        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor={`guide-form-${v.id}-p`}
+                        className="block text-sm font-medium text-gray-700"
+                      >
+                        人数
+                      </label>
+                      <input
+                        id={`guide-form-${v.id}-p`}
+                        type="number"
+                        min={0}
+                        max={9999}
+                        step={1}
+                        value={formCounts[v.id].people}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const n = raw === "" ? 0 : parseInt(raw, 10);
+                          if (Number.isNaN(n)) return;
+                          setFormCounts((prev) => ({
+                            ...prev,
+                            [v.id]: { ...prev[v.id], people: n },
+                          }));
+                        }}
+                        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/25 outline-none"
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
               <p className="text-xs text-gray-500">
-                合計組数・合計人数は、GOLD とセクキャバを足した値として保存されます（LINE ヒアリングと同じ集計です）。
+                合計組数・合計人数は全業態を足した値として保存されます（現在の合計:{" "}
+                {sumGuideVenueCounts(formCounts).guideCount}組・
+                {sumGuideVenueCounts(formCounts).peopleCount}人）。
               </p>
               {modalError && (
                 <p className="text-sm text-red-700" role="alert">

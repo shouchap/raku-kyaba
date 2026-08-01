@@ -210,6 +210,14 @@ export interface Database {
           sek_people_count: number;
           gold_guide_count: number;
           gold_people_count: number;
+          lounge_guide_count: number;
+          lounge_people_count: number;
+          girls_bar_guide_count: number;
+          girls_bar_people_count: number;
+          concecafe_guide_count: number;
+          concecafe_people_count: number;
+          philippine_pub_guide_count: number;
+          philippine_pub_people_count: number;
           guide_count: number;
           people_count: number | null;
           responded_at: string;

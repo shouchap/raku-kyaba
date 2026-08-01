@@ -1,6 +1,19 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LineReplyMessage, LineTextQuickReplyItem } from "@/lib/line-reply";
 import { isDailyGuideResultsMissingSekGoldColumns } from "@/lib/daily-guide-results-compat";
+import {
+  GUIDE_VENUES,
+  appendGuideVenueCountsToParams,
+  emptyGuideVenueCounts,
+  formatGuideVenueCountsSummary,
+  getGuideVenue,
+  guideVenueCountsToDbColumns,
+  isGuideVenueId,
+  parseGuideVenueCountsFromParams,
+  sumGuideVenueCounts,
+  type GuideVenueCounts,
+  type GuideVenueId,
+} from "@/lib/guide-venues";
 
 export type GuideHearingStoreRow = {
   id: string;
@@ -25,6 +38,24 @@ export type GuidePostbackParseResult = { kind: "count"; count: number } | null;
 
 export type GuideActionParseResult =
   | { kind: "select_staff"; staffName: string }
+  | { kind: "select_venue"; staffName: string; venueId: GuideVenueId; counts: GuideVenueCounts }
+  | {
+      kind: "submit_venue_groups";
+      staffName: string;
+      venueId: GuideVenueId;
+      groups: number;
+      counts: GuideVenueCounts;
+    }
+  | {
+      kind: "submit_venue_people";
+      staffName: string;
+      venueId: GuideVenueId;
+      groups: number;
+      people: number;
+      counts: GuideVenueCounts;
+    }
+  | { kind: "finish"; staffName: string; counts: GuideVenueCounts }
+  /** 旧フロー互換（移行期間） */
   | { kind: "start_entry"; staffName: string; mode: "sek_first" | "gold_only" }
   | { kind: "submit_sek_count"; staffName: string; sekCount: number }
   | {
@@ -192,144 +223,178 @@ export function buildGuideTargetSelectMessage(params: {
   };
 }
 
-/** 従業員選択後: セクキャバから入力するか、セクキャバ0で GOLD のみか */
-export function buildGuideEntryModeSelectItems(staffName: string): LineTextQuickReplyItem[] {
-  const enc = encodeURIComponent(staffName);
-  return [
-    {
-      type: "action",
-      action: {
-        type: "postback",
-        label: "セクキャバから入力",
-        data: `action=start_guide_entry&staff_name=${enc}&mode=sek_first`,
-        displayText: "セクキャバから入力",
-      },
-    },
-    {
-      type: "action",
-      action: {
-        type: "postback",
-        label: "GOLDのみ",
-        data: `action=start_guide_entry&staff_name=${enc}&mode=gold_only`,
-        displayText: "GOLDのみ",
-      },
-    },
-  ];
+function draftParams(staffName: string, counts: GuideVenueCounts): URLSearchParams {
+  const p = new URLSearchParams();
+  p.set("staff_name", staffName);
+  appendGuideVenueCountsToParams(p, counts);
+  return p;
 }
 
-export function buildGuideEntryModeMessage(staffName: string): LineReplyMessage {
+/** 業態選択メニュー（入力中の下書きを表示） */
+export function buildGuideVenueMenuMessage(params: {
+  staffName: string;
+  counts?: GuideVenueCounts;
+}): LineReplyMessage {
+  const counts = params.counts ?? emptyGuideVenueCounts();
+  const base = draftParams(params.staffName, counts);
+  const items: LineTextQuickReplyItem[] = GUIDE_VENUES.map((v) => {
+    const p = new URLSearchParams(base);
+    p.set("action", "select_guide_venue");
+    p.set("venue", v.id);
+    const cur = counts[v.id];
+    const suffix = cur.groups > 0 || cur.people > 0 ? `(${cur.groups}/${cur.people})` : "";
+    const label = `${v.shortLabel}${suffix}`.slice(0, 20);
+    return {
+      type: "action",
+      action: {
+        type: "postback",
+        label,
+        data: p.toString(),
+        displayText: v.label,
+      },
+    };
+  });
+  {
+    const p = new URLSearchParams(base);
+    p.set("action", "finish_guide_entry");
+    items.push({
+      type: "action",
+      action: {
+        type: "postback",
+        label: "入力完了",
+        data: p.toString(),
+        displayText: "入力完了",
+      },
+    });
+  }
+  const summary = formatGuideVenueCountsSummary(counts);
   return {
     type: "text",
     text:
-      `【${staffName}さん】セクキャバと GOLD の案内を入力します。\n` +
-      "まず、セクキャバから組数・人数を入力するか、セクキャバがない場合は「GOLDのみ」を選んでください。",
-    quickReply: {
-      items: buildGuideEntryModeSelectItems(staffName),
-    },
+      `【${params.staffName}さん】案内先の業態を選んでください。\n` +
+      `入力済: ${summary}\n` +
+      "業態ごとに組数・人数を入力し、最後に「入力完了」を押してください。",
+    quickReply: { items },
   };
 }
 
-export function buildGuideSekCountSelectMessage(staffName: string): LineReplyMessage {
-  const enc = encodeURIComponent(staffName);
+/** @deprecated 旧エントリ。新フローでは業態メニューへ誘導 */
+export function buildGuideEntryModeMessage(staffName: string): LineReplyMessage {
+  return buildGuideVenueMenuMessage({ staffName });
+}
+
+export function buildGuideVenueGroupsSelectMessage(params: {
+  staffName: string;
+  venueId: GuideVenueId;
+  counts: GuideVenueCounts;
+}): LineReplyMessage {
+  const venue = getGuideVenue(params.venueId);
   const items: LineTextQuickReplyItem[] = [];
   for (let i = 0; i <= MAX_GROUP_QUICK; i++) {
+    const p = draftParams(params.staffName, params.counts);
+    p.set("action", "submit_guide_venue_groups");
+    p.set("venue", params.venueId);
+    p.set("n", String(i));
     items.push({
       type: "action",
       action: {
         type: "postback",
         label: `${i}組数`,
-        data: `action=submit_guide_sek_count&staff_name=${enc}&sek=${i}`,
-        displayText: `${i}組数`,
+        data: p.toString(),
+        displayText: `${venue.label} ${i}組数`,
       },
     });
   }
   return {
     type: "text",
-    text: `【${staffName}さん】セクキャバの組数を選んでください。`,
+    text: `【${params.staffName}さん】${venue.label}の組数を選んでください。`,
     quickReply: { items },
   };
 }
 
-export function buildGuideSekPeopleSelectMessage(staffName: string, sekCount: number): LineReplyMessage {
-  const enc = encodeURIComponent(staffName);
+export function buildGuideVenuePeopleSelectMessage(params: {
+  staffName: string;
+  venueId: GuideVenueId;
+  groups: number;
+  counts: GuideVenueCounts;
+}): LineReplyMessage {
+  const venue = getGuideVenue(params.venueId);
   const items: LineTextQuickReplyItem[] = [];
   for (let i = 0; i <= MAX_PEOPLE_QUICK; i++) {
+    const p = draftParams(params.staffName, params.counts);
+    p.set("action", "submit_guide_venue_people");
+    p.set("venue", params.venueId);
+    p.set("n", String(params.groups));
+    p.set("p", String(i));
     items.push({
       type: "action",
       action: {
         type: "postback",
         label: `${i}人数`,
-        data:
-          `action=submit_guide_sek_people&staff_name=${enc}` +
-          `&sek=${sekCount}&sek_p=${i}`,
-        displayText: `${i}人数`,
+        data: p.toString(),
+        displayText: `${venue.label} ${i}人数`,
       },
     });
   }
   return {
     type: "text",
-    text: `【${staffName}さん】セクキャバの人数を選んでください（セクキャバ ${sekCount}組数）。`,
+    text: `【${params.staffName}さん】${venue.label}の人数を選んでください（${venue.label} ${params.groups}組数）。`,
     quickReply: { items },
   };
 }
 
+/** @deprecated */
+export function buildGuideSekCountSelectMessage(staffName: string): LineReplyMessage {
+  return buildGuideVenueGroupsSelectMessage({
+    staffName,
+    venueId: "sek",
+    counts: emptyGuideVenueCounts(),
+  });
+}
+
+/** @deprecated */
+export function buildGuideSekPeopleSelectMessage(staffName: string, sekCount: number): LineReplyMessage {
+  return buildGuideVenuePeopleSelectMessage({
+    staffName,
+    venueId: "sek",
+    groups: sekCount,
+    counts: emptyGuideVenueCounts(),
+  });
+}
+
+/** @deprecated */
 export function buildGuideGoldCountSelectMessage(params: {
   staffName: string;
   sekCount: number;
   sekPeopleCount: number;
 }): LineReplyMessage {
-  const enc = encodeURIComponent(params.staffName);
-  const items: LineTextQuickReplyItem[] = [];
-  for (let i = 0; i <= MAX_GROUP_QUICK; i++) {
-    items.push({
-      type: "action",
-      action: {
-        type: "postback",
-        label: `${i}組数`,
-        data:
-          `action=submit_guide_gold_count&staff_name=${enc}` +
-          `&sek=${params.sekCount}&sek_p=${params.sekPeopleCount}&gold=${i}`,
-        displayText: `${i}組数`,
-      },
-    });
-  }
-  return {
-    type: "text",
-    text: `【${params.staffName}さん】GOLD の組数を選んでください。`,
-    quickReply: { items },
-  };
+  const counts = emptyGuideVenueCounts();
+  counts.sek = { groups: params.sekCount, people: params.sekPeopleCount };
+  return buildGuideVenueGroupsSelectMessage({
+    staffName: params.staffName,
+    venueId: "gold",
+    counts,
+  });
 }
 
+/** @deprecated */
 export function buildGuideGoldPeopleSelectMessage(params: {
   staffName: string;
   sekCount: number;
   sekPeopleCount: number;
   goldCount: number;
 }): LineReplyMessage {
-  const enc = encodeURIComponent(params.staffName);
-  const items: LineTextQuickReplyItem[] = [];
-  for (let i = 0; i <= MAX_PEOPLE_QUICK; i++) {
-    items.push({
-      type: "action",
-      action: {
-        type: "postback",
-        label: `${i}人数`,
-        data:
-          `action=submit_guide_gold_people&staff_name=${enc}` +
-          `&sek=${params.sekCount}&sek_p=${params.sekPeopleCount}` +
-          `&gold=${params.goldCount}&gold_p=${i}`,
-        displayText: `${i}人数`,
-      },
-    });
-  }
-  return {
-    type: "text",
-    text: `【${params.staffName}さん】GOLD の人数を選んでください（GOLD ${params.goldCount}組数）。`,
-    quickReply: { items },
-  };
+  const counts = emptyGuideVenueCounts();
+  counts.sek = { groups: params.sekCount, people: params.sekPeopleCount };
+  return buildGuideVenuePeopleSelectMessage({
+    staffName: params.staffName,
+    venueId: "gold",
+    groups: params.goldCount,
+    counts,
+  });
 }
 
-/** @deprecated Webhook は sek/gold フローを使用 */
+/** @deprecated Webhook は venue フローを使用 */
 export function parseGuidePostbackData(rawData: string): GuidePostbackParseResult {
   const params = new URLSearchParams(rawData.trim());
   if (params.get("action") !== "guide_count") return null;
@@ -354,6 +419,40 @@ export function parseGuideActionPostbackData(rawData: string): GuideActionParseR
     return { kind: "select_staff", staffName };
   }
 
+  if (action === "select_guide_venue") {
+    const venueId = params.get("venue");
+    if (!isGuideVenueId(venueId)) return null;
+    const counts = parseGuideVenueCountsFromParams(params, Math.max(MAX_GROUP_QUICK, MAX_PEOPLE_QUICK));
+    if (!counts) return null;
+    return { kind: "select_venue", staffName, venueId, counts };
+  }
+
+  if (action === "submit_guide_venue_groups") {
+    const venueId = params.get("venue");
+    if (!isGuideVenueId(venueId)) return null;
+    const groups = parseNonNegInt(params.get("n"), MAX_GROUP_QUICK);
+    const counts = parseGuideVenueCountsFromParams(params, Math.max(MAX_GROUP_QUICK, MAX_PEOPLE_QUICK));
+    if (groups === null || !counts) return null;
+    return { kind: "submit_venue_groups", staffName, venueId, groups, counts };
+  }
+
+  if (action === "submit_guide_venue_people") {
+    const venueId = params.get("venue");
+    if (!isGuideVenueId(venueId)) return null;
+    const groups = parseNonNegInt(params.get("n"), MAX_GROUP_QUICK);
+    const people = parseNonNegInt(params.get("p"), MAX_PEOPLE_QUICK);
+    const counts = parseGuideVenueCountsFromParams(params, Math.max(MAX_GROUP_QUICK, MAX_PEOPLE_QUICK));
+    if (groups === null || people === null || !counts) return null;
+    return { kind: "submit_venue_people", staffName, venueId, groups, people, counts };
+  }
+
+  if (action === "finish_guide_entry") {
+    const counts = parseGuideVenueCountsFromParams(params, Math.max(MAX_GROUP_QUICK, MAX_PEOPLE_QUICK));
+    if (!counts) return null;
+    return { kind: "finish", staffName, counts };
+  }
+
+  // --- 旧フロー互換 ---
   if (action === "start_guide_entry") {
     const mode = params.get("mode");
     if (mode === "sek_first") return { kind: "start_entry", staffName, mode: "sek_first" };
@@ -411,26 +510,39 @@ export async function upsertGuideResult(params: {
   supabase: SupabaseClient;
   storeId: string;
   staffName: string;
-  sekGuideCount: number;
-  sekPeopleCount: number;
-  goldGuideCount: number;
-  goldPeopleCount: number;
+  counts: GuideVenueCounts;
+  /** @deprecated 旧引数。counts 未指定時のみ使用 */
+  sekGuideCount?: number;
+  sekPeopleCount?: number;
+  goldGuideCount?: number;
+  goldPeopleCount?: number;
   respondedAtIso?: string;
 }): Promise<void> {
   const respondedAtIso = params.respondedAtIso ?? new Date().toISOString();
   const targetDate = resolveBusinessDateFromJst(new Date(respondedAtIso));
-  const guideCount = params.sekGuideCount + params.goldGuideCount;
-  const peopleCount = params.sekPeopleCount + params.goldPeopleCount;
+  const counts =
+    params.counts ??
+    (() => {
+      const c = emptyGuideVenueCounts();
+      c.sek = {
+        groups: params.sekGuideCount ?? 0,
+        people: params.sekPeopleCount ?? 0,
+      };
+      c.gold = {
+        groups: params.goldGuideCount ?? 0,
+        people: params.goldPeopleCount ?? 0,
+      };
+      return c;
+    })();
+  const { guideCount, peopleCount } = sumGuideVenueCounts(counts);
+  const venueCols = guideVenueCountsToDbColumns(counts);
   const conflictOpts = { onConflict: "store_id,staff_name,target_date" as const };
   let { error } = await params.supabase.from("daily_guide_results").upsert(
     {
       store_id: params.storeId,
       staff_name: params.staffName,
       target_date: targetDate,
-      sek_guide_count: params.sekGuideCount,
-      sek_people_count: params.sekPeopleCount,
-      gold_guide_count: params.goldGuideCount,
-      gold_people_count: params.goldPeopleCount,
+      ...venueCols,
       guide_count: guideCount,
       people_count: peopleCount,
       responded_at: respondedAtIso,
@@ -449,6 +561,31 @@ export async function upsertGuideResult(params: {
       },
       conflictOpts
     ));
+  }
+  if (error) {
+    // 新カラム未適用時は sek/gold のみで再試行
+    if (
+      error.message.includes("lounge_") ||
+      error.message.includes("girls_bar_") ||
+      error.message.includes("concecafe_") ||
+      error.message.includes("philippine_pub_")
+    ) {
+      ({ error } = await params.supabase.from("daily_guide_results").upsert(
+        {
+          store_id: params.storeId,
+          staff_name: params.staffName,
+          target_date: targetDate,
+          sek_guide_count: counts.sek.groups,
+          sek_people_count: counts.sek.people,
+          gold_guide_count: counts.gold.groups,
+          gold_people_count: counts.gold.people,
+          guide_count: guideCount,
+          people_count: peopleCount,
+          responded_at: respondedAtIso,
+        },
+        conflictOpts
+      ));
+    }
   }
   if (error) {
     throw new Error(`daily_guide_results upsert failed: ${error.message}`);

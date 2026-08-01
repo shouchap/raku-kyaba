@@ -6,6 +6,14 @@ import { isValidStoreId, parseActiveStoreIdFromCookieHeader } from "@/lib/curren
 import { isSuperAdminUser } from "@/lib/super-admin";
 import { logPostgrestError } from "@/lib/postgrest-error";
 import { isDailyGuideResultsMissingSekGoldColumns } from "@/lib/daily-guide-results-compat";
+import {
+  GUIDE_VENUE_IDS,
+  emptyGuideVenueCounts,
+  guideVenueCountsToDbColumns,
+  sumGuideVenueCounts,
+  type GuideVenueCounts,
+  type GuideVenueId,
+} from "@/lib/guide-venues";
 
 export const dynamic = "force-dynamic";
 
@@ -51,41 +59,43 @@ function floorInt(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? Math.floor(v) : NaN;
 }
 
-/** セクキャバ/GOLD 4項目、または従来の guideCount/peopleCount（セクキャバのみとして保存） */
+const BODY_VENUE_KEYS: Record<GuideVenueId, { g: string; p: string }> = {
+  gold: { g: "goldGuideCount", p: "goldPeopleCount" },
+  sek: { g: "sekGuideCount", p: "sekPeopleCount" },
+  lounge: { g: "loungeGuideCount", p: "loungePeopleCount" },
+  girls_bar: { g: "girlsBarGuideCount", p: "girlsBarPeopleCount" },
+  concecafe: { g: "concecafeGuideCount", p: "concecafePeopleCount" },
+  philippine_pub: { g: "philippinePubGuideCount", p: "philippinePubPeopleCount" },
+};
+
+/** 業態別カウント、または従来の guideCount/peopleCount（セクキャバのみとして保存） */
 function parseGuideSplitCounts(body: Record<string, unknown>): NextResponse | {
-  sekGuideCount: number;
-  sekPeopleCount: number;
-  goldGuideCount: number;
-  goldPeopleCount: number;
+  counts: GuideVenueCounts;
   guideCount: number;
   peopleCount: number;
 } {
-  const sgc = floorInt(body.sekGuideCount);
-  const spc = floorInt(body.sekPeopleCount);
-  const ggc = floorInt(body.goldGuideCount);
-  const gpc = floorInt(body.goldPeopleCount);
-  const splitComplete =
-    Number.isInteger(sgc) &&
-    Number.isInteger(spc) &&
-    Number.isInteger(ggc) &&
-    Number.isInteger(gpc);
-
-  if (splitComplete) {
-    const nums = [sgc, spc, ggc, gpc];
-    if (nums.some((n) => n < 0 || n > 9999)) {
+  const counts = emptyGuideVenueCounts();
+  let anyVenueField = false;
+  for (const id of GUIDE_VENUE_IDS) {
+    const keys = BODY_VENUE_KEYS[id];
+    const gRaw = body[keys.g];
+    const pRaw = body[keys.p];
+    if (gRaw === undefined && pRaw === undefined) continue;
+    anyVenueField = true;
+    const g = floorInt(gRaw ?? 0);
+    const p = floorInt(pRaw ?? 0);
+    if (!Number.isInteger(g) || !Number.isInteger(p) || g < 0 || g > 9999 || p < 0 || p > 9999) {
       return NextResponse.json(
-        { error: "sekGuideCount, sekPeopleCount, goldGuideCount, goldPeopleCount must be integers from 0 to 9999" },
+        { error: `${keys.g} / ${keys.p} must be integers from 0 to 9999` },
         { status: 400 }
       );
     }
-    return {
-      sekGuideCount: sgc,
-      sekPeopleCount: spc,
-      goldGuideCount: ggc,
-      goldPeopleCount: gpc,
-      guideCount: sgc + ggc,
-      peopleCount: spc + gpc,
-    };
+    counts[id] = { groups: g, people: p };
+  }
+
+  if (anyVenueField) {
+    const totals = sumGuideVenueCounts(counts);
+    return { counts, guideCount: totals.guideCount, peopleCount: totals.peopleCount };
   }
 
   const gc = floorInt(body.guideCount);
@@ -97,20 +107,14 @@ function parseGuideSplitCounts(body: Record<string, unknown>): NextResponse | {
         { status: 400 }
       );
     }
-    return {
-      sekGuideCount: gc,
-      sekPeopleCount: pc,
-      goldGuideCount: 0,
-      goldPeopleCount: 0,
-      guideCount: gc,
-      peopleCount: pc,
-    };
+    counts.sek = { groups: gc, people: pc };
+    return { counts, guideCount: gc, peopleCount: pc };
   }
 
   return NextResponse.json(
     {
       error:
-        "sekGuideCount, sekPeopleCount, goldGuideCount, goldPeopleCount がすべて必要です（または従来どおり guideCount と peopleCount のみ）",
+        "業態別の組数・人数（例: goldGuideCount）が必要です（または従来どおり guideCount と peopleCount のみ）",
     },
     { status: 400 }
   );
@@ -194,10 +198,7 @@ export async function PUT(request: Request) {
       store_id: storeId,
       staff_name: staffName,
       target_date: targetDate,
-      sek_guide_count: counts.sekGuideCount,
-      sek_people_count: counts.sekPeopleCount,
-      gold_guide_count: counts.goldGuideCount,
-      gold_people_count: counts.goldPeopleCount,
+      ...guideVenueCountsToDbColumns(counts.counts),
       guide_count: counts.guideCount,
       people_count: counts.peopleCount,
       responded_at: respondedAt,
@@ -323,10 +324,7 @@ export async function PATCH(request: Request) {
     .update({
       staff_name: staffName,
       target_date: targetDate,
-      sek_guide_count: counts.sekGuideCount,
-      sek_people_count: counts.sekPeopleCount,
-      gold_guide_count: counts.goldGuideCount,
-      gold_people_count: counts.goldPeopleCount,
+      ...guideVenueCountsToDbColumns(counts.counts),
       guide_count: counts.guideCount,
       people_count: counts.peopleCount,
       responded_at: respondedAt,

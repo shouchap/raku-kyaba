@@ -64,9 +64,17 @@ export type DailyGuideResult = {
   sek_people_count: number;
   gold_guide_count: number;
   gold_people_count: number;
-  /** セクキャバ + GOLD の合計組数 */
+  lounge_guide_count?: number;
+  lounge_people_count?: number;
+  girls_bar_guide_count?: number;
+  girls_bar_people_count?: number;
+  concecafe_guide_count?: number;
+  concecafe_people_count?: number;
+  philippine_pub_guide_count?: number;
+  philippine_pub_people_count?: number;
+  /** 全業態の合計組数 */
   guide_count: number;
-  /** セクキャバ + GOLD の合計人数 */
+  /** 全業態の合計人数 */
   people_count: number | null;
   responded_at: string;
 };

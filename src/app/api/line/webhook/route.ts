@@ -31,15 +31,24 @@ import {
 import { handleWelfareWebhook, type WelfareStoreContext } from "@/lib/welfare-line-webhook";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import {
-  buildGuideEntryModeMessage,
   buildGuideGoldCountSelectMessage,
   buildGuideGoldPeopleSelectMessage,
   buildGuideSekCountSelectMessage,
   buildGuideSekPeopleSelectMessage,
   buildGuideTargetSelectMessage,
+  buildGuideVenueGroupsSelectMessage,
+  buildGuideVenueMenuMessage,
+  buildGuideVenuePeopleSelectMessage,
   parseGuideActionPostbackData,
   upsertGuideResult,
 } from "@/lib/guide-hearing";
+import {
+  emptyGuideVenueCounts,
+  formatGuideVenueCountsSummary,
+  sumGuideVenueCounts,
+  type GuideVenueCounts,
+  type GuideVenueId,
+} from "@/lib/guide-venues";
 
 const app = new Hono();
 
@@ -399,6 +408,60 @@ async function processWebhookEvent(
         });
         break;
       }
+      if (guideAction?.kind === "select_venue") {
+        await handleGuideSelectVenueResponse({
+          userId,
+          storeId: resolvedStoreId,
+          staffName: guideAction.staffName,
+          venueId: guideAction.venueId,
+          counts: guideAction.counts,
+          supabase,
+          replyToken: postbackEvent.replyToken,
+          channelAccessToken,
+        });
+        break;
+      }
+      if (guideAction?.kind === "submit_venue_groups") {
+        await handleGuideVenueGroupsResponse({
+          userId,
+          storeId: resolvedStoreId,
+          staffName: guideAction.staffName,
+          venueId: guideAction.venueId,
+          groups: guideAction.groups,
+          counts: guideAction.counts,
+          supabase,
+          replyToken: postbackEvent.replyToken,
+          channelAccessToken,
+        });
+        break;
+      }
+      if (guideAction?.kind === "submit_venue_people") {
+        await handleGuideVenuePeopleResponse({
+          userId,
+          storeId: resolvedStoreId,
+          staffName: guideAction.staffName,
+          venueId: guideAction.venueId,
+          groups: guideAction.groups,
+          people: guideAction.people,
+          counts: guideAction.counts,
+          supabase,
+          replyToken: postbackEvent.replyToken,
+          channelAccessToken,
+        });
+        break;
+      }
+      if (guideAction?.kind === "finish") {
+        await finalizeGuideHearingEntry({
+          userId,
+          storeId: resolvedStoreId,
+          staffName: guideAction.staffName,
+          counts: guideAction.counts,
+          supabase,
+          replyToken: postbackEvent.replyToken,
+          channelAccessToken,
+        });
+        break;
+      }
       if (guideAction?.kind === "start_entry") {
         await handleGuideStartEntryResponse({
           userId,
@@ -701,7 +764,117 @@ async function handleGuideSelectStaffResponse(params: {
   }
 
   await sendReply(params.replyToken, params.channelAccessToken, [
-    buildGuideEntryModeMessage(params.staffName),
+    buildGuideVenueMenuMessage({ staffName: params.staffName }),
+  ]);
+}
+
+async function assertGuideReporterAndTarget(params: {
+  userId: string;
+  storeId: string | null;
+  staffName: string;
+  supabase: ReturnType<typeof createSupabaseClient>;
+  replyToken?: string;
+  channelAccessToken?: string;
+}): Promise<string[] | null> {
+  if (!params.storeId) return null;
+  const storeId = params.storeId;
+  const isReporter = await validateGuideReporter({
+    userId: params.userId,
+    storeId,
+    supabase: params.supabase,
+  });
+  if (!isReporter) return null;
+  const targets = await fetchGuideTargetsForStore({
+    storeId,
+    supabase: params.supabase,
+  });
+  if (!targets.includes(params.staffName)) {
+    if (params.replyToken && params.channelAccessToken) {
+      await sendReply(params.replyToken, params.channelAccessToken, [
+        { type: "text", text: "対象スタッフが見つかりません。もう一度選択してください。" },
+      ]);
+    }
+    return null;
+  }
+  return targets;
+}
+
+async function handleGuideSelectVenueResponse(params: {
+  userId: string;
+  storeId: string | null;
+  staffName: string;
+  venueId: GuideVenueId;
+  counts: GuideVenueCounts;
+  supabase: ReturnType<typeof createSupabaseClient>;
+  replyToken?: string;
+  channelAccessToken?: string;
+}): Promise<void> {
+  if (!params.storeId || !params.replyToken || !params.channelAccessToken) return;
+  const ok = await assertGuideReporterAndTarget(params);
+  if (!ok) return;
+  await sendReply(params.replyToken, params.channelAccessToken, [
+    buildGuideVenueGroupsSelectMessage({
+      staffName: params.staffName,
+      venueId: params.venueId,
+      counts: params.counts,
+    }),
+  ]);
+}
+
+async function handleGuideVenueGroupsResponse(params: {
+  userId: string;
+  storeId: string | null;
+  staffName: string;
+  venueId: GuideVenueId;
+  groups: number;
+  counts: GuideVenueCounts;
+  supabase: ReturnType<typeof createSupabaseClient>;
+  replyToken?: string;
+  channelAccessToken?: string;
+}): Promise<void> {
+  if (!params.storeId || !params.replyToken || !params.channelAccessToken) return;
+  const ok = await assertGuideReporterAndTarget(params);
+  if (!ok) return;
+
+  if (params.groups === 0) {
+    const next = { ...params.counts, [params.venueId]: { groups: 0, people: 0 } };
+    await sendReply(params.replyToken, params.channelAccessToken, [
+      buildGuideVenueMenuMessage({ staffName: params.staffName, counts: next }),
+    ]);
+    return;
+  }
+
+  await sendReply(params.replyToken, params.channelAccessToken, [
+    buildGuideVenuePeopleSelectMessage({
+      staffName: params.staffName,
+      venueId: params.venueId,
+      groups: params.groups,
+      counts: params.counts,
+    }),
+  ]);
+}
+
+async function handleGuideVenuePeopleResponse(params: {
+  userId: string;
+  storeId: string | null;
+  staffName: string;
+  venueId: GuideVenueId;
+  groups: number;
+  people: number;
+  counts: GuideVenueCounts;
+  supabase: ReturnType<typeof createSupabaseClient>;
+  replyToken?: string;
+  channelAccessToken?: string;
+}): Promise<void> {
+  if (!params.storeId || !params.replyToken || !params.channelAccessToken) return;
+  const ok = await assertGuideReporterAndTarget(params);
+  if (!ok) return;
+  const next: GuideVenueCounts = {
+    ...params.counts,
+    [params.venueId]: { groups: params.groups, people: params.people },
+  };
+  await sendReply(params.replyToken, params.channelAccessToken, [
+    buildGuideVenueMenuMessage({ staffName: params.staffName, counts: next }),
   ]);
 }
 
@@ -715,24 +888,8 @@ async function handleGuideStartEntryResponse(params: {
   channelAccessToken?: string;
 }): Promise<void> {
   if (!params.storeId || !params.replyToken || !params.channelAccessToken) return;
-  const isReporter = await validateGuideReporter({
-    userId: params.userId,
-    storeId: params.storeId,
-    supabase: params.supabase,
-  });
-  if (!isReporter) return;
-
-  const targets = await fetchGuideTargetsForStore({
-    storeId: params.storeId,
-    supabase: params.supabase,
-  });
-  if (!targets.includes(params.staffName)) {
-    console.error("[GuideWebhook] start_entry target invalid:", params.staffName);
-    await sendReply(params.replyToken, params.channelAccessToken, [
-      { type: "text", text: "対象スタッフが見つかりません。もう一度選択してください。" },
-    ]);
-    return;
-  }
+  const ok = await assertGuideReporterAndTarget(params);
+  if (!ok) return;
 
   if (params.mode === "gold_only") {
     await sendReply(params.replyToken, params.channelAccessToken, [
@@ -865,14 +1022,14 @@ async function handleGuideGoldCountResponse(params: {
   }
 
   if (params.goldCount === 0) {
+    const counts = emptyGuideVenueCounts();
+    counts.sek = { groups: params.sekCount, people: params.sekPeopleCount };
+    counts.gold = { groups: 0, people: 0 };
     await finalizeGuideHearingEntry({
       userId: params.userId,
       storeId: params.storeId,
       staffName: params.staffName,
-      sekCount: params.sekCount,
-      sekPeopleCount: params.sekPeopleCount,
-      goldCount: 0,
-      goldPeopleCount: 0,
+      counts,
       supabase: params.supabase,
       replyToken: params.replyToken,
       channelAccessToken: params.channelAccessToken,
@@ -904,14 +1061,14 @@ async function handleGuideGoldPeopleResponse(params: {
   channelAccessToken?: string;
 }): Promise<void> {
   if (!params.storeId) return;
+  const counts = emptyGuideVenueCounts();
+  counts.sek = { groups: params.sekCount, people: params.sekPeopleCount };
+  counts.gold = { groups: params.goldCount, people: params.goldPeopleCount };
   await finalizeGuideHearingEntry({
     userId: params.userId,
     storeId: params.storeId,
     staffName: params.staffName,
-    sekCount: params.sekCount,
-    sekPeopleCount: params.sekPeopleCount,
-    goldCount: params.goldCount,
-    goldPeopleCount: params.goldPeopleCount,
+    counts,
     supabase: params.supabase,
     replyToken: params.replyToken,
     channelAccessToken: params.channelAccessToken,
@@ -920,45 +1077,30 @@ async function handleGuideGoldPeopleResponse(params: {
 
 async function finalizeGuideHearingEntry(params: {
   userId: string;
-  storeId: string;
+  storeId: string | null;
   staffName: string;
-  sekCount: number;
-  sekPeopleCount: number;
-  goldCount: number;
-  goldPeopleCount: number;
+  counts: GuideVenueCounts;
   supabase: ReturnType<typeof createSupabaseClient>;
   replyToken?: string;
   channelAccessToken?: string;
 }): Promise<void> {
-  const isReporter = await validateGuideReporter({
+  if (!params.storeId) return;
+  const targets = await assertGuideReporterAndTarget({
     userId: params.userId,
     storeId: params.storeId,
+    staffName: params.staffName,
     supabase: params.supabase,
+    replyToken: params.replyToken,
+    channelAccessToken: params.channelAccessToken,
   });
-  if (!isReporter) return;
-
-  const targets = await fetchGuideTargetsForStore({
-    storeId: params.storeId,
-    supabase: params.supabase,
-  });
-  if (!targets.includes(params.staffName)) {
-    if (params.replyToken && params.channelAccessToken) {
-      await sendReply(params.replyToken, params.channelAccessToken, [
-        { type: "text", text: "対象スタッフが見つかりません。もう一度選択してください。" },
-      ]);
-    }
-    return;
-  }
+  if (!targets) return;
 
   try {
     await upsertGuideResult({
       supabase: params.supabase,
       storeId: params.storeId,
       staffName: params.staffName,
-      sekGuideCount: params.sekCount,
-      sekPeopleCount: params.sekPeopleCount,
-      goldGuideCount: params.goldCount,
-      goldPeopleCount: params.goldPeopleCount,
+      counts: params.counts,
     });
   } catch (err) {
     console.error("[GuideWebhook] upsert failed:", err);
@@ -970,8 +1112,8 @@ async function finalizeGuideHearingEntry(params: {
     return;
   }
 
-  const totalGroups = params.sekCount + params.goldCount;
-  const totalPeople = params.sekPeopleCount + params.goldPeopleCount;
+  const { guideCount, peopleCount } = sumGuideVenueCounts(params.counts);
+  const detail = formatGuideVenueCountsSummary(params.counts);
   const targetName = params.staffName;
 
   if (params.replyToken && params.channelAccessToken) {
@@ -980,8 +1122,8 @@ async function finalizeGuideHearingEntry(params: {
         type: "text",
         text:
           `${targetName}さんの案内を登録しました。\n` +
-          `セクキャバ ${params.sekCount}組数・${params.sekPeopleCount}人数 / GOLD ${params.goldCount}組数・${params.goldPeopleCount}人数\n` +
-          `合計 ${totalGroups}組数・${totalPeople}人数\n` +
+          `${detail}\n` +
+          `合計 ${guideCount}組数・${peopleCount}人数\n` +
           "続けて入力する場合は以下から選んでください。",
       },
       buildGuideTargetSelectMessage({

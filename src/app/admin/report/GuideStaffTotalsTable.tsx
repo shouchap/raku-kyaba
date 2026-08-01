@@ -1,5 +1,6 @@
 "use client";
 
+import { GUIDE_VENUES } from "@/lib/guide-venues";
 import type { GuideStaffTotalRow } from "./guide-report-aggregate";
 
 type Props = {
@@ -13,11 +14,12 @@ export function GuideStaffTotalsTable({
   forPrint = false,
   emptyMessage = "この月の案内実績データはありません。",
 }: Props) {
+  const colCount = 1 + GUIDE_VENUES.length * 2 + 2;
   return (
     <div className="guide-report-staff-table-wrap overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm print:shadow-none print:border print:rounded-none">
       <table
         className={`guide-report-staff-table w-full text-left text-sm ${
-          forPrint ? "guide-report-staff-table--print" : "min-w-[640px]"
+          forPrint ? "guide-report-staff-table--print" : "min-w-[1100px]"
         }`}
       >
         <thead>
@@ -25,18 +27,22 @@ export function GuideStaffTotalsTable({
             <th className="guide-report-staff-name-col px-3 py-3 font-semibold text-gray-900 text-left">
               スタッフ名
             </th>
-            <th className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-              {forPrint ? "GOLD組" : "GOLD（組数）"}
-            </th>
-            <th className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-              {forPrint ? "GOLD人" : "GOLD（人数）"}
-            </th>
-            <th className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-              {forPrint ? "セク組" : "セクキャバ（組数）"}
-            </th>
-            <th className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-              {forPrint ? "セク人" : "セクキャバ（人数）"}
-            </th>
+            {GUIDE_VENUES.map((v) => (
+              <th
+                key={`${v.id}-g`}
+                className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap"
+              >
+                {forPrint ? `${v.shortLabel}組` : `${v.label}（組数）`}
+              </th>
+            ))}
+            {GUIDE_VENUES.map((v) => (
+              <th
+                key={`${v.id}-p`}
+                className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap"
+              >
+                {forPrint ? `${v.shortLabel}人` : `${v.label}（人数）`}
+              </th>
+            ))}
             <th className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
               {forPrint ? "計組" : "計（組数）"}
             </th>
@@ -48,7 +54,7 @@ export function GuideStaffTotalsTable({
         <tbody>
           {staffTotals.length === 0 ? (
             <tr>
-              <td colSpan={7} className="px-4 py-10 text-center text-gray-500">
+              <td colSpan={colCount} className="px-4 py-10 text-center text-gray-500">
                 {emptyMessage}
               </td>
             </tr>
@@ -61,10 +67,22 @@ export function GuideStaffTotalsTable({
                 <td className="guide-report-staff-name-col px-3 py-3 font-medium text-gray-900">
                   {row.staff_name}
                 </td>
-                <td className="px-2 py-3 text-right tabular-nums text-gray-900">{row.goldGroups}</td>
-                <td className="px-2 py-3 text-right tabular-nums text-gray-900">{row.goldPeople}</td>
-                <td className="px-2 py-3 text-right tabular-nums text-gray-900">{row.sekGroups}</td>
-                <td className="px-2 py-3 text-right tabular-nums text-gray-900">{row.sekPeople}</td>
+                {GUIDE_VENUES.map((v) => (
+                  <td
+                    key={`${row.staff_name}-${v.id}-g`}
+                    className="px-2 py-3 text-right tabular-nums text-gray-900"
+                  >
+                    {row.byVenue[v.id].groups}
+                  </td>
+                ))}
+                {GUIDE_VENUES.map((v) => (
+                  <td
+                    key={`${row.staff_name}-${v.id}-p`}
+                    className="px-2 py-3 text-right tabular-nums text-gray-900"
+                  >
+                    {row.byVenue[v.id].people}
+                  </td>
+                ))}
                 <td className="px-2 py-3 text-right tabular-nums text-gray-900">{row.guideTotal}</td>
                 <td className="px-2 py-3 text-right tabular-nums text-gray-900">{row.peopleTotal}</td>
               </tr>

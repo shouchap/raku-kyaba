@@ -44,6 +44,9 @@ function monthRangeFromYm(ym: string): { start: string; end: string } | null {
 }
 
 const GUIDE_REPORT_SELECT_WITH_SEK_GOLD =
+  "id, store_id, staff_name, target_date, sek_guide_count, sek_people_count, gold_guide_count, gold_people_count, lounge_guide_count, lounge_people_count, girls_bar_guide_count, girls_bar_people_count, concecafe_guide_count, concecafe_people_count, philippine_pub_guide_count, philippine_pub_people_count, guide_count, people_count, responded_at";
+
+const GUIDE_REPORT_SELECT_SEK_GOLD_ONLY =
   "id, store_id, staff_name, target_date, sek_guide_count, sek_people_count, gold_guide_count, gold_people_count, guide_count, people_count, responded_at";
 
 const GUIDE_REPORT_SELECT_LEGACY =
@@ -144,9 +147,49 @@ export async function GET(request: Request) {
     .order("target_date", { ascending: false })
     .order("staff_name", { ascending: true });
 
-  let outRows = rowsFirst.data ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let outRows: any[] = rowsFirst.data ?? [];
 
-  if (rowsFirst.error && isDailyGuideResultsMissingSekGoldColumns(rowsFirst.error.message)) {
+  const missingExtraVenue =
+    rowsFirst.error &&
+    /lounge_|girls_bar_|concecafe_|philippine_pub_/.test(rowsFirst.error.message ?? "");
+
+  if (missingExtraVenue) {
+    const mid = await admin
+      .from("daily_guide_results")
+      .select(GUIDE_REPORT_SELECT_SEK_GOLD_ONLY)
+      .eq("store_id", storeId)
+      .gte("target_date", start)
+      .lte("target_date", end)
+      .order("target_date", { ascending: false })
+      .order("staff_name", { ascending: true });
+    if (mid.error && isDailyGuideResultsMissingSekGoldColumns(mid.error.message)) {
+      const legacy = await admin
+        .from("daily_guide_results")
+        .select(GUIDE_REPORT_SELECT_LEGACY)
+        .eq("store_id", storeId)
+        .gte("target_date", start)
+        .lte("target_date", end)
+        .order("target_date", { ascending: false })
+        .order("staff_name", { ascending: true });
+      if (legacy.error) {
+        logPostgrestError("GET /api/admin/guide-report daily_guide_results (legacy)", legacy.error);
+        return NextResponse.json(
+          { error: "Failed to load guide results", details: legacy.error.message },
+          { status: 500 }
+        );
+      }
+      outRows = coerceLegacyGuideRows(legacy.data ?? []);
+    } else if (mid.error) {
+      logPostgrestError("GET /api/admin/guide-report daily_guide_results (sek/gold)", mid.error);
+      return NextResponse.json(
+        { error: "Failed to load guide results", details: mid.error.message },
+        { status: 500 }
+      );
+    } else {
+      outRows = mid.data ?? [];
+    }
+  } else if (rowsFirst.error && isDailyGuideResultsMissingSekGoldColumns(rowsFirst.error.message)) {
     const legacy = await admin
       .from("daily_guide_results")
       .select(GUIDE_REPORT_SELECT_LEGACY)
