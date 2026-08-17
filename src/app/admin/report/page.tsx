@@ -6,9 +6,11 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { BUSINESS_THEME } from "@/lib/business-ui";
@@ -20,11 +22,31 @@ import {
   getTodayJst,
 } from "@/lib/date-utils";
 import { ChevronDown, ChevronRight, Printer } from "lucide-react";
-import { GuideReportTab } from "./GuideReportTab";
-import { CastAttendanceManualModal } from "./CastAttendanceManualModal";
-import { CastInterviewRecordsPanel } from "./CastInterviewRecordsPanel";
 import { BasicAttendanceReportTable } from "./BasicAttendanceReportTable";
-import { StoreAttendanceEditHistoryModal } from "./StoreAttendanceEditHistoryModal";
+
+/**
+ * 案内タブ・面談タブ・各モーダルは、その画面を開いたときだけ必要。
+ * まとめて静的 import するとレポート初回表示のバンドルが重くなるため分割する。
+ */
+const GuideReportTab = dynamic(
+  () => import("./GuideReportTab").then((m) => m.GuideReportTab),
+  { ssr: false, loading: () => <SectionFallback label="案内レポートを読み込み中" /> }
+);
+const CastInterviewRecordsPanel = dynamic(
+  () => import("./CastInterviewRecordsPanel").then((m) => m.CastInterviewRecordsPanel),
+  { ssr: false, loading: () => <SectionFallback label="面談記録を読み込み中" /> }
+);
+const CastAttendanceManualModal = dynamic(
+  () => import("./CastAttendanceManualModal").then((m) => m.CastAttendanceManualModal),
+  { ssr: false }
+);
+const StoreAttendanceEditHistoryModal = dynamic(
+  () =>
+    import("./StoreAttendanceEditHistoryModal").then(
+      (m) => m.StoreAttendanceEditHistoryModal
+    ),
+  { ssr: false }
+);
 import {
   fetchCastReportsForPeriod,
   sortCastReports,
@@ -548,7 +570,14 @@ function AdminReportContent() {
     router.replace(`/admin/report?${params.toString()}`);
   }, [loading, businessType, viewMode, dayDate, router]);
 
+  const fetchGenerationRef = useRef(0);
+
   const fetchData = useCallback(async () => {
+    // 月やタブを素早く切り替えると古いレスポンスが後着して表示が巻き戻るため、
+    // 世代番号で最新の取得だけを反映する。
+    const generation = ++fetchGenerationRef.current;
+    const isStale = () => generation !== fetchGenerationRef.current;
+
     setLoading(true);
     setError(null);
     const tenantId = activeStoreId;
@@ -577,6 +606,8 @@ function AdminReportContent() {
         st = (storesRes.data as Store | null) ?? null;
       }
 
+      if (isStale()) return;
+
       if (!st) {
         setStore(null);
         setWelfareRows([]);
@@ -601,6 +632,8 @@ function AdminReportContent() {
         return;
       }
 
+      if (isStale()) return;
+
       if (bt === "welfare_b") {
         setCabaretReports([]);
         const reportUrl =
@@ -620,20 +653,23 @@ function AdminReportContent() {
               "日報データの取得に失敗しました"
           );
         }
+        if (isStale()) return;
         setWelfareRows(Array.isArray(payload.welfare_rows) ? payload.welfare_rows : []);
         return;
       }
 
       setWelfareRows([]);
       const rows = await fetchCastReportsForPeriod(tenantId, start, end);
+      if (isStale()) return;
       setCabaretReports(rows);
     } catch (e: unknown) {
+      if (isStale()) return;
       console.error(e);
       setError(e instanceof Error ? e.message : "データの取得に失敗しました");
       setCabaretReports([]);
       setWelfareRows([]);
     } finally {
-      setLoading(false);
+      if (!isStale()) setLoading(false);
     }
   }, [supabase, start, end, activeStoreId, viewMode, dayDate, reportTab]);
 
@@ -1763,9 +1799,9 @@ function AdminReportContent() {
         />
       ) : null}
 
-      {activeStoreId ? (
+      {activeStoreId && storeAttendanceHistoryModalOpen ? (
         <StoreAttendanceEditHistoryModal
-          open={storeAttendanceHistoryModalOpen}
+          open
           storeId={activeStoreId}
           onClose={() => setStoreAttendanceHistoryModalOpen(false)}
         />
@@ -1776,6 +1812,14 @@ function AdminReportContent() {
 
 function ReportFallback() {
   return <div className="p-6 text-gray-600">読み込み中…</div>;
+}
+
+function SectionFallback({ label }: { label: string }) {
+  return (
+    <div className="p-6 text-sm text-slate-500" role="status" aria-live="polite">
+      {label}…
+    </div>
+  );
 }
 
 export default function AdminReportPage() {

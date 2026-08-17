@@ -5,6 +5,7 @@ import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { getTodayJst } from "@/lib/date-utils";
 import type { CastInterviewRecordRow } from "@/app/api/admin/cast-interview-records/route";
 import { compareDateYmd, type DateSortDir } from "./date-sort";
+import { confirmDialog } from "@/components/ConfirmDialog";
 
 type CastOption = { castId: string; name: string };
 
@@ -253,9 +254,12 @@ export function CastInterviewRecordsPanel({
   };
 
   const handleDelete = async (row: CastInterviewRecordRow) => {
-    const ok = window.confirm(
-      `${row.cast_name}さんの ${formatJaMonthDay(row.interview_date)} の面談記録を削除しますか？`
-    );
+    const ok = await confirmDialog({
+      title: "面談記録を削除しますか？",
+      message: `${row.cast_name}さんの ${formatJaMonthDay(row.interview_date)} の記録を削除します。元に戻せません。`,
+      confirmLabel: "削除する",
+      tone: "danger",
+    });
     if (!ok) return;
     setDeletingId(row.id);
     setError(null);

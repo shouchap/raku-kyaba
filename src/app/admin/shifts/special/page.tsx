@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { toast } from "@/components/Toast";
+import { confirmDialog } from "@/components/ConfirmDialog";
 
 type EventRow = {
   id: string;
@@ -117,9 +118,12 @@ export default function AdminSpecialShiftPage() {
     }
     const ok =
       mode === "bulk"
-        ? window.confirm(
-            "この店舗のアクティブなキャスト全員に LINE を送信します。よろしいですか？"
-          )
+        ? await confirmDialog({
+            title: "全員に LINE を送信しますか？",
+            message:
+              "この店舗のアクティブなキャスト全員へ一斉送信します。送信後の取り消しはできません。",
+            confirmLabel: "送信する",
+          })
         : true;
     if (!ok) return;
 

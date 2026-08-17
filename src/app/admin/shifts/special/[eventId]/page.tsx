@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { getWeekdayJst } from "@/lib/date-utils";
 import { DAY_STYLE_TEXT_CLASS, getDayStyleForYmd } from "@/lib/jp-calendar-style";
+import { isJapanesePublicHolidayYmd } from "@/lib/jp-holidays";
 import { enumerateInclusiveYmd } from "@/lib/special-shift-dates";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
@@ -102,7 +103,10 @@ export default async function AdminSpecialShiftMatrixPage({
                 日数
               </th>
               {dates.map((d) => {
-                const dayClass = DAY_STYLE_TEXT_CLASS[getDayStyleForYmd(d)];
+                const dayClass =
+                  DAY_STYLE_TEXT_CLASS[
+                    getDayStyleForYmd(d, isJapanesePublicHolidayYmd(d))
+                  ];
                 return (
                   <th
                     key={d}

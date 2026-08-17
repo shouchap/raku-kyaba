@@ -16,6 +16,7 @@ import {
 import { aggregateGuideRows } from "./guide-report-aggregate";
 import { GuideStaffTotalsTable } from "./GuideStaffTotalsTable";
 import { compareDateYmd, type DateSortDir } from "./date-sort";
+import { confirmDialog } from "@/components/ConfirmDialog";
 
 const BODY_VENUE_KEYS: Record<GuideVenueId, { g: string; p: string }> = {
   gold: { g: "goldGuideCount", p: "goldPeopleCount" },
@@ -256,7 +257,6 @@ export function GuideReportTab({
       setModalOpen(false);
       showToast(modalMode === "create" ? "追加しました。" : "保存しました。", "success");
       await refreshData({ silent: true });
-      router.refresh();
     } catch (e: unknown) {
       setModalError(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {
@@ -265,13 +265,13 @@ export function GuideReportTab({
   };
 
   const confirmDelete = async (r: DailyGuideResult) => {
-    if (
-      !window.confirm(
-        `${formatJaDateCell(r.target_date)} · ${r.staff_name}（合計${r.guide_count}組）を削除しますか？`
-      )
-    ) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: "案内実績を削除しますか？",
+      message: `${formatJaDateCell(r.target_date)} · ${r.staff_name}（合計${r.guide_count}組）`,
+      confirmLabel: "削除する",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       const res = await fetch("/api/admin/guide-hearing/results", {
         method: "DELETE",
@@ -285,7 +285,6 @@ export function GuideReportTab({
       }
       showToast("削除しました。", "success");
       await refreshData({ silent: true });
-      router.refresh();
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : "削除に失敗しました", "error");
     }

@@ -131,6 +131,8 @@ export default function AdminViewPage() {
 
   const today = useMemo(() => getTodayJst(), []); // 日本時間の今日
   const [baseDate, setBaseDate] = useState(today);
+  /** 取得失敗を黙って空表に見せないための表示用メッセージ */
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // 基準日から7日間の日付配列
   const dates = useMemo(() => {
@@ -171,6 +173,7 @@ export default function AdminViewPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     const storeId = activeStoreId;
     try {
       const [castsRes, storesRes] = await Promise.all([
@@ -210,12 +213,16 @@ export default function AdminViewPage() {
       } else if (castsRes.data) {
         setCasts(castsRes.data as Cast[]);
       } else {
-        if (castsRes.error) console.error(castsRes.error);
+        if (castsRes.error) {
+          console.error(castsRes.error);
+          setLoadError("キャスト情報を取得できませんでした。通信状況を確認して再読み込みしてください。");
+        }
         setCasts([]);
       }
       if (storesRes.data) setStore(storesRes.data as Store);
     } catch (err) {
       console.error(err);
+      setLoadError("データの取得に失敗しました。通信状況を確認して再読み込みしてください。");
     } finally {
       setLoading(false);
     }
@@ -404,6 +411,21 @@ export default function AdminViewPage() {
             baseDate={baseDate}
             onChange={setBaseDate}
           />
+          {loadError && (
+            <div
+              role="alert"
+              className="w-full rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800"
+            >
+              {loadError}
+              <button
+                type="button"
+                onClick={() => void fetchData()}
+                className="ml-3 rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-semibold text-red-800 hover:bg-red-50"
+              >
+                再読み込み
+              </button>
+            </div>
+          )}
           <button
             type="button"
             onClick={handleSaveAsImage}

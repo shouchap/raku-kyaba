@@ -7,6 +7,7 @@ import { sortCastsForShiftDisplay } from "@/lib/cast-display-sort";
 import { normalizeDefaultHospitalNames } from "@/lib/welfare-line-flex";
 import { getTodayJst } from "@/lib/date-utils";
 import type { CastEmploymentType } from "@/types/entities";
+import { confirmDialog } from "@/components/ConfirmDialog";
 
 type Cast = {
   id: string;
@@ -291,9 +292,13 @@ export default function AdminCastsPage() {
   };
 
   const handleDelete = async (cast: Cast) => {
-    const ok = window.confirm(
-      `「${cast.name}」さんを削除しますか？\n関連するシフト・出勤記録も削除されます。`
-    );
+    const ok = await confirmDialog({
+      title: `「${cast.name}」さんを削除しますか？`,
+      message:
+        "関連するシフト・出勤記録もすべて削除され、元に戻せません。在籍を終える場合は「退店」をご利用ください。",
+      confirmLabel: "削除する",
+      tone: "danger",
+    });
     if (!ok) return;
     if (cast.id === editingId) {
       handleCancelEdit();

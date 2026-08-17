@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import AdminNav from "@/components/AdminNav";
 import { ToastViewport } from "@/components/Toast";
+import { ConfirmDialogHost } from "@/components/ConfirmDialog";
 import { ActiveStoreProvider } from "@/contexts/ActiveStoreContext";
 import { tryGetActiveStoreIdFromServerCookies } from "@/lib/current-store-server";
 import { createServiceRoleClient } from "@/lib/supabase-service";
@@ -153,6 +154,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           menuSettings={menuSettings}
         />
         <ToastViewport />
+        <ConfirmDialogHost />
         <main className="flex-1 w-full px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pt-6 lg:px-8 lg:pt-8 print:p-0 print:pb-0">
           <div
             className={`mx-auto w-full max-w-7xl overflow-x-auto rounded-xl border shadow-sm sm:rounded-2xl min-h-[min(50vh,calc(100dvh-10rem))] print:overflow-visible print:rounded-none print:border-0 print:shadow-none print:min-h-0 ${theme.cardAccentClass}`}

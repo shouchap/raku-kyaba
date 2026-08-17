@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Json } from "@/types/database";
 import { addCalendarDaysJst } from "@/lib/date-utils";
 import { toast } from "@/components/Toast";
+import { confirmDialog } from "@/components/ConfirmDialog";
 
 type HistoryRow = {
   id: string;
@@ -411,7 +412,13 @@ export function CastAttendanceManualModal({
 
   const handleDelete = async () => {
     if (!attendanceLogId || !storeId) return;
-    if (!confirm("この日の打刻ログを削除します。よろしいですか？")) return;
+    const ok = await confirmDialog({
+      title: "この日の打刻ログを削除しますか？",
+      message: "削除すると元に戻せません。",
+      confirmLabel: "削除する",
+      tone: "danger",
+    });
+    if (!ok) return;
     setSaving(true);
     try {
       const res = await fetch(

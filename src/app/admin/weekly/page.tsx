@@ -9,6 +9,8 @@ import { normalizeDbTimeToShiftOption, getTimeOptions, parseShiftTimeStepMinutes
 import { toast } from "@/components/Toast";
 import { WeekRangePicker } from "@/components/WeekRangePicker";
 import { PageLoading } from "@/components/PageLoading";
+import { useUnsavedChangesWarning } from "@/hooks/useUnsavedChangesWarning";
+import { confirmDialog } from "@/components/ConfirmDialog";
 
 type Cast = {
   id: string;
@@ -70,6 +72,9 @@ export default function AdminWeeklyPage() {
   const [message, setMessage] = useState<"success" | "error" | null>(null);
   /** 直近の一括保存で API / PostgREST が返したヒント（画面に短く表示） */
   const [saveErrorHint, setSaveErrorHint] = useState<string | null>(null);
+  /** 未保存の入力があるか。離脱警告と保存ボタンの強調に使う */
+  const [dirty, setDirty] = useState(false);
+  useUnsavedChangesWarning(dirty);
 
   const today = useMemo(() => getTodayJst(), []);
   const [baseDate, setBaseDate] = useState(today);
@@ -249,6 +254,7 @@ export default function AdminWeeklyPage() {
       setEndMatrix(nextEndMatrix);
       setDohan(nextDohan);
       setSabaki(nextSabaki);
+      setDirty(false);
     },
     [supabase, casts, dates, shiftStep]
   );
@@ -282,10 +288,12 @@ export default function AdminWeeklyPage() {
       setEndMatrix(nextEnd);
       setDohan(nextDohan);
       setSabaki(nextSabaki);
+      setDirty(false);
     }
   }, [store, casts, dates, loadExistingSchedules]);
 
   const updateCell = (castId: string, dateStr: string, value: string) => {
+    setDirty(true);
     setMatrix((prev) => ({
       ...prev,
       [castId]: {
@@ -307,6 +315,7 @@ export default function AdminWeeklyPage() {
   };
 
   const updateEndCell = (castId: string, dateStr: string, value: string) => {
+    setDirty(true);
     setEndMatrix((prev) => ({
       ...prev,
       [castId]: {
@@ -320,6 +329,7 @@ export default function AdminWeeklyPage() {
   const toggleDohan = (castId: string, dateStr: string) => {
     const time = matrix[castId]?.[dateStr]?.trim();
     if (!time) return;
+    setDirty(true);
     setDohan((prev) => ({
       ...prev,
       [castId]: {
@@ -333,6 +343,7 @@ export default function AdminWeeklyPage() {
   const toggleSabaki = (castId: string, dateStr: string) => {
     const time = matrix[castId]?.[dateStr]?.trim();
     if (!time) return;
+    setDirty(true);
     setSabaki((prev) => ({
       ...prev,
       [castId]: {
@@ -353,6 +364,8 @@ export default function AdminWeeklyPage() {
       return;
     }
     const closed = store.regular_holidays ?? [];
+    setDirty(true);
+    toast.info("レギュラー出勤時間を入力しました。「一括保存する」を押すと確定します。");
     setMatrix((prev) => {
       const next: Record<string, Record<string, string>> = { ...prev };
       for (const cast of casts) {
@@ -399,9 +412,12 @@ export default function AdminWeeklyPage() {
     if (!store?.id) return;
     const [year, month] = baseDate.split("-").map(Number);
     if (!year || !month) return;
-    const ok = window.confirm(
-      "現在表示している月の1日から末日まで、レギュラーキャストの固定シフトを一括で保存します。よろしいですか？"
-    );
+    const ok = await confirmDialog({
+      title: `${month}月の固定シフトを一括保存しますか？`,
+      message:
+        "現在表示している月の1日から末日まで、レギュラーキャストの固定シフトを保存します。既存の入力は上書きされます。",
+      confirmLabel: "一括保存する",
+    });
     if (!ok) return;
 
     setFixingMonth(true);
@@ -490,10 +506,14 @@ export default function AdminWeeklyPage() {
 
       setSaveErrorHint(null);
       setMessage("success");
+      toast.success("シフトを保存しました。");
       await loadExistingSchedules(store.id);
     } catch (err) {
       console.error("[AdminWeekly] bulk-save exception", err);
       setMessage("error");
+      toast.error(
+        err instanceof Error ? err.message : "保存に失敗しました。通信状況を確認して再度お試しください。"
+      );
     } finally {
       setSaving(false);
     }

@@ -1,19 +1,16 @@
-import JapaneseHolidays from "japanese-holidays";
 import { getWeekdayJst } from "@/lib/date-utils";
 
 export type DayStyle = "weekday" | "saturday" | "sunday" | "holiday";
 
 /**
- * 日本の祝日（振替休日を含む）かどうか。ymd は JST の暦日。
+ * 日付表示用: 土曜は青、日曜・祝日は赤、それ以外はデフォルト。
+ *
+ * 祝日判定は `japanese-holidays`（数十KB）が必要なため、このモジュールでは
+ * 読み込まず呼び出し側から結果を渡す。クライアントバンドルに載せないための分離。
+ * 判定モジュールは `@/lib/jp-holidays`。
  */
-export function isJapanesePublicHolidayYmd(ymd: string): boolean {
-  const d = new Date(`${ymd}T12:00:00+09:00`);
-  return Boolean(JapaneseHolidays.isHolidayAt(d, true));
-}
-
-/** 日付表示用: 土曜は青、日曜・祝日は赤、それ以外はデフォルト */
-export function getDayStyleForYmd(ymd: string): DayStyle {
-  if (isJapanesePublicHolidayYmd(ymd)) return "holiday";
+export function getDayStyleForYmd(ymd: string, isHoliday = false): DayStyle {
+  if (isHoliday) return "holiday";
   const w = getWeekdayJst(ymd);
   if (w === 0) return "sunday";
   if (w === 6) return "saturday";

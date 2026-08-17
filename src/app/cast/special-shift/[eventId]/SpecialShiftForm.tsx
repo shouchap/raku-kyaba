@@ -130,16 +130,34 @@ export default function SpecialShiftForm({ eventId, castId }: Props) {
     }
   };
 
+  /**
+   * 祝日判定ライブラリは初期表示に必須ではないので、日付が確定してから読み込む。
+   * 読み込み完了までは平日/土日の色分けだけで表示する。
+   */
+  const [holidays, setHolidays] = useState<ReadonlySet<string>>(new Set());
+  const dates = state.status === "ready" ? state.dates : null;
+  useEffect(() => {
+    if (!dates || dates.length === 0) return;
+    let cancelled = false;
+    void import("@/lib/jp-holidays").then(({ isJapanesePublicHolidayYmd }) => {
+      if (cancelled) return;
+      setHolidays(new Set(dates.filter((ymd) => isJapanesePublicHolidayYmd(ymd))));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dates]);
+
   const dateRows = useMemo(() => {
     if (state.status !== "ready") return [];
     return state.dates.map((ymd) => {
       const [, m, d] = ymd.split("-").map(Number);
       const label = `${m}/${d}`;
       const w = WEEKDAY_JA[getWeekdayJst(ymd)];
-      const style = getDayStyleForYmd(ymd);
+      const style = getDayStyleForYmd(ymd, holidays.has(ymd));
       return { ymd, label, w, style };
     });
-  }, [state]);
+  }, [state, holidays]);
 
   if (state.status === "loading") {
     return (

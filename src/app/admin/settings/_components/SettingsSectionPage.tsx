@@ -20,6 +20,8 @@ import {
 } from "@/lib/pre-open-report-customization";
 import { buildEditableWeeklyReportTemplate } from "@/lib/weekly-report-customization";
 import { buildEditableDailyBarSummaryTemplate } from "@/lib/daily-bar-summary-customization";
+import { confirmDialog } from "@/components/ConfirmDialog";
+import { useUnsavedChangesWarning } from "@/hooks/useUnsavedChangesWarning";
 import {
   DEFAULT_WELFARE_MESSAGE_EVENING,
   DEFAULT_WELFARE_MESSAGE_MIDDAY,
@@ -465,6 +467,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     warnUnansweredLineTemplateText: "未返信アラート行テンプレート",
     warnUnansweredAndMoreTemplateText: "未返信アラート残数テンプレート",
   };
+
+  useUnsavedChangesWarning(isDirty);
 
   const unsavedChangeLabels = useMemo(() => {
     if (!isDirty || !initialSnapshot) return [] as string[];
@@ -1437,8 +1441,13 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     [menuEditorItems]
   );
 
-  const handleResetMenuSettings = useCallback(() => {
-    if (!window.confirm("メニューの設定を初期状態に戻しますか？")) return;
+  const handleResetMenuSettings = useCallback(async () => {
+    const ok = await confirmDialog({
+      title: "メニューの設定を初期状態に戻しますか？",
+      message: "並び順・表示名・非表示の設定がすべて既定値に戻ります。",
+      confirmLabel: "初期化する",
+    });
+    if (!ok) return;
     setMenuSettings({});
   }, []);
 
@@ -1461,7 +1470,17 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                   ? "業態別・機能ON/OFF"
                   : "権限・管理者"}
           </h1>
-          {message ? <p className="text-xs text-slate-500">{message}</p> : null}
+          {message ? (
+            <p
+              className={`text-xs font-medium ${
+                /失敗|エラー|できません/.test(message)
+                  ? "text-red-700"
+                  : "text-emerald-700"
+              }`}
+            >
+              {message}
+            </p>
+          ) : null}
           {showSave && isDirty ? (
             <p
               className="mt-1 text-xs text-amber-700"
