@@ -6,6 +6,9 @@ import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { addCalendarDaysJst, getTodayJst, getWeekdayJst } from "@/lib/date-utils";
 import { sortCastsForShiftDisplay } from "@/lib/cast-display-sort";
 import { normalizeDbTimeToShiftOption, getTimeOptions, parseShiftTimeStepMinutes } from "@/lib/time-options";
+import { toast } from "@/components/Toast";
+import { WeekRangePicker } from "@/components/WeekRangePicker";
+import { PageLoading } from "@/components/PageLoading";
 
 type Cast = {
   id: string;
@@ -344,7 +347,7 @@ export default function AdminWeeklyPage() {
     if (!store) return;
     const timeStr = normalizeDbTimeToShiftOption(store.regular_start_time, shiftStep);
     if (!timeStr) {
-      window.alert(
+      toast.error(
         "システム設定で「レギュラー出勤時間」を保存してから実行してください。（— のままでは使えません）"
       );
       return;
@@ -424,11 +427,11 @@ export default function AdminWeeklyPage() {
       await fetchData();
       await loadExistingSchedules(store.id);
       setMessage("success");
-      window.alert("今月固定シフトを反映しました。");
+      toast.success("今月固定シフトを反映しました。");
     } catch (e) {
       console.error(e);
       setMessage("error");
-      window.alert(e instanceof Error ? e.message : "今月固定の一括保存に失敗しました");
+      toast.error(e instanceof Error ? e.message : "今月固定の一括保存に失敗しました");
     } finally {
       setFixingMonth(false);
     }
@@ -512,7 +515,7 @@ export default function AdminWeeklyPage() {
     } catch (err) {
       console.error(err);
       setNotifyStatus("idle");
-      alert(err instanceof Error ? err.message : "送信に失敗しました");
+      toast.error(err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
       setNotifying(false);
     }
@@ -534,18 +537,14 @@ export default function AdminWeeklyPage() {
       if (!res.ok) throw new Error(data.error ?? "送信に失敗しました");
     } catch (err) {
       console.error(err);
-      alert(err instanceof Error ? err.message : "送信に失敗しました");
+      toast.error(err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
       setNotifyingOp(null);
     }
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-500">読み込み中...</p>
-      </div>
-    );
+    return <PageLoading rows={8} label="シフト入力を読み込み中" />;
   }
 
   return (
@@ -587,18 +586,11 @@ export default function AdminWeeklyPage() {
 
         {/* 基準日選択 */}
         <div className="mb-4 sm:mb-6">
-          <label
-            htmlFor="base-date"
-            className="block text-sm font-medium text-gray-700 mb-2"
-          >
-            基準日（週の開始日）
-          </label>
-          <input
-            id="base-date"
-            type="date"
-            value={baseDate}
-            onChange={(e) => setBaseDate(e.target.value)}
-            className="w-full sm:w-auto min-h-[44px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          <WeekRangePicker
+            label="基準日（週の開始日）"
+            inputId="base-date"
+            baseDate={baseDate}
+            onChange={setBaseDate}
           />
         </div>
 

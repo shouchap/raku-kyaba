@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import AdminNav from "@/components/AdminNav";
+import { ToastViewport } from "@/components/Toast";
 import { ActiveStoreProvider } from "@/contexts/ActiveStoreContext";
 import { tryGetActiveStoreIdFromServerCookies } from "@/lib/current-store-server";
 import { createServiceRoleClient } from "@/lib/supabase-service";
@@ -8,6 +9,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getStoreAdminStoreIdFromUser } from "@/lib/roles";
 import { isSuperAdminUser } from "@/lib/super-admin";
 import { BUSINESS_THEME, normalizeBusinessType } from "@/lib/business-ui";
+import { getCachedAdminShellValue } from "@/lib/admin-shell-cache";
 import { resolveCustomTerms } from "@/lib/custom-terms";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 
@@ -61,55 +63,66 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     isSuperAdmin = isSuperAdminUser(user);
 
     const admin = createServiceRoleClient();
-    if (isSuperAdmin) {
-      const { data } = await admin.from("stores").select("id, name").order("name");
-      stores = data ?? [];
-    } else {
-      const sid = getStoreAdminStoreIdFromUser(user);
-      if (sid) {
-        const { data } = await admin.from("stores").select("id, name").eq("id", sid).maybeSingle();
-        stores = data ? [data] : [];
-      }
-    }
+    const scopedStoreId = isSuperAdmin ? null : getStoreAdminStoreIdFromUser(user);
 
-    if (activeStoreId) {
-      const btWithTerms = await admin
-        .from("stores")
-        .select("business_type, custom_terms, menu_settings")
-        .eq("id", activeStoreId)
-        .maybeSingle();
-      let btRow = btWithTerms.data as {
-        business_type?: string | null;
-        custom_terms?: unknown;
-        menu_settings?: unknown;
-      } | null;
-      if (btWithTerms.error && isUndefinedColumnError(btWithTerms.error, "custom_terms")) {
-        const legacy = await admin
-          .from("stores")
-          .select("business_type")
-          .eq("id", activeStoreId)
-          .maybeSingle();
-        btRow = legacy.data as {
-          business_type?: string | null;
-          custom_terms?: unknown;
-          menu_settings?: unknown;
-        } | null;
-      } else if (btWithTerms.error && isUndefinedColumnError(btWithTerms.error, "menu_settings")) {
-        const noMenu = await admin
-          .from("stores")
-          .select("business_type, custom_terms")
-          .eq("id", activeStoreId)
-          .maybeSingle();
-        btRow = noMenu.data as {
-          business_type?: string | null;
-          custom_terms?: unknown;
-          menu_settings?: unknown;
-        } | null;
-      }
-      const bt = btRow?.business_type;
-      businessType = normalizeBusinessType(bt);
-      customTerms = resolveCustomTerms(btRow?.custom_terms);
-      menuSettings = normalizeMenuSettings(btRow?.menu_settings);
+    /** 店舗一覧・店舗設定は毎ナビゲーションで変わらないため短時間キャッシュする */
+    const [storeList, storeMeta] = await Promise.all([
+      getCachedAdminShellValue(
+        isSuperAdmin ? "stores:all" : `stores:${scopedStoreId ?? "none"}`,
+        async () => {
+          if (isSuperAdmin) {
+            const { data } = await admin.from("stores").select("id, name").order("name");
+            return data ?? [];
+          }
+          if (!scopedStoreId) return [];
+          const { data } = await admin
+            .from("stores")
+            .select("id, name")
+            .eq("id", scopedStoreId)
+            .maybeSingle();
+          return data ? [data] : [];
+        }
+      ),
+      activeStoreId
+        ? getCachedAdminShellValue(`store-meta:${activeStoreId}`, async () => {
+            const btWithTerms = await admin
+              .from("stores")
+              .select("business_type, custom_terms, menu_settings")
+              .eq("id", activeStoreId)
+              .maybeSingle();
+            let btRow = btWithTerms.data as {
+              business_type?: string | null;
+              custom_terms?: unknown;
+              menu_settings?: unknown;
+            } | null;
+            if (btWithTerms.error && isUndefinedColumnError(btWithTerms.error, "custom_terms")) {
+              const legacy = await admin
+                .from("stores")
+                .select("business_type")
+                .eq("id", activeStoreId)
+                .maybeSingle();
+              btRow = legacy.data as typeof btRow;
+            } else if (
+              btWithTerms.error &&
+              isUndefinedColumnError(btWithTerms.error, "menu_settings")
+            ) {
+              const noMenu = await admin
+                .from("stores")
+                .select("business_type, custom_terms")
+                .eq("id", activeStoreId)
+                .maybeSingle();
+              btRow = noMenu.data as typeof btRow;
+            }
+            return btRow;
+          })
+        : Promise.resolve(null),
+    ]);
+
+    stores = storeList;
+    if (storeMeta) {
+      businessType = normalizeBusinessType(storeMeta.business_type);
+      customTerms = resolveCustomTerms(storeMeta.custom_terms);
+      menuSettings = normalizeMenuSettings(storeMeta.menu_settings);
     }
   } catch {
     // SUPABASE_SERVICE_ROLE_KEY 未設定時など
@@ -139,6 +152,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           customTerms={customTerms}
           menuSettings={menuSettings}
         />
+        <ToastViewport />
         <main className="flex-1 w-full px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pt-6 lg:px-8 lg:pt-8 print:p-0 print:pb-0">
           <div
             className={`mx-auto w-full max-w-7xl overflow-x-auto rounded-xl border shadow-sm sm:rounded-2xl min-h-[min(50vh,calc(100dvh-10rem))] print:overflow-visible print:rounded-none print:border-0 print:shadow-none print:min-h-0 ${theme.cardAccentClass}`}

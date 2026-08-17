@@ -12,6 +12,7 @@ import {
   parseShiftTimeStepMinutes,
 } from "@/lib/time-options";
 import { resolveCustomTerms, serializeCustomTerms } from "@/lib/custom-terms";
+import { clearAdminShellCache } from "@/lib/admin-shell-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -813,6 +814,9 @@ export async function PATCH(request: Request) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  /** 用語・メニュー設定などレイアウトが読む値が変わるため、短期キャッシュを捨てる */
+  clearAdminShellCache();
 
   let body: PatchBody;
   try {

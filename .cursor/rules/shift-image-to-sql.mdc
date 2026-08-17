@@ -1,0 +1,46 @@
+---
+description: シフト画像/PDFから attendance_schedules 登録SQLを生成する手順
+alwaysApply: true
+---
+
+# シフト画像 → 登録SQL 生成ワークフロー
+
+ユーザーがシフト表（画像/PDF）を渡してきたら、確認を待たずに `attendance_schedules`
+への一括登録SQL（.sql）を生成する。対象店舗は原則 **松島 黄金**。
+
+## 1. 画像/PDFの正確な読み取り（最重要）
+- PDFは `pdftoppm -r 300 -png` で画像化。テキスト抽出は空セルが詰まり列がズレるので使わない。
+- 列（各キャスト）と行（日付）の対応を、**左・中・右のグループに分けて拡大**して1マスずつ確認する。
+  誤読は実シフトの誤登録に直結するため、右端の列や新規列を特に慎重に見る。
+- 記号の意味:
+  - `10-` など片側表記 = **10:00〜24:00（閉店）**。`10-17` = 10:00〜17:00。
+  - `×` = **休み → 登録から除外**。空欄 = シフトなし → 除外。
+- 新しいキャスト列（例: 玉川）が現れたら要注意。casts 未登録だと事前チェックで全体停止する旨を警告する。
+
+## 2. SQLの構成（過去に成功した堅牢版を厳守）
+- 冒頭に `BEGIN;` → `DO $$` ブロックで事前チェック:
+  - 店舗 `SELECT id FROM public.stores WHERE name = '松島 黄金' LIMIT 1`、無ければ `RAISE EXCEPTION`。
+  - 当該シフトの全キャストが `casts`（同店舗・`is_active = true`・`name` か `display_name` 一致）に存在するか確認し、
+    不足があれば名前を列挙して `RAISE EXCEPTION`。
+- 本体は `WITH target_store … , shift_rows(VALUES …) , resolved …` の CTE 構成。
+  - cast 解決: `c.store_id = 店舗 AND c.is_active = true AND (c.name = 名前 OR c.display_name = 名前)`。
+  - 日付/時刻は `::date` / `::time` にキャスト。退勤24:00は `'24:00:00'`。
+- カラム名は必ず **`scheduled_date` / `scheduled_time`(開始) / `scheduled_end_time`(終了)**。
+  （`work_date` / `start_time` / `end_time` は誤り）
+- Boolean NOT NULL（`is_absent, is_late, is_action_completed, is_dohan, is_sabaki, has_reservation`）は全て `false`。
+- 冪等化のため `ON CONFLICT (store_id, cast_id, scheduled_date) DO UPDATE`（時刻更新＋フラグfalse＋`updated_at = NOW()`）。
+- 末尾に登録件数確認用の `SELECT`（対象期間・店舗で並べる）を付ける。
+
+## 3. 出力と適用（SQL Editor への貼り付けは不要）
+- ファイルを `supabase/seeds/attendance_schedules_YYYY_MM_DD_DD.sql` に保存する。
+- 続けて `npm run db:seed-to-migration -- <ファイル名>` を実行し、
+  `supabase/migrations/NNN_seed_*.sql` を生成する。
+- そのまま commit → `git push origin main` すると GitHub Actions
+  （`.github/workflows/supabase-migrate.yml`）が本番DBへ自動適用する。
+- Supabase MCP（`.cursor/mcp.json`）が使える場合は、その場で SQL を実行して結果を確認してもよい。
+- これは **データ投入のみでコード変更なし → Vercel デプロイは不要**。
+- 実行後にキャスト名不一致（RAISE EXCEPTION）が出たら、その名前を casts の表記に合わせて調整する。
+
+## 4. サイトに反映されない時の切り分け（参考）
+- `/admin/view`・`/admin/weekly` は「アクティブ店舗」かつ「基準日から7日間」だけを表示する。
+  データが入っていても、店舗違い or 表示週が該当日を含まないと空欄になる（キャッシュ問題ではない）。

@@ -22,6 +22,7 @@ import {
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { BUSINESS_THEME, type BusinessType } from "@/lib/business-ui";
 import type { CustomTerms } from "@/lib/custom-terms";
+import { toast } from "@/components/Toast";
 
 type NavItem = {
   id: string;
@@ -178,13 +179,13 @@ export default function AdminNav({
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        alert(j.error ?? "店舗の切り替えに失敗しました");
+        toast.error(j.error ?? "店舗の切り替えに失敗しました");
         return;
       }
       router.refresh();
     } catch (err) {
       console.error(err);
-      alert("店舗の切り替えに失敗しました");
+      toast.error("店舗の切り替えに失敗しました");
     }
   };
 

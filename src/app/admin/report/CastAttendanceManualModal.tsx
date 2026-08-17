@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Json } from "@/types/database";
 import { addCalendarDaysJst } from "@/lib/date-utils";
+import { toast } from "@/components/Toast";
 
 type HistoryRow = {
   id: string;
@@ -349,7 +350,7 @@ export function CastAttendanceManualModal({
     try {
       payload = buildPayload();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "入力を確認してください");
+      toast.error(e instanceof Error ? e.message : "入力を確認してください");
       return;
     }
 
@@ -402,7 +403,7 @@ export function CastAttendanceManualModal({
       setPanel("edit");
       setHistories(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "保存に失敗しました");
+      toast.error(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {
       setSaving(false);
     }
@@ -423,7 +424,7 @@ export function CastAttendanceManualModal({
       await fetchLookup();
       setHistories(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "削除に失敗しました");
+      toast.error(e instanceof Error ? e.message : "削除に失敗しました");
     } finally {
       setSaving(false);
     }

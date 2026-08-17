@@ -1,16 +1,15 @@
 import type { ReactNode } from "react";
-import { Inter, Noto_Sans_JP } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
+/**
+ * 日本語は OS 標準フォント（globals.css の font-family）に任せる。
+ * Noto Sans JP は latin サブセットしか配信されず日本語描画に使われないため、
+ * 読み込むだけ初回表示が遅くなる。
+ */
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
-  display: "swap",
-});
-
-const notoSansJp = Noto_Sans_JP({
-  subsets: ["latin"],
-  variable: "--font-noto-jp",
   display: "swap",
 });
 
@@ -32,7 +31,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${inter.variable} ${notoSansJp.variable} min-h-screen overflow-x-hidden antialiased font-sans`}
+        className={`${inter.variable} min-h-screen overflow-x-hidden antialiased font-sans`}
       >
         {children}
       </body>

@@ -14,6 +14,7 @@
     "db:link": "npx supabase link --project-ref hfywqyebxaootfgmcvfz",
     "db:status": "npx supabase migration list",
     "db:push": "npx supabase db push",
+    "db:seed-to-migration": "node scripts/seed-to-migration.mjs",
     "db:repair-applied": "node scripts/supabase-mark-migrations-applied.mjs"
   },
   "dependencies": {

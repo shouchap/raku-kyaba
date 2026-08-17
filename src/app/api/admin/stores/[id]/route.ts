@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createServiceRoleClient } from "@/lib/supabase-service";
 import { isSuperAdminUser } from "@/lib/super-admin";
 import { isValidStoreId } from "@/lib/current-store";
+import { clearAdminShellCache } from "@/lib/admin-shell-cache";
 
 export const dynamic = "force-dynamic";
 

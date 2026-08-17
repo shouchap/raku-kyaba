@@ -7,6 +7,9 @@ import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { getTodayJst } from "@/lib/date-utils";
 import { getCastDisplaySortWeight } from "@/lib/cast-display-sort";
 import { SubmitSuccessToast } from "./SubmitSuccessToast";
+import { toast } from "@/components/Toast";
+import { WeekRangePicker } from "@/components/WeekRangePicker";
+import { PageLoading } from "@/components/PageLoading";
 
 /** 未返信アラートを出すまでの経過時間（時間） */
 const ALERT_HOURS = 6;
@@ -323,7 +326,7 @@ export default function AdminViewPage() {
       link.click();
     } catch (err) {
       console.error("[View] 画像保存エラー:", err);
-      alert("画像の保存に失敗しました。");
+      toast.error("画像の保存に失敗しました。");
     } finally {
       setCapturing(false);
       setSavingImage(false);
@@ -348,22 +351,18 @@ export default function AdminViewPage() {
       if (!res.ok || data.ok !== true) {
         throw new Error(data.error ?? data.details ?? "手動送信に失敗しました");
       }
-      alert(
+      toast.success(
         `LINE送信テストを実行しました（対象日: ${data.targetDate ?? targetDate} / 送信店舗数: ${typeof data.processedCount === "number" ? data.processedCount : 0}）`
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : "手動送信に失敗しました");
+      toast.error(e instanceof Error ? e.message : "手動送信に失敗しました");
     } finally {
       setSendingLineTest(false);
     }
   }, [activeStoreId, baseDate, today]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <p className="text-gray-500 text-sm sm:text-base">読み込み中...</p>
-      </div>
-    );
+    return <PageLoading rows={8} label="シフト一覧を読み込み中" />;
   }
 
   return (
@@ -399,21 +398,12 @@ export default function AdminViewPage() {
 
         {/* 基準日選択 */}
         <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-end gap-4">
-          <div>
-            <label
-              htmlFor="base-date"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              表示する週の基準日
-            </label>
-            <input
-              id="base-date"
-              type="date"
-              value={baseDate}
-              onChange={(e) => setBaseDate(e.target.value)}
-              className="w-full sm:w-auto min-h-[44px] h-12 px-4 rounded-lg border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            />
-          </div>
+          <WeekRangePicker
+            label="表示する週の基準日"
+            inputId="base-date"
+            baseDate={baseDate}
+            onChange={setBaseDate}
+          />
           <button
             type="button"
             onClick={handleSaveAsImage}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
+import { toast } from "@/components/Toast";
 
 type EventRow = {
   id: string;
@@ -79,7 +80,7 @@ export default function AdminSpecialShiftPage() {
   const createEvent = async () => {
     const t = title.trim();
     if (!t || !startDate || !endDate) {
-      alert("タイトル・開始日・終了日を入力してください");
+      toast.error("タイトル・開始日・終了日を入力してください");
       return;
     }
     setCreating(true);
@@ -93,7 +94,7 @@ export default function AdminSpecialShiftPage() {
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(typeof j.error === "string" ? j.error : "作成に失敗しました");
+        toast.error(typeof j.error === "string" ? j.error : "作成に失敗しました");
         return;
       }
       setTitle("");
@@ -101,8 +102,9 @@ export default function AdminSpecialShiftPage() {
       setEndDate("");
       await fetchEvents();
       setMessage("企画を作成しました");
+      toast.success("企画を作成しました");
     } catch {
-      alert("作成に失敗しました");
+      toast.error("作成に失敗しました");
     } finally {
       setCreating(false);
     }
@@ -110,7 +112,7 @@ export default function AdminSpecialShiftPage() {
 
   const sendLine = async (eventId: string, mode: "test" | "bulk") => {
     if (mode === "test" && !testCastId) {
-      alert("送信先のキャストを選んでください");
+      toast.error("送信先のキャストを選んでください");
       return;
     }
     const ok =
@@ -134,18 +136,19 @@ export default function AdminSpecialShiftPage() {
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(typeof j.error === "string" ? j.error : "送信に失敗しました");
+        toast.error(typeof j.error === "string" ? j.error : "送信に失敗しました");
         return;
       }
       if (mode === "bulk") {
-        setMessage(
-          `一括送信: 成功 ${j.successCount ?? 0} 件 / 失敗 ${j.failCount ?? 0} 件`
-        );
+        const summary = `一括送信: 成功 ${j.successCount ?? 0} 件 / 失敗 ${j.failCount ?? 0} 件`;
+        setMessage(summary);
+        toast.success(summary);
       } else {
         setMessage("テスト送信が完了しました");
+        toast.success("テスト送信が完了しました");
       }
     } catch {
-      alert("送信に失敗しました");
+      toast.error("送信に失敗しました");
     } finally {
       setSendingEventId(null);
     }

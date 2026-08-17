@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createServiceRoleClient } from "@/lib/supabase-service";
 import { isSuperAdminUser } from "@/lib/super-admin";
+import { clearAdminShellCache } from "@/lib/admin-shell-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,8 @@ export async function POST(request: Request) {
   if (!isSuperAdminUser(user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  clearAdminShellCache();
 
   let body: CreateBody;
   try {
