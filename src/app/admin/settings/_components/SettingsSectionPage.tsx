@@ -316,6 +316,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   );
   const [testingWelfare, setTestingWelfare] = useState(false);
   const [welfareTestDetail, setWelfareTestDetail] = useState<string | null>(null);
+  const [testingWelfareUnstarted, setTestingWelfareUnstarted] = useState(false);
+  const [welfareUnstartedDetail, setWelfareUnstartedDetail] = useState<string | null>(null);
   const [preOpenPreviewLoading, setPreOpenPreviewLoading] = useState(false);
   const [preOpenPreviewBaseText, setPreOpenPreviewBaseText] = useState("");
   const [preOpenPreviewEditorText, setPreOpenPreviewEditorText] = useState("");
@@ -1163,6 +1165,38 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setTestingWelfare(false);
     }
   }, [activeStoreId, welfareTestCastId, welfareTestSegment]);
+
+  const handleWelfareUnstartedTest = useCallback(async () => {
+    setTestingWelfareUnstarted(true);
+    setWelfareUnstartedDetail(null);
+    try {
+      const res = await fetch("/api/admin/welfare/warn-unstarted-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId: activeStoreId }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        sent?: boolean;
+        unstartedCount?: number;
+        names?: string[];
+        message?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "送信失敗");
+      if (!data.sent) {
+        setWelfareUnstartedDetail(data.message ?? "未打刻の利用者はいません（送信なし）");
+        return;
+      }
+      const names = Array.isArray(data.names) ? data.names : [];
+      setWelfareUnstartedDetail(
+        `未打刻 ${data.unstartedCount ?? names.length}名を管理者へ送信しました（${names.slice(0, 5).join("、")}${names.length > 5 ? " ほか" : ""}）`
+      );
+    } catch (e) {
+      setWelfareUnstartedDetail(e instanceof Error ? e.message : "送信失敗");
+    } finally {
+      setTestingWelfareUnstarted(false);
+    }
+  }, [activeStoreId]);
 
   const handleWarnUnansweredTest = useCallback(async () => {
     if (!warnUnansweredTestCastId) return;
@@ -2250,6 +2284,27 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                   </button>
                 </div>
                 {welfareTestDetail ? <p className="text-xs text-slate-600">{welfareTestDetail}</p> : null}
+              </div>
+            ) : null}
+
+            {businessType === "welfare_b" ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
+                <p className="text-xs font-semibold text-slate-800">作業開始 未打刻アラート テスト</p>
+                <p className="text-xs text-slate-600">
+                  毎日12:00に、当日「作業開始」を押していない利用者を管理者へLINE通知します。
+                  ここでは今すぐ同じ判定を行い、1通送信して内容を確認できます。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void handleWelfareUnstartedTest()}
+                  disabled={testingWelfareUnstarted}
+                  className="btn-secondary whitespace-nowrap"
+                >
+                  {testingWelfareUnstarted ? "送信中..." : "今すぐ判定して送信"}
+                </button>
+                {welfareUnstartedDetail ? (
+                  <p className="text-xs text-slate-600">{welfareUnstartedDetail}</p>
+                ) : null}
               </div>
             ) : null}
 

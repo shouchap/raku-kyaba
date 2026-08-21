@@ -16,6 +16,7 @@ import { sendMulticastMessage } from "@/lib/line-reply";
 import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
 import { getTodayJst } from "@/lib/date-utils";
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
+import { getAdminRecipientLineUserIds } from "@/lib/line-admin-recipients";
 
 export const dynamic = "force-dynamic";
 
@@ -238,45 +239,6 @@ function buildUnansweredAlertMessage(
     "\n" +
     andMoreTemplate.replace(/\{count\}/g, String(items.length - MAX_NAMES_IN_MESSAGE))
   );
-}
-
-/**
- * 管理者の LINE ユーザー ID（stores.admin_line_user_id と is_admin キャストをマージ・重複除去）
- */
-async function getAdminRecipientLineUserIds(
-  supabase: SupabaseClient,
-  storeId: string
-): Promise<string[]> {
-  const ids = new Set<string>();
-
-  const { data: storeRow, error: storeErr } = await supabase
-    .from("stores")
-    .select("admin_line_user_id")
-    .eq("id", storeId)
-    .maybeSingle();
-
-  if (!storeErr) {
-    const legacy = (storeRow as { admin_line_user_id?: string | null } | null)
-      ?.admin_line_user_id;
-    if (legacy && String(legacy).trim() !== "") {
-      ids.add(String(legacy).trim());
-    }
-  }
-
-  const { data: adminCasts } = await supabase
-    .from("casts")
-    .select("line_user_id")
-    .eq("store_id", storeId)
-    .eq("is_admin", true)
-    .eq("is_active", true)
-    .not("line_user_id", "is", null);
-
-  for (const r of adminCasts ?? []) {
-    const id = (r as { line_user_id?: string }).line_user_id;
-    if (id && String(id).trim() !== "") ids.add(String(id).trim());
-  }
-
-  return [...ids];
 }
 
 async function markSchedulesAsWarned(
