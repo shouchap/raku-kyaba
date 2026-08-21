@@ -122,7 +122,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     stores = storeList;
     if (storeMeta) {
       businessType = normalizeBusinessType(storeMeta.business_type);
-      customTerms = resolveCustomTerms(storeMeta.custom_terms);
+      customTerms = resolveCustomTerms(storeMeta.custom_terms, businessType);
       menuSettings = normalizeMenuSettings(storeMeta.menu_settings);
     }
   } catch {

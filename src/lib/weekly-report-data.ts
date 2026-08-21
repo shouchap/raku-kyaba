@@ -73,7 +73,7 @@ export async function loadWeeklyReportBuildInput(
   const businessType: WeeklyReportBusinessType =
     rawBt === "welfare_b" ? "welfare_b" : rawBt === "bar" ? "bar" : "cabaret";
   const regularHolidays = normalizeRegularHolidays(storeRow.regular_holidays);
-  const terms = resolveCustomTerms(storeRow.custom_terms);
+  const terms = resolveCustomTerms(storeRow.custom_terms, businessType);
 
   if (businessType === "welfare_b") {
     const { data: logRows, error: logErr } = await admin

@@ -452,7 +452,7 @@ export async function GET(request: Request) {
     let welfare_message_evening: string | null = null;
     let welfare_message_welcome: string | null = null;
     let welfare_work_items: string | null = null;
-    let customTerms = serializeCustomTerms(resolveCustomTerms(null));
+    let customTerms = serializeCustomTerms(resolveCustomTerms(null, businessType), businessType);
 
     const welfareRes = await admin
       .from("stores")
@@ -589,7 +589,7 @@ export async function GET(request: Request) {
       askGuestTime = bf.ask_guest_time === true;
       isGuideEnabled = bf.is_guide_enabled !== false;
       isDohanSabakiEnabled = bf.is_dohan_sabaki_enabled !== false;
-      customTerms = serializeCustomTerms(resolveCustomTerms(bf.custom_terms));
+      customTerms = serializeCustomTerms(resolveCustomTerms(bf.custom_terms, businessType), businessType);
       menuSettings = normalizeMenuSettings(bf.menu_settings);
     } else if (
       barFlagsRes.error &&
@@ -631,7 +631,7 @@ export async function GET(request: Request) {
         askGuestTime = bf.ask_guest_time === true;
         isGuideEnabled = bf.is_guide_enabled !== false;
         isDohanSabakiEnabled = bf.is_dohan_sabaki_enabled !== false;
-        customTerms = serializeCustomTerms(resolveCustomTerms(bf.custom_terms));
+        customTerms = serializeCustomTerms(resolveCustomTerms(bf.custom_terms, businessType), businessType);
       } else if (bfNoMenu.error && !isUndefinedColumnError(bfNoMenu.error, "ask_guest_name")) {
         logPostgrestError("GET stores fallback without menu_settings", bfNoMenu.error);
       }
@@ -1436,7 +1436,13 @@ export async function PATCH(request: Request) {
       storePayload.is_dohan_sabaki_enabled = body.is_dohan_sabaki_enabled as boolean;
     }
     if (customTermsProvided) {
-      storePayload.custom_terms = serializeCustomTerms(resolveCustomTerms(body.custom_terms));
+      const termsBusinessType = businessTypeProvided
+        ? (body.business_type as "cabaret" | "welfare_b" | "bar" | "fuzoku")
+        : undefined;
+      storePayload.custom_terms = serializeCustomTerms(
+        resolveCustomTerms(body.custom_terms, termsBusinessType),
+        termsBusinessType
+      );
     }
     if (menuSettingsProvided) {
       storePayload.menu_settings = normalizeMenuSettings(body.menu_settings);

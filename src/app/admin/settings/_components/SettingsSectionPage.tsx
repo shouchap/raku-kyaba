@@ -457,7 +457,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
     weeklyReportTime: "週間レポート送信時刻",
     menuSettings: "メニューカスタマイズ",
     termAttendance: "出勤ラベル",
-    termCast: "キャストラベル",
+    termCast: "利用者/キャストラベル",
     shiftTimeStepMinutes: "シフト時刻の刻み",
     lineCustomizationText: "LINE詳細カスタム(JSON)",
     welfareLineSettingsText: "福祉LINE定期配信文面",
@@ -531,7 +531,10 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setAttendanceFlowType(data.attendance_flow_type === "bar_extended" ? "bar_extended" : "default");
       setIsGuideMasterEnabled(data.is_guide_enabled !== false);
       setIsDohanSabakiEnabled(data.is_dohan_sabaki_enabled !== false);
-      const terms = resolveCustomTerms(data.custom_terms);
+      const terms = resolveCustomTerms(
+        data.custom_terms,
+        typeof data.business_type === "string" ? data.business_type : null
+      );
       setTermAttendance(terms.term_attendance);
       setTermCast(terms.term_cast);
       setPreOpenReportHourJst(
@@ -886,10 +889,13 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           attendance_flow_type: attendanceFlowType,
           is_guide_enabled: isGuideMasterEnabled,
           is_dohan_sabaki_enabled: isDohanSabakiEnabled,
-          custom_terms: serializeCustomTerms({
-            term_attendance: termAttendance,
-            term_cast: termCast,
-          }),
+          custom_terms: serializeCustomTerms(
+            {
+              term_attendance: termAttendance,
+              term_cast: termCast,
+            },
+            businessType
+          ),
           weekly_report_enabled: weeklyReportEnabled,
           weekly_report_day: weeklyReportDay,
           weekly_report_time: weeklyReportTime,
@@ -1555,7 +1561,17 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                   <input
                     type="radio"
                     checked={businessType === bt}
-                    onChange={() => setBusinessType(bt)}
+                    onChange={() => {
+                      setBusinessType(bt);
+                      if (bt === "welfare_b" && (termCast === "キャスト" || !termCast.trim())) {
+                        setTermCast("利用者");
+                      } else if (
+                        bt !== "welfare_b" &&
+                        (termCast === "利用者" || !termCast.trim())
+                      ) {
+                        setTermCast("キャスト");
+                      }
+                    }}
                     className="h-4 w-4 accent-blue-600 disabled:accent-slate-400"
                   />
                   {bt === "cabaret" ? "キャバクラ" : bt === "bar" ? "BAR" : bt === "welfare_b" ? "福祉" : "風俗"}
@@ -1566,7 +1582,13 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
           <section className="app-card p-4 text-slate-900">
             <h2 className="text-sm font-semibold text-slate-900 inline-flex items-center gap-1.5">
               表示ラベル設定
-              <Tip text="レポート・ナビの『出勤』『キャスト』表記を店舗ごとに調整できます。" />
+              <Tip
+                text={
+                  businessType === "welfare_b"
+                    ? "レポート・ナビの『出勤』『利用者』表記を店舗ごとに調整できます。"
+                    : "レポート・ナビの『出勤』『キャスト』表記を店舗ごとに調整できます。"
+                }
+              />
             </h2>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="block text-sm text-slate-700">
@@ -1579,11 +1601,11 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 />
               </label>
               <label className="block text-sm text-slate-700">
-                キャストラベル
+                {businessType === "welfare_b" ? "利用者ラベル" : "キャストラベル"}
                 <input
                   value={termCast}
                   onChange={(e) => setTermCast(e.target.value)}
-                  placeholder="キャスト"
+                  placeholder={businessType === "welfare_b" ? "利用者" : "キャスト"}
                   className={`mt-1 w-full ${CONTROL_CLASS}`}
                 />
               </label>

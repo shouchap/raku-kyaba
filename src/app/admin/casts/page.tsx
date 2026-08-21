@@ -57,6 +57,7 @@ export default function AdminCastsPage() {
   const [departModalCast, setDepartModalCast] = useState<Cast | null>(null);
   const [departReason, setDepartReason] = useState("");
   const [message, setMessage] = useState<"success" | "error" | null>(null);
+  const isWelfare = store?.business_type === "welfare_b";
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -294,8 +295,9 @@ export default function AdminCastsPage() {
   const handleDelete = async (cast: Cast) => {
     const ok = await confirmDialog({
       title: `「${cast.name}」さんを削除しますか？`,
-      message:
-        "関連するシフト・出勤記録もすべて削除され、元に戻せません。在籍を終える場合は「退店」をご利用ください。",
+      message: isWelfare
+        ? "関連する出勤記録もすべて削除され、元に戻せません。"
+        : "関連するシフト・出勤記録もすべて削除され、元に戻せません。在籍を終える場合は「退店」をご利用ください。",
       confirmLabel: "削除する",
       tone: "danger",
     });
@@ -340,7 +342,6 @@ export default function AdminCastsPage() {
     );
   }
 
-  const isWelfare = store?.business_type === "welfare_b";
   const storeBusinessType = store?.business_type ?? "cabaret";
   const allowDepartCast =
     !isWelfare &&
@@ -363,7 +364,7 @@ export default function AdminCastsPage() {
             onClick={() => setCreateModalOpen(true)}
             className="min-h-[40px] rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 touch-manipulation"
           >
-            手動でキャストを追加
+            手動で{isWelfare ? "利用者" : "キャスト"}を追加
           </button>
         </div>
       </div>
@@ -408,7 +409,11 @@ export default function AdminCastsPage() {
                     </div>
                     <div className="flex w-full min-w-0 flex-row flex-wrap items-center justify-end gap-2">
                       <span className="flex-none shrink-0 rounded-full bg-fuchsia-50 px-2 py-0.5 text-xs font-medium text-fuchsia-700">
-                        {cast.role === "nakai" ? "仲居" : "キャスト"}
+                        {cast.role === "nakai"
+                          ? "仲居"
+                          : isWelfare
+                            ? "利用者"
+                            : "キャスト"}
                       </span>
                       {!isWelfare && (
                         <span className="flex-none shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
@@ -426,7 +431,11 @@ export default function AdminCastsPage() {
                       {cast.is_admin && (
                         <span
                           className="flex-none shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800"
-                          title="管理者向け通知の受信対象です（キャスト本人への出勤確認送信可否とは別設定）"
+                          title={
+                            isWelfare
+                              ? "管理者向け通知の受信対象です"
+                              : "管理者向け通知の受信対象です（キャスト本人への出勤確認送信可否とは別設定）"
+                          }
                         >
                           👑 管理通知先
                         </span>
@@ -510,15 +519,18 @@ export default function AdminCastsPage() {
                     />
                   </label>
                   <label className="block w-full">
-                    <span className="mb-1.5 block text-xs font-medium text-gray-600">表示名（源氏名）</span>
+                    <span className="mb-1.5 block text-xs font-medium text-gray-600">
+                      {isWelfare ? "表示名（任意）" : "表示名（源氏名）"}
+                    </span>
                     <input
                       type="text"
                       value={editDisplayName}
                       onChange={(e) => setEditDisplayName(e.target.value)}
                       className="w-full min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                      placeholder="未入力時は名前を表示"
+                      placeholder={isWelfare ? "未入力時は利用者名を表示" : "未入力時は名前を表示"}
                     />
                   </label>
+                  {!isWelfare && (
                   <label className="block w-full">
                     <span className="mb-1.5 block text-xs font-medium text-gray-600">役職</span>
                     <select
@@ -530,6 +542,7 @@ export default function AdminCastsPage() {
                       <option value="nakai">仲居</option>
                     </select>
                   </label>
+                  )}
 
                   <label className="block w-full">
                     <span className="mb-1.5 block text-xs font-medium text-gray-600">
@@ -560,6 +573,7 @@ export default function AdminCastsPage() {
                     <span className="text-sm leading-snug text-gray-700">管理者通知を受け取る</span>
                   </label>
 
+                  {!isWelfare && (
                   <label className="flex w-full cursor-pointer items-start gap-3 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-3">
                     <input
                       type="checkbox"
@@ -571,6 +585,7 @@ export default function AdminCastsPage() {
                       案内数ヒアリングの対象にする（営業終了時にLINE送信）
                     </span>
                   </label>
+                  )}
 
                   {isWelfare && (
                     <div className="block w-full">
@@ -702,13 +717,19 @@ export default function AdminCastsPage() {
       {createModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-5 shadow-xl">
-            <h2 className="text-base font-semibold text-gray-900">キャストを手動追加</h2>
+            <h2 className="text-base font-semibold text-gray-900">
+              {isWelfare ? "利用者を手動追加" : "キャストを手動追加"}
+            </h2>
             <p className="mt-1 text-xs text-gray-500">
-              LINE未連携のキャストを登録します。後からLINE連携された場合は自動更新されます。
+              {isWelfare
+                ? "LINE未連携の利用者を登録します。後からLINE連携された場合は自動更新されます。"
+                : "LINE未連携のキャストを登録します。後からLINE連携された場合は自動更新されます。"}
             </p>
             <div className="mt-4 space-y-3">
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-gray-600">キャスト名（本名/管理用）</span>
+                <span className="mb-1.5 block text-xs font-medium text-gray-600">
+                  {isWelfare ? "利用者名（本名/管理用）" : "キャスト名（本名/管理用）"}
+                </span>
                 <input
                   type="text"
                   value={newName}
@@ -719,15 +740,18 @@ export default function AdminCastsPage() {
                 />
               </label>
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-gray-600">表示名（源氏名）</span>
+                <span className="mb-1.5 block text-xs font-medium text-gray-600">
+                  {isWelfare ? "表示名（任意）" : "表示名（源氏名）"}
+                </span>
                 <input
                   type="text"
                   value={newDisplayName}
                   onChange={(e) => setNewDisplayName(e.target.value)}
                   className="w-full min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                  placeholder="例: タロウ（任意）"
+                  placeholder={isWelfare ? "未入力時は利用者名を表示" : "例: タロウ（任意）"}
                 />
               </label>
+              {!isWelfare && (
               <label className="block">
                 <span className="mb-1.5 block text-xs font-medium text-gray-600">役職</span>
                 <select
@@ -739,6 +763,7 @@ export default function AdminCastsPage() {
                   <option value="nakai">仲居</option>
                 </select>
               </label>
+              )}
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button

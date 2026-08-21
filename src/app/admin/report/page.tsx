@@ -921,7 +921,10 @@ function AdminReportContent() {
 
   const guideMonthRange = useMemo(() => getMonthRangeIso(year, month), [year, month]);
   const businessTheme = BUSINESS_THEME[businessType];
-  const customTerms = useMemo(() => resolveCustomTerms(store?.custom_terms), [store?.custom_terms]);
+  const customTerms = useMemo(
+    () => resolveCustomTerms(store?.custom_terms, businessType),
+    [store?.custom_terms, businessType]
+  );
   const castLabel = customTerms.term_cast;
   const attendanceLabel = customTerms.term_attendance;
 
