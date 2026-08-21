@@ -6,15 +6,28 @@ import { getAdminRecipientLineUserIds } from "@/lib/line-admin-recipients";
 /**
  * B型事業所（welfare_b）の「作業開始 未打刻アラート」共通処理。
  *
- * 定期実行（/api/welfare/warn-unstarted）と設定画面のテスト送信で同じ判定・文面を使う。
+ * 12:00 の midday cron（/api/welfare/cron?segment=midday）から自動実行する。
+ * 単独エンドポイント（/api/welfare/warn-unstarted）と設定画面のテスト送信でも同じ判定・文面を使う。
  */
 
 /** メッセージに列挙する最大人数（LINE 文字数対策） */
 const MAX_NAMES_IN_MESSAGE = 20;
 
+/** 同日中の重複送信を抑止する system_settings のキー */
+export const WELFARE_UNSTARTED_WARN_STATE_KEY = "welfare_unstarted_warn_state";
+
 export type UnstartedAlertSendResult =
   | { ok: true; recipients: number }
   | { ok: false; reason: "no_admin_recipient" | "no_line_token" | "line_send"; detail?: string };
+
+export type UnstartedAlertStoreResult = {
+  storeId: string;
+  unstartedCount: number;
+  notified: boolean;
+  skipped?: string;
+  error?: string;
+  names?: string[];
+};
 
 /**
  * 当日「作業開始」を押していない利用者の名前一覧。
@@ -65,7 +78,7 @@ export async function fetchUnstartedCastNames(
 
   return members
     .filter((c) => !startedCastIds.has(c.id))
-    .map((c) => (c.display_name?.trim() || c.name?.trim() || "名前未設定"));
+    .map((c) => c.display_name?.trim() || c.name?.trim() || "名前未設定");
 }
 
 export function buildUnstartedAlertMessage(names: string[]): string {
@@ -114,4 +127,91 @@ export async function sendUnstartedAlertToAdmins(
   }
 
   return { ok: true, recipients: adminIds.length };
+}
+
+async function getLastWarnedDate(
+  supabase: SupabaseClient,
+  storeId: string
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("system_settings")
+    .select("value")
+    .eq("store_id", storeId)
+    .eq("key", WELFARE_UNSTARTED_WARN_STATE_KEY)
+    .maybeSingle();
+
+  const value = (data?.value ?? {}) as Record<string, unknown>;
+  const last = value.last_warned_date;
+  return typeof last === "string" && last.trim() !== "" ? last : null;
+}
+
+async function setLastWarnedDate(
+  supabase: SupabaseClient,
+  storeId: string,
+  date: string,
+  logPrefix: string
+): Promise<void> {
+  const { error } = await supabase.from("system_settings").upsert(
+    {
+      store_id: storeId,
+      key: WELFARE_UNSTARTED_WARN_STATE_KEY,
+      value: { last_warned_date: date },
+    },
+    { onConflict: "store_id,key" }
+  );
+
+  if (error) {
+    console.warn(
+      `${logPrefix} storeId=${storeId} 送信記録の保存に失敗: ${error.message}`
+    );
+  }
+}
+
+/**
+ * 1店舗分の未打刻アラートを判定・送信する。
+ * midday cron / 単独エンドポイントの両方から呼ぶ。
+ */
+export async function runWelfareUnstartedAlertForStore(
+  supabase: SupabaseClient,
+  storeId: string,
+  today: string,
+  options: { force?: boolean; logPrefix?: string } = {}
+): Promise<UnstartedAlertStoreResult> {
+  const force = options.force === true;
+  const logPrefix = options.logPrefix ?? "[WelfareUnstartedAlert]";
+
+  if (!force && (await getLastWarnedDate(supabase, storeId)) === today) {
+    return { storeId, unstartedCount: 0, notified: false, skipped: "already_warned_today" };
+  }
+
+  const names = await fetchUnstartedCastNames(supabase, storeId, today);
+  if (names.length === 0) {
+    return { storeId, unstartedCount: 0, notified: false, skipped: "all_started" };
+  }
+
+  const sent = await sendUnstartedAlertToAdmins(supabase, storeId, names, logPrefix);
+  if (!sent.ok) {
+    const error = sent.detail ? `${sent.reason}: ${sent.detail}` : sent.reason;
+    console.error(
+      `${logPrefix} storeId=${storeId} 送信できませんでした error=${error}`
+    );
+    return {
+      storeId,
+      unstartedCount: names.length,
+      notified: false,
+      error,
+      names,
+    };
+  }
+
+  await setLastWarnedDate(supabase, storeId, today, logPrefix);
+  console.info(
+    `${logPrefix} storeId=${storeId} notified unstarted=${names.length} recipients=${sent.recipients}`
+  );
+  return {
+    storeId,
+    unstartedCount: names.length,
+    notified: true,
+    names,
+  };
 }

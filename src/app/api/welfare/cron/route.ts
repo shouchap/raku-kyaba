@@ -3,13 +3,17 @@
  *
  * GET /api/welfare/cron?segment=morning|midday|evening
  * - morning: 10:00 作業開始
- * - midday: 12:00 体調確認
+ * - midday: 12:00 体調確認 ＋ 作業開始未打刻アラート（管理者へ）
  * - evening: 17:00 作業終了
  *
  * 送信対象者（各店舗ごと）:
  * - casts で store_id が一致し is_active=true かつ line_user_id が非空の利用者すべて。
  * - 当日の出勤予定・作業開始済み・welfare_daily_logs の状態は見ない（同一配信）。
  * - stores.regular_holidays に「今日の曜日（JST）」が含まれる店舗はスキップ。
+ *
+ * midday の未打刻アラート:
+ * - 当日「作業開始」未押下の利用者がいれば、管理者 LINE へ名前一覧を通知する。
+ * - 体調確認の配信成否とは独立。アラート失敗でも midday 全体は落とさない。
  *
  * 認証: CRON_SECRET 設定時は Authorization: Bearer <CRON_SECRET>
  * GET / POST いずれも同一処理（Scheduler のメソッド差で 405 にならないよう POST も受付）
@@ -29,6 +33,7 @@ import {
   buildWelfareMorningStartFlexMessage,
 } from "@/lib/welfare-line-flex";
 import { fetchLineCustomizationForStore } from "@/lib/line-customization";
+import { runWelfareUnstartedAlertForStore } from "@/lib/welfare-unstarted-alert";
 
 export const dynamic = "force-dynamic";
 
@@ -341,6 +346,12 @@ export async function GET(request: Request) {
       recipients: number;
       error?: string;
       activeCastCount?: number;
+      unstartedAlert?: {
+        notified: boolean;
+        unstartedCount: number;
+        skipped?: string;
+        error?: string;
+      };
     }[] = [];
     const todayJst = getTodayJst();
 
@@ -368,13 +379,52 @@ export async function GET(request: Request) {
           continue;
         }
         const r = await pushSegmentToStore(supabase, s, segment);
+
+        let unstartedAlert:
+          | {
+              notified: boolean;
+              unstartedCount: number;
+              skipped?: string;
+              error?: string;
+            }
+          | undefined;
+
+        // 12:00 midday と同時に、作業開始未押下者を管理者へ通知する
+        if (segment === "midday") {
+          try {
+            const alert = await runWelfareUnstartedAlertForStore(
+              supabase,
+              s.id,
+              todayJst,
+              { logPrefix: `${LOG_PREFIX}:unstarted` }
+            );
+            unstartedAlert = {
+              notified: alert.notified,
+              unstartedCount: alert.unstartedCount,
+              skipped: alert.skipped,
+              error: alert.error,
+            };
+          } catch (alertErr) {
+            const msg = alertErr instanceof Error ? alertErr.message : String(alertErr);
+            console.error(
+              `${LOG_PREFIX} segment=midday storeId=${s.id} UNSTARTED_ALERT_UNCAUGHT message=${msg}`
+            );
+            unstartedAlert = {
+              notified: false,
+              unstartedCount: 0,
+              error: `uncaught: ${msg}`,
+            };
+          }
+        }
+
         results.push({
           storeId: s.id,
           recipients: r.recipients,
           error: r.error,
           activeCastCount: r.activeCastCount,
+          unstartedAlert,
         });
-        const statusLine = `${LOG_PREFIX} segment=${segment} storeId=${s.id} ok=${r.ok} recipients=${r.recipients} activeCastCount=${r.activeCastCount ?? "n/a"} error=${r.error ?? "none"}`;
+        const statusLine = `${LOG_PREFIX} segment=${segment} storeId=${s.id} ok=${r.ok} recipients=${r.recipients} activeCastCount=${r.activeCastCount ?? "n/a"} error=${r.error ?? "none"} unstarted=${unstartedAlert ? JSON.stringify(unstartedAlert) : "n/a"}`;
         if (r.ok && r.recipients === 0 && !r.error) {
           console.warn(`${statusLine} (note: 0 recipients may mean no LINE-linked active casts)`);
         } else if (!r.ok) {

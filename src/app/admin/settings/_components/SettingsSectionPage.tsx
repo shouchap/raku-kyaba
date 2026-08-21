@@ -2291,7 +2291,7 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
               <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
                 <p className="text-xs font-semibold text-slate-800">作業開始 未打刻アラート テスト</p>
                 <p className="text-xs text-slate-600">
-                  毎日12:00に、当日「作業開始」を押していない利用者を管理者へLINE通知します。
+                  毎日12:00の体調確認配信と同時に、当日「作業開始」を押していない利用者を管理者へLINE通知します。
                   ここでは今すぐ同じ判定を行い、1通送信して内容を確認できます。
                 </p>
                 <button

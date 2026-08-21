@@ -3,7 +3,9 @@
  *
  * 12:00 時点で当日の「作業開始」を押していない利用者を抽出し、
  * 店舗の LINE 公式アカウントから管理者へ名前を列挙して通知する。
- * キャバクラ・バー業態の未返信アラート（/api/remind/warn-unanswered）の welfare_b 版。
+ *
+ * 通常運用では `/api/welfare/cron?segment=midday`（12:00）から自動実行される。
+ * このエンドポイントは手動再送・force 用に残している。
  *
  * GET / POST /api/welfare/warn-unstarted
  * - 対象: business_type = welfare_b の全店舗（?storeId=uuid でその店のみ）
@@ -18,10 +20,7 @@
 
 import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import {
-  fetchUnstartedCastNames,
-  sendUnstartedAlertToAdmins,
-} from "@/lib/welfare-unstarted-alert";
+import { runWelfareUnstartedAlertForStore } from "@/lib/welfare-unstarted-alert";
 import { isValidStoreId } from "@/lib/current-store";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import { getTodayJst, getWeekdayJst } from "@/lib/date-utils";
@@ -30,21 +29,10 @@ export const dynamic = "force-dynamic";
 
 const LOG_PREFIX = "[WelfareWarnUnstarted]";
 
-/** 重複送信を抑止するための状態を保存する system_settings のキー */
-const WARN_STATE_KEY = "welfare_unstarted_warn_state";
-
 type WelfareStoreRow = {
   id: string;
   /** 定休日（0=日〜6=土）。未設定・空はスキップしない */
   regular_holidays: number[] | null;
-};
-
-type StoreResult = {
-  storeId: string;
-  unstartedCount: number;
-  notified: boolean;
-  skipped?: string;
-  error?: string;
 };
 
 function getSupabaseKeys(): { url: string | null; key: string | null } {
@@ -103,77 +91,6 @@ async function fetchWelfareStores(
     .filter((r) => r.id !== "");
 }
 
-/** 同じ日に二重送信しないための記録を読む */
-async function getLastWarnedDate(
-  supabase: SupabaseClient,
-  storeId: string
-): Promise<string | null> {
-  const { data } = await supabase
-    .from("system_settings")
-    .select("value")
-    .eq("store_id", storeId)
-    .eq("key", WARN_STATE_KEY)
-    .maybeSingle();
-
-  const value = (data?.value ?? {}) as Record<string, unknown>;
-  const last = value.last_warned_date;
-  return typeof last === "string" && last.trim() !== "" ? last : null;
-}
-
-async function setLastWarnedDate(
-  supabase: SupabaseClient,
-  storeId: string,
-  date: string
-): Promise<void> {
-  const { error } = await supabase.from("system_settings").upsert(
-    {
-      store_id: storeId,
-      key: WARN_STATE_KEY,
-      value: { last_warned_date: date },
-    },
-    { onConflict: "store_id,key" }
-  );
-
-  if (error) {
-    console.warn(`${LOG_PREFIX} storeId=${storeId} 送信記録の保存に失敗: ${error.message}`);
-  }
-}
-
-async function warnStore(
-  supabase: SupabaseClient,
-  store: WelfareStoreRow,
-  today: string,
-  force: boolean
-): Promise<StoreResult> {
-  const storeId = store.id;
-
-  if (isRegularHolidayDay(store.regular_holidays, today)) {
-    return { storeId, unstartedCount: 0, notified: false, skipped: "regular_holiday" };
-  }
-
-  if (!force && (await getLastWarnedDate(supabase, storeId)) === today) {
-    return { storeId, unstartedCount: 0, notified: false, skipped: "already_warned_today" };
-  }
-
-  const names = await fetchUnstartedCastNames(supabase, storeId, today);
-  if (names.length === 0) {
-    return { storeId, unstartedCount: 0, notified: false, skipped: "all_started" };
-  }
-
-  const sent = await sendUnstartedAlertToAdmins(supabase, storeId, names, LOG_PREFIX);
-  if (!sent.ok) {
-    const error = sent.detail ? `${sent.reason}: ${sent.detail}` : sent.reason;
-    console.error(`${LOG_PREFIX} storeId=${storeId} 送信できませんでした error=${error}`);
-    return { storeId, unstartedCount: names.length, notified: false, error };
-  }
-
-  await setLastWarnedDate(supabase, storeId, today);
-  console.info(
-    `${LOG_PREFIX} storeId=${storeId} notified unstarted=${names.length} recipients=${sent.recipients}`
-  );
-  return { storeId, unstartedCount: names.length, notified: true };
-}
-
 export async function GET(request: Request) {
   try {
     const cronSecret = process.env.CRON_SECRET;
@@ -206,10 +123,24 @@ export async function GET(request: Request) {
       `${LOG_PREFIX} run_begin todayJst=${today} storeCount=${stores.length} singleStoreId=${singleStoreId ?? "null"} force=${force}`
     );
 
-    const results: StoreResult[] = [];
+    const results = [];
     for (const store of stores) {
       try {
-        results.push(await warnStore(supabase, store, today, force));
+        if (isRegularHolidayDay(store.regular_holidays, today)) {
+          results.push({
+            storeId: store.id,
+            unstartedCount: 0,
+            notified: false,
+            skipped: "regular_holiday",
+          });
+          continue;
+        }
+        results.push(
+          await runWelfareUnstartedAlertForStore(supabase, store.id, today, {
+            force,
+            logPrefix: LOG_PREFIX,
+          })
+        );
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`${LOG_PREFIX} storeId=${store.id} uncaught message=${msg}`);
