@@ -1070,7 +1070,7 @@ function AdminReportContent() {
         </div>
       </div>
 
-      {reportTab === "cast" && (
+      {reportTab === "cast" && businessType !== "welfare_b" && activeStoreId ? (
         <div className="mb-4 print:hidden rounded-xl border border-gray-200 bg-white/90 p-3 shadow-sm">
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -1080,29 +1080,38 @@ function AdminReportContent() {
             >
               {showMobileFilters ? "詳細を閉じる" : "詳細を表示"}
             </button>
-            {businessType !== "welfare_b" && activeStoreId ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setStoreAttendanceHistoryModalOpen(true)}
-                  className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-                >
-                  🕒 編集履歴
-                </button>
-                {manualModalCastOptions.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setManualAttendanceModalOpen(true)}
-                    className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
-                  >
-                    + 勤怠を手動編集・追加
-                  </button>
-                ) : null}
-              </>
+            <button
+              type="button"
+              onClick={() => setStoreAttendanceHistoryModalOpen(true)}
+              className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+            >
+              🕒 編集履歴
+            </button>
+            {manualModalCastOptions.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setManualAttendanceModalOpen(true)}
+                className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
+              >
+                + 勤怠を手動編集・追加
+              </button>
             ) : null}
           </div>
         </div>
-      )}
+      ) : null}
+
+      {/* 福祉は上記ツールバーが無いので、モバイル用の詳細トグルだけ出す */}
+      {reportTab === "cast" && businessType === "welfare_b" ? (
+        <div className="mb-3 print:hidden sm:hidden">
+          <button
+            type="button"
+            onClick={() => setShowMobileFilters((v) => !v)}
+            className="w-full inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs font-medium text-gray-700"
+          >
+            {showMobileFilters ? "詳細を閉じる" : "詳細を表示"}
+          </button>
+        </div>
+      ) : null}
 
       {reportTab === "cast" && (
       <div className="mb-4 flex flex-wrap gap-2 print:hidden">
