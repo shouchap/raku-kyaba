@@ -28,6 +28,10 @@ import {
   tryHandleReservationGuestNameText,
   tryHandleCompletedFollowupText,
 } from "@/lib/line-webhook-attendance";
+import {
+  tryHandleVisitorArrivalPostback,
+  tryHandleVisitorArrivalText,
+} from "@/lib/line-visitor-arrival";
 import { handleWelfareWebhook, type WelfareStoreContext } from "@/lib/welfare-line-webhook";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import {
@@ -360,6 +364,19 @@ async function processWebhookEvent(
       const postbackEvent = event as LinePostbackEvent;
       const rawData = postbackEvent.postback?.data ?? "";
 
+      const visitorHandled = await tryHandleVisitorArrivalPostback(
+        userId,
+        rawData,
+        postbackEvent.postback.params,
+        supabase,
+        postbackEvent.replyToken,
+        channelAccessToken
+      );
+      if (visitorHandled) {
+        console.log("[Webhook] 来客連絡 postback を処理しました");
+        break;
+      }
+
       const sabakiHandled = await handleSabakiTimePostback(
         userId,
         rawData,
@@ -561,6 +578,15 @@ async function processWebhookEvent(
         const text = messageEvent.message.text ?? "";
 
         console.log("[Webhook] テキスト受信 | text:", JSON.stringify(text));
+
+        const consumedVisitor = await tryHandleVisitorArrivalText(
+          userId,
+          text,
+          supabase,
+          messageEvent.replyToken,
+          channelAccessToken
+        );
+        if (consumedVisitor) break;
 
         const consumedGuestNames = await tryHandleReservationGuestNameText(
           userId,
