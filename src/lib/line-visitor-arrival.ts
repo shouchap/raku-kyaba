@@ -112,6 +112,7 @@ function askNameMessage(): LineReplyMessage {
     text:
       "来客の連絡ですね。\n" +
       "① 顧客名（または呼び名）を送ってください。\n" +
+      "※管理者への通知は、最後に時間まで入力が終わったときだけ送られます。\n" +
       "途中でやめる場合は「キャンセル」と送ってください。",
   };
 }
@@ -135,11 +136,12 @@ function askCountMessage(): LineReplyMessage {
 }
 
 function askTimeMessage(): LineReplyMessage {
+  const hours = ["20:00", "21:00", "22:00", "23:00", "0:00", "1:00", "2:00", "3:00"];
   return {
     type: "text",
     text:
-      "③ 来客の時間を教えてください。\n" +
-      "下のボタンか、「21:00」「今から」など自由に送れます。",
+      "③ 来客の時間を教えてください（営業時間 20:00〜3:00）。\n" +
+      "下のボタンか、「21:30」など自由に送れます。",
     quickReply: {
       items: [
         {
@@ -149,20 +151,17 @@ function askTimeMessage(): LineReplyMessage {
             label: "時刻を選ぶ",
             data: "visitor_arrival_time_pick",
             mode: "time",
+            initial: "20:00",
           },
         },
-        {
-          type: "action",
-          action: { type: "message", label: "今から", text: "今から" },
-        },
-        {
-          type: "action",
-          action: { type: "message", label: "30分後", text: "30分後" },
-        },
-        {
-          type: "action",
-          action: { type: "message", label: "1時間後", text: "1時間後" },
-        },
+        ...hours.map((label) => ({
+          type: "action" as const,
+          action: {
+            type: "message" as const,
+            label,
+            text: label,
+          },
+        })),
       ],
     },
   };
@@ -193,11 +192,81 @@ function normalizePeopleCount(raw: string): string | null {
   return null;
 }
 
-function normalizeVisitTime(raw: string): string | null {
-  const t = raw.trim();
-  if (!t) return null;
-  if (t.length > 40) return null;
-  return t;
+/** 営業時間 20:00〜翌3:00（分単位。3:00ちょうどまで可） */
+function isWithinVisitorHours(totalMinutes: number): boolean {
+  return totalMinutes >= 20 * 60 || totalMinutes <= 3 * 60;
+}
+
+function formatHhMm(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60) % 24;
+  const m = totalMinutes % 60;
+  return `${h}:${String(m).padStart(2, "0")}`;
+}
+
+function nowJstTotalMinutes(): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Tokyo",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  return hour * 60 + minute;
+}
+
+/**
+ * 来客時刻を解釈し、営業時間内なら表示用 HH:mm を返す。
+ */
+function resolveVisitTime(raw: string): { ok: true; value: string } | { ok: false; hint: string } {
+  const t = raw.trim().replace(/　/g, " ");
+  if (!t) return { ok: false, hint: "時間を入力してください。" };
+
+  let total: number | null = null;
+
+  if (t === "今から" || t === "いまから") {
+    total = nowJstTotalMinutes();
+  } else if (t === "30分後") {
+    total = (nowJstTotalMinutes() + 30) % (24 * 60);
+  } else if (t === "1時間後" || t === "１時間後") {
+    total = (nowJstTotalMinutes() + 60) % (24 * 60);
+  } else {
+    const normalized = t
+      .replace(/[０-９]/g, (c) =>
+        String.fromCharCode(c.charCodeAt(0) - 0xff10 + 0x30)
+      )
+      .replace(/：/g, ":");
+    const m = normalized.match(/^(\d{1,2})\s*[:時]\s*(\d{1,2})?\s*分?$/);
+    if (m) {
+      const h = Number.parseInt(m[1]!, 10);
+      const min = m[2] != null ? Number.parseInt(m[2], 10) : 0;
+      if (h >= 0 && h <= 23 && min >= 0 && min <= 59) {
+        total = h * 60 + min;
+      }
+    } else {
+      const m2 = normalized.match(/^(\d{1,2})\s*時$/);
+      if (m2) {
+        const h = Number.parseInt(m2[1]!, 10);
+        if (h >= 0 && h <= 23) total = h * 60;
+      }
+    }
+  }
+
+  if (total == null) {
+    return {
+      ok: false,
+      hint: "時間が分かりませんでした。例: 21:00 / 0:30（営業時間は20:00〜3:00）",
+    };
+  }
+
+  if (!isWithinVisitorHours(total)) {
+    return {
+      ok: false,
+      hint: "来客時間は営業時間内（20:00〜3:00）で指定してください。",
+    };
+  }
+
+  return { ok: true, value: formatHhMm(total) };
 }
 
 function buildAdminMessage(
@@ -219,6 +288,7 @@ function buildAdminMessage(
 async function finishAndNotify(
   supabase: SupabaseClient,
   cast: CastRow,
+  reporterLineUserId: string,
   draft: Required<Pick<VisitorDraft, "guestName" | "peopleCount" | "visitTime">>,
   replyToken: string | undefined,
   channelAccessToken: string
@@ -227,13 +297,18 @@ async function finishAndNotify(
 
   const castName = castDisplayName(cast);
   const adminMessage = buildAdminMessage(castName, draft);
-  const adminIds = await getAdminRecipientLineUserIds(supabase, cast.store_id);
+  // 入力した本人が管理者でも、途中・完了の二重通知にならないよう本人は除外
+  const adminIds = (await getAdminRecipientLineUserIds(supabase, cast.store_id)).filter(
+    (id) => id !== reporterLineUserId
+  );
 
+  let adminNotified = false;
   if (adminIds.length > 0) {
     try {
       await sendMulticastMessage(adminIds, channelAccessToken, [
         { type: "text", text: adminMessage },
       ]);
+      adminNotified = true;
     } catch (e) {
       console.error("[VisitorArrival] 管理者通知失敗:", e);
       if (replyToken) {
@@ -249,7 +324,7 @@ async function finishAndNotify(
     }
   } else {
     console.warn(
-      "[VisitorArrival] 管理者 LINE 未連携 store_id=",
+      "[VisitorArrival] 管理者 LINE 未連携（または本人のみ） store_id=",
       cast.store_id
     );
   }
@@ -258,11 +333,16 @@ async function finishAndNotify(
     await sendReply(replyToken, channelAccessToken, [
       {
         type: "text",
-        text:
-          "管理者へ来客連絡を送りました。ありがとうございます！\n\n" +
-          `・顧客名: ${draft.guestName}\n` +
-          `・人数: ${draft.peopleCount}\n` +
-          `・時間: ${draft.visitTime}`,
+        text: adminNotified
+          ? "管理者へ来客連絡を送りました。ありがとうございます！\n\n" +
+            `・顧客名: ${draft.guestName}\n` +
+            `・人数: ${draft.peopleCount}\n` +
+            `・時間: ${draft.visitTime}`
+          : "来客内容を受け付けました。ありがとうございます！\n" +
+            "（通知先の管理者が未設定、またはご本人のみのため Push は送っていません）\n\n" +
+            `・顧客名: ${draft.guestName}\n` +
+            `・人数: ${draft.peopleCount}\n` +
+            `・時間: ${draft.visitTime}`,
       },
     ]);
   }
@@ -329,9 +409,20 @@ export async function tryHandleVisitorArrivalPostback(
       return true;
     }
 
+    const resolved = resolveVisitTime(picked);
+    if (!resolved.ok) {
+      if (replyToken) {
+        await sendReply(replyToken, channelAccessToken, [
+          { type: "text", text: resolved.hint },
+          askTimeMessage(),
+        ]);
+      }
+      return true;
+    }
+
     const draft: VisitorDraft = {
       ...(cast.line_pending_draft ?? {}),
-      visitTime: picked,
+      visitTime: resolved.value,
     };
     if (!draft.guestName || !draft.peopleCount) {
       await setPending(supabase, cast.id, FLOW_NAME, {});
@@ -344,6 +435,7 @@ export async function tryHandleVisitorArrivalPostback(
     await finishAndNotify(
       supabase,
       cast,
+      lineUserId,
       {
         guestName: draft.guestName,
         peopleCount: draft.peopleCount,
@@ -439,10 +531,13 @@ export async function tryHandleVisitorArrivalText(
   }
 
   if (cast.line_pending_flow === FLOW_TIME) {
-    const visitTime = normalizeVisitTime(text);
-    if (!visitTime) {
+    const resolved = resolveVisitTime(text);
+    if (!resolved.ok) {
       if (replyToken) {
-        await sendReply(replyToken, channelAccessToken, [askTimeMessage()]);
+        await sendReply(replyToken, channelAccessToken, [
+          { type: "text", text: resolved.hint },
+          askTimeMessage(),
+        ]);
       }
       return true;
     }
@@ -456,10 +551,11 @@ export async function tryHandleVisitorArrivalText(
     await finishAndNotify(
       supabase,
       cast,
+      lineUserId,
       {
         guestName: draft.guestName,
         peopleCount: draft.peopleCount,
-        visitTime,
+        visitTime: resolved.value,
       },
       replyToken,
       channelAccessToken

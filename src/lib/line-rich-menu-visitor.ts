@@ -1,10 +1,7 @@
 /**
  * LINE リッチメニュー（来客ボタン）の作成・適用。
  *
- * Messaging API:
- * - POST /v2/bot/richmenu
- * - POST /v2/bot/richmenu/{id}/content  (画像)
- * - POST /v2/bot/user/all/richmenu/{id} (デフォルト紐付け)
+ * 見た目は標準的な3分割コンパクトメニュー。中央セルのみ「来客」で反応する。
  */
 
 import { readFileSync } from "node:fs";
@@ -14,15 +11,16 @@ import { VISITOR_ARRIVAL_POSTBACK } from "@/lib/line-visitor-arrival";
 const LINE_API = "https://api.line.me/v2/bot";
 const LINE_DATA_API = "https://api-data.line.me/v2/bot";
 
-/** コンパクトサイズ（横長1段）。右寄せの小さめ「来客」ボタンのみ反応 */
+/** コンパクトサイズ・3等分。中央のみタップ可能 */
 const RICH_MENU_WIDTH = 2500;
 const RICH_MENU_HEIGHT = 843;
-/** 画像上のボタン領域（public/line-rich-menu-visitor.png と一致） */
-const VISITOR_BUTTON_BOUNDS = {
-  x: 1600,
-  y: 161,
-  width: 780,
-  height: 520,
+const CELL_W = Math.floor(RICH_MENU_WIDTH / 3);
+
+export const VISITOR_BUTTON_BOUNDS = {
+  x: CELL_W,
+  y: 0,
+  width: CELL_W,
+  height: RICH_MENU_HEIGHT,
 } as const;
 
 export type CreateVisitorRichMenuResult = {
@@ -49,7 +47,6 @@ async function lineJson<T>(
   return text ? (JSON.parse(text) as T) : ({} as T);
 }
 
-/** public/line-rich-menu-visitor.png を読む（無ければエラー） */
 export function loadVisitorRichMenuImage(): Buffer {
   const filePath = path.join(
     process.cwd(),
@@ -60,8 +57,7 @@ export function loadVisitorRichMenuImage(): Buffer {
 }
 
 /**
- * 「来客」1ボタンのリッチメニューを作成し、チャネルのデフォルトに設定する。
- * 既存のデフォルトリッチメニューは上書きされる。
+ * 「来客」リッチメニューを作成し、チャネルのデフォルトに設定する。
  */
 export async function createAndLinkVisitorArrivalRichMenu(
   channelAccessToken: string
@@ -74,8 +70,8 @@ export async function createAndLinkVisitorArrivalRichMenu(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         size: { width: RICH_MENU_WIDTH, height: RICH_MENU_HEIGHT },
-        selected: true,
-        name: "visitor_arrival_v2",
+        selected: false,
+        name: "visitor_arrival_v3",
         chatBarText: "メニュー",
         areas: [
           {
