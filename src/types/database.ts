@@ -257,10 +257,6 @@ export interface Database {
           /** 退店日（キャバクラ・BAR・風俗）。NULL のとき未退店 */
           departed_at: string | null;
           departure_reason: string | null;
-          /** 公式LINE対話の進行状態（来客連絡など） */
-          line_pending_flow: string | null;
-          /** 進行中対話の下書きJSON */
-          line_pending_draft: Json | null;
           created_at: string;
           updated_at: string;
         };

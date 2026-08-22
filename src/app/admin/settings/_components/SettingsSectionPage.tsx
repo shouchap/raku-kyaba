@@ -318,8 +318,6 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   const [welfareTestDetail, setWelfareTestDetail] = useState<string | null>(null);
   const [testingWelfareUnstarted, setTestingWelfareUnstarted] = useState(false);
   const [welfareUnstartedDetail, setWelfareUnstartedDetail] = useState<string | null>(null);
-  const [creatingVisitorRichMenu, setCreatingVisitorRichMenu] = useState(false);
-  const [visitorRichMenuDetail, setVisitorRichMenuDetail] = useState<string | null>(null);
   const [preOpenPreviewLoading, setPreOpenPreviewLoading] = useState(false);
   const [preOpenPreviewBaseText, setPreOpenPreviewBaseText] = useState("");
   const [preOpenPreviewEditorText, setPreOpenPreviewEditorText] = useState("");
@@ -1225,34 +1223,6 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setTestingWarnUnanswered(false);
     }
   }, [activeStoreId, warnUnansweredTestCastId]);
-
-  const handleCreateVisitorRichMenu = useCallback(async () => {
-    setCreatingVisitorRichMenu(true);
-    setVisitorRichMenuDetail(null);
-    try {
-      const res = await fetch("/api/admin/line/rich-menu/visitor", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storeId: activeStoreId }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        message?: string;
-        richMenuId?: string;
-      };
-      if (!res.ok) throw new Error(data.error ?? "リッチメニューの作成に失敗しました");
-      setVisitorRichMenuDetail(
-        data.message ??
-          `来客リッチメニューを適用しました（ID: ${data.richMenuId ?? "—"}）`
-      );
-    } catch (e) {
-      setVisitorRichMenuDetail(
-        e instanceof Error ? e.message : "リッチメニューの作成に失敗しました"
-      );
-    } finally {
-      setCreatingVisitorRichMenu(false);
-    }
-  }, [activeStoreId]);
 
   const handleRefreshPreOpenPreview = useCallback(async () => {
     setPreOpenPreviewLoading(true);
@@ -2356,28 +2326,6 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                 </button>
                 {welfareUnstartedDetail ? (
                   <p className="text-xs text-slate-600">{welfareUnstartedDetail}</p>
-                ) : null}
-              </div>
-            ) : null}
-
-            {businessType !== "welfare_b" ? (
-              <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
-                <p className="text-xs font-semibold text-slate-800">来客リッチメニュー</p>
-                <p className="text-xs text-slate-600">
-                  公式LINEに「来客」ボタンのリッチメニューを作成し、デフォルトメニューとして適用します。
-                  キャストが押すと顧客名・人数・時間を確認したあと、管理者へ通知します。
-                  テキストで「来客」と送っても同じ流れです。
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void handleCreateVisitorRichMenu()}
-                  disabled={creatingVisitorRichMenu}
-                  className="btn-secondary whitespace-nowrap"
-                >
-                  {creatingVisitorRichMenu ? "作成中..." : "来客メニューを作成・適用"}
-                </button>
-                {visitorRichMenuDetail ? (
-                  <p className="text-xs text-slate-600 whitespace-pre-wrap">{visitorRichMenuDetail}</p>
                 ) : null}
               </div>
             ) : null}
