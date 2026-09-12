@@ -364,6 +364,7 @@ async function runRemindForStore(
 ): Promise<{
   storeId: string;
   skipped?: string;
+  error?: string;
   successCount: number;
   failureCount: number;
   totalCandidates: number;
@@ -1026,17 +1027,44 @@ async function handleRemind(request: Request) {
   }
 
   const results: Awaited<ReturnType<typeof runRemindForStore>>[] = [];
+  const failedStores: { storeId: string; error: string }[] = [];
+
   for (const s of stores ?? []) {
-    const r = await runRemindForStore(supabase, s as StoreRow, {
-      isManual: false,
-      todayJst,
-      hourJst,
-    });
-    results.push(r);
+    const storeId = String((s as StoreRow)?.id ?? "").trim() || "(unknown)";
+    try {
+      const r = await runRemindForStore(supabase, s as StoreRow, {
+        isManual: false,
+        todayJst,
+        hourJst,
+      });
+      results.push(r);
+      if (r.skipped === "exception") {
+        failedStores.push({ storeId: r.storeId, error: "exception" });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[Remind] store loop exception storeId=${storeId}:`, message);
+      results.push({
+        storeId,
+        skipped: "exception",
+        error: message,
+        successCount: 0,
+        failureCount: 0,
+        totalCandidates: 0,
+      });
+      failedStores.push({ storeId, error: message });
+    }
   }
 
   const totalSuccess = results.reduce((a, b) => a + b.successCount, 0);
   const totalFailure = results.reduce((a, b) => a + b.failureCount, 0);
+
+  if (failedStores.length > 0) {
+    console.error(
+      `[ALERT] [Remind] 店舗ループで例外/失敗 ${failedStores.length}件:`,
+      failedStores.map((f) => `${f.storeId}:${f.error}`).join(" | ")
+    );
+  }
 
   return NextResponse.json({
     ok: true,
@@ -1046,5 +1074,6 @@ async function handleRemind(request: Request) {
     totalSuccess,
     totalFailure,
     stores: results,
+    failedStores,
   });
 }
