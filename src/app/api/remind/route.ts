@@ -398,14 +398,17 @@ async function runRemindForStore(
     }
   }
 
-  const resolvedToken = resolveLineChannelAccessToken(store.line_channel_access_token);
+  // マルチテナント誤送信防止: 店舗トークンのみ使用（env フォールバック禁止）
+  const resolvedToken = resolveLineChannelAccessToken(store.line_channel_access_token, {
+    allowEnvFallback: false,
+  });
   logResolvedLineToken(storeId, resolvedToken, "[Remind]");
   const channelAccessToken = resolvedToken.token;
   if (!channelAccessToken) {
     logError(
       `LINE チャネルアクセストークンなし store=${storeId}`,
       new Error(
-        "stores.line_channel_access_token が空か未設定で、環境変数 LINE_CHANNEL_ACCESS_TOKEN も未設定です"
+        "stores.line_channel_access_token が空か未設定です（他店舗OAへの誤送信防止のため env フォールバックは使いません）"
       )
     );
     return { storeId, skipped: "no_line_token", successCount: 0, failureCount: 0, totalCandidates: 0 };

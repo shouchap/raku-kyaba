@@ -2,12 +2,22 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type LineTokenSource = "store" | "env" | "none";
 
+export type ResolveLineTokenOptions = {
+  /**
+   * マルチテナントでは原則 false。
+   * true のときのみ、DB が空なら LINE_CHANNEL_ACCESS_TOKEN にフォールバックする。
+   * （店舗間で別 LINE 公式アカウントを使うため、誤った OA から送信する事故を防ぐ）
+   */
+  allowEnvFallback?: boolean;
+};
+
 /**
- * DB の stores.line_channel_access_token が空なら環境変数 LINE_CHANNEL_ACCESS_TOKEN にフォールバック。
- * ログにはトークン本体を出さず source と長さのみ。
+ * 店舗の line_channel_access_token を解決する。
+ * デフォルトでは env フォールバックしない（他店舗の OA へ誤送信する事故防止）。
  */
 export function resolveLineChannelAccessToken(
-  lineChannelAccessTokenFromDb: string | null | undefined
+  lineChannelAccessTokenFromDb: string | null | undefined,
+  options?: ResolveLineTokenOptions
 ): { token: string; source: LineTokenSource; storeRawLength: number } {
   const raw = lineChannelAccessTokenFromDb;
   const asString = raw == null ? "" : String(raw).trim();
@@ -17,9 +27,11 @@ export function resolveLineChannelAccessToken(
     return { token: asString, source: "store", storeRawLength };
   }
 
-  const fromEnv = process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() ?? "";
-  if (fromEnv.length > 0) {
-    return { token: fromEnv, source: "env", storeRawLength };
+  if (options?.allowEnvFallback === true) {
+    const fromEnv = process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() ?? "";
+    if (fromEnv.length > 0) {
+      return { token: fromEnv, source: "env", storeRawLength };
+    }
   }
 
   return { token: "", source: "none", storeRawLength };
@@ -38,8 +50,8 @@ export function logResolvedLineToken(
 }
 
 /**
- * 店舗ごとの Messaging API チャネルアクセストークンを解決（DB優先・なければ env）。
- * 利用できない場合は null。
+ * 店舗ごとの Messaging API チャネルアクセストークンを解決（DB のみ）。
+ * 取得失敗・未設定時は null（env へフォールバックしない＝他店舗 OA への誤送信防止）。
  */
 export async function fetchResolvedLineChannelAccessTokenForStore(
   supabase: SupabaseClient,
@@ -53,13 +65,23 @@ export async function fetchResolvedLineChannelAccessTokenForStore(
     .maybeSingle();
 
   if (error) {
-    console.warn(`${logTag} stores 取得エラー storeId=${storeId}:`, error.message);
+    console.error(
+      `${logTag} stores トークン取得失敗 storeId=${storeId}（envフォールバック禁止）:`,
+      error.message
+    );
+    return null;
   }
 
   const resolved = resolveLineChannelAccessToken(
-    (data as { line_channel_access_token?: string | null } | null)?.line_channel_access_token
+    (data as { line_channel_access_token?: string | null } | null)?.line_channel_access_token,
+    { allowEnvFallback: false }
   );
   logResolvedLineToken(storeId, resolved, logTag);
-  if (!resolved.token) return null;
+  if (!resolved.token) {
+    console.error(
+      `${logTag} stores.line_channel_access_token 未設定 storeId=${storeId}（送信スキップ・envフォールバックなし）`
+    );
+    return null;
+  }
   return { token: resolved.token, source: resolved.source };
 }
