@@ -26,7 +26,11 @@ type Store = {
   id: string;
   name: string;
   allow_shift_submission?: boolean | null;
+  business_type?: "cabaret" | "welfare_b" | "bar" | "fuzoku" | null;
 };
+
+/** 福祉（HABATAKI等）の固定出勤表示 */
+const WELFARE_FIXED_SHIFT_LABEL = "10:00 - 17:00";
 
 /** セル表示用データ */
 type CellData = {
@@ -185,7 +189,7 @@ export default function AdminViewPage() {
           .order("name"),
         supabase
           .from("stores")
-          .select("id, name, allow_shift_submission")
+          .select("id, name, allow_shift_submission, business_type")
           .eq("id", storeId)
           .single(),
       ]);
@@ -255,12 +259,15 @@ export default function AdminViewPage() {
           | null;
       }>;
 
+      const isWelfare = store?.business_type === "welfare_b";
+      const emptyLabel = isWelfare ? WELFARE_FIXED_SHIFT_LABEL : "";
+
       const next: Record<string, Record<string, CellData>> = {};
       casts.forEach((c) => {
         next[c.id] = {};
         dates.forEach((d) => {
           next[c.id][d] = {
-            time: "",
+            time: emptyLabel,
             lastRemindedAt: null,
             responseStatus: null,
           };
@@ -278,8 +285,10 @@ export default function AdminViewPage() {
             row.response_status === "public_holiday"
               ? row.response_status
               : null;
+          const label = formatShiftRangeLabel(row.scheduled_time, row.scheduled_end_time);
           next[row.cast_id][row.scheduled_date] = {
-            time: formatShiftRangeLabel(row.scheduled_time, row.scheduled_end_time),
+            // 福祉は時刻未登録でも 10-17 固定表示
+            time: isWelfare && (label === "—" || !label) ? WELFARE_FIXED_SHIFT_LABEL : label,
             lastRemindedAt: row.last_reminded_at ?? null,
             responseStatus: status,
           };
@@ -288,7 +297,7 @@ export default function AdminViewPage() {
 
       setMatrix(next);
     },
-    [supabase, casts, dates]
+    [supabase, casts, dates, store?.business_type]
   );
 
   useEffect(() => {
@@ -299,12 +308,14 @@ export default function AdminViewPage() {
     if (store && casts.length > 0 && dates.length === 7) {
       loadSchedules(store.id);
     } else if (casts.length > 0 && dates.length === 7) {
+      const emptyLabel =
+        store?.business_type === "welfare_b" ? WELFARE_FIXED_SHIFT_LABEL : "—";
       const next: Record<string, Record<string, CellData>> = {};
       casts.forEach((c) => {
         next[c.id] = {};
         dates.forEach((d) => {
           next[c.id][d] = {
-            time: "—",
+            time: emptyLabel,
             lastRemindedAt: null,
             responseStatus: null,
           };
@@ -343,6 +354,28 @@ export default function AdminViewPage() {
   const handleSendTodayShiftTest = useCallback(async () => {
     setSendingLineTest(true);
     try {
+      // 福祉: 作業開始（朝）を LINE 連携済み全員へ一斉送信（時刻登録不要）
+      if (store?.business_type === "welfare_b") {
+        const res = await fetch("/api/admin/welfare/broadcast-send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ storeId: activeStoreId, segment: "morning" }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          recipients?: number;
+          message?: string;
+        };
+        if (!res.ok || data.ok !== true) {
+          throw new Error(data.error ?? data.message ?? "手動送信に失敗しました");
+        }
+        toast.success(
+          `LINEへ作業開始を送信しました（${typeof data.recipients === "number" ? data.recipients : 0}名）`
+        );
+        return;
+      }
+
       const targetDate = baseDate || today;
       const res = await fetch(
         `/api/remind/pre-open-report?storeId=${encodeURIComponent(activeStoreId)}&targetDate=${encodeURIComponent(targetDate)}`,
@@ -366,7 +399,7 @@ export default function AdminViewPage() {
     } finally {
       setSendingLineTest(false);
     }
-  }, [activeStoreId, baseDate, today]);
+  }, [activeStoreId, baseDate, today, store?.business_type]);
 
   if (loading) {
     return <PageLoading rows={8} label="シフト一覧を読み込み中" />;

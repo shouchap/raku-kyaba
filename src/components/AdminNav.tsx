@@ -57,6 +57,7 @@ const NAV_ITEMS_BY_BUSINESS: Record<BusinessType, NavItem[]> = {
     { id: "settings", href: "/admin/settings", label: "BAR設定", icon: Settings },
   ],
   welfare_b: [
+    { id: "shift-list", href: "/admin/view", label: "週間シフト一覧", icon: ClipboardList },
     { id: "cast-manage", href: "/admin/casts", label: "利用者管理", icon: UserRound },
     { id: "report", href: "/admin/report", label: "日報・実績", icon: BarChart3 },
     { id: "settings", href: "/admin/settings", label: "事業所設定", icon: Settings },

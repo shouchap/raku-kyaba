@@ -123,6 +123,7 @@ const MENU_PRESET_BY_BUSINESS: Record<BusinessType, MenuPreset[]> = {
     { id: "settings", label: "BAR設定" },
   ],
   welfare_b: [
+    { id: "shift-list", label: "週間シフト一覧" },
     { id: "cast-manage", label: "利用者管理" },
     { id: "report", label: "日報・実績" },
     { id: "settings", label: "事業所設定" },
