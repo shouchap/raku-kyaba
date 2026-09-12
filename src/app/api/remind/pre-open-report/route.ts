@@ -22,6 +22,7 @@ import { fetchSchedulesForPreOpenReport } from "@/lib/pre-open-report-fetch";
 import { isValidStoreId } from "@/lib/current-store";
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { applyPreOpenReportCustomization } from "@/lib/pre-open-report-customization";
+import { withSupabaseQueryRetry } from "@/lib/supabase-retry";
 
 export const dynamic = "force-dynamic";
 
@@ -420,9 +421,15 @@ export async function GET(request: Request) {
       });
     }
 
-    const { data: stores, error: storesErr } = await supabase
-      .from("stores")
-      .select("id, name, business_type, pre_open_report_hour_jst, last_pre_open_report_date, regular_holidays");
+    const { data: stores, error: storesErr } = await withSupabaseQueryRetry(
+      () =>
+        supabase
+          .from("stores")
+          .select(
+            "id, name, business_type, pre_open_report_hour_jst, last_pre_open_report_date, regular_holidays"
+          ),
+      { label: `${LOG_PREFIX} stores`, attempts: 3 }
+    );
 
     if (storesErr) {
       console.error(`${LOG_PREFIX} batch fetch stores`, {

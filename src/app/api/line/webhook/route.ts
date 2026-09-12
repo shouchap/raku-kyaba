@@ -9,6 +9,7 @@ import {
   getDefaultStoreIdOrNull,
   runWithWebhookStoreContext,
 } from "@/lib/current-store";
+import { withSupabaseQueryRetry } from "@/lib/supabase-retry";
 import type {
   LineWebhookBody,
   LineMessageEvent,
@@ -135,11 +136,15 @@ app.post("*", async (c) => {
     let storeLookupErr: { message?: string } | null = null;
     let effectiveStore: WebhookStoreRow | null = null;
     if (botUserId) {
-      const { data: storeData, error } = await supabase
-        .from("stores")
-        .select("id, line_channel_secret, line_channel_access_token, business_type")
-        .eq("line_bot_user_id", botUserId)
-        .maybeSingle();
+      const { data: storeData, error } = await withSupabaseQueryRetry(
+        () =>
+          supabase
+            .from("stores")
+            .select("id, line_channel_secret, line_channel_access_token, business_type")
+            .eq("line_bot_user_id", botUserId)
+            .maybeSingle(),
+        { label: "[Webhook] store-by-bot", attempts: 3 }
+      );
       storeLookupErr = error;
       effectiveStore = (storeData as WebhookStoreRow | null) ?? null;
 

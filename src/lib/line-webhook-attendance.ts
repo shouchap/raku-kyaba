@@ -1803,8 +1803,12 @@ export async function handleBarExtendedPostback(
  * 来客の有無を聞く段階で自由テキストが来た場合、クイックリプライを再提示する。
  */
 /**
- * 本日分の受付が完了済み（理由・予約ヒアリングも終了）のあと送られた追記テキスト。
- * キャストへは返信しない（無言）。DB の理由カラムは更新しない。管理者へ Push で受信を通知する。
+ * 本日シフトがあるキャストからの追記テキスト。
+ * キャストへは返信しない（無言）。管理者へ Push で受信を通知する。
+ *
+ * ※ 出勤ボタン未完了でも、本日のシフト行があれば通知する。
+ *   （Webhook障害中にテキストで「出勤」と送っても完了扱いにならず、
+ *    その後の連絡が管理者に届かない事故を防ぐ）
  */
 export async function tryHandleCompletedFollowupText(
   lineUserId: string,
@@ -1845,10 +1849,8 @@ export async function tryHandleCompletedFollowupText(
 
   const sched = row as ScheduleReasonRow;
 
+  // 理由入力・予約フローの途中は他ハンドラが担当。ここに来た場合のみ通知。
   if (sched.pending_line_flow) return false;
-  if (!sched.response_status) return false;
-  if (rowNeedsReasonInput(sched)) return false;
-  if (sched.is_action_completed !== true) return false;
 
   const displayName = (cast.name ?? "キャスト").trim() || "キャスト";
   const excerpt = t.length > 3000 ? `${t.slice(0, 3000)}…` : t;

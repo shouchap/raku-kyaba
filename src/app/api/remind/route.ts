@@ -23,6 +23,7 @@ import {
 import type { HolidayFlexFlags } from "@/lib/reminder-config";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import { normalizeDbTimeToShiftOption, parseShiftTimeStepMinutes } from "@/lib/time-options";
+import { withSupabaseQueryRetry } from "@/lib/supabase-retry";
 
 /** キャッシュ無効化: 毎回最新のDB値を取得する */
 export const dynamic = "force-dynamic";
@@ -1006,11 +1007,15 @@ async function handleRemind(request: Request) {
     });
   }
 
-  const { data: stores, error: storesErr } = await supabase
-    .from("stores")
-    .select(
-      "id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays, regular_remind_message, regular_start_time, shift_time_step_minutes"
-    );
+  const { data: stores, error: storesErr } = await withSupabaseQueryRetry(
+    () =>
+      supabase
+        .from("stores")
+        .select(
+          "id, name, remind_time, last_reminded_date, line_channel_access_token, regular_holidays, regular_remind_message, regular_start_time, shift_time_step_minutes"
+        ),
+    { label: "[Remind] stores", attempts: 3 }
+  );
 
   if (storesErr) {
     logError("店舗一覧取得失敗", storesErr);

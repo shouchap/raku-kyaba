@@ -49,6 +49,7 @@ export async function GET(request: Request) {
     } = await import("@/lib/guide-hearing");
     const { sendPushMessage } = await import("@/lib/line-reply");
     const { fetchResolvedLineChannelAccessTokenForStore } = await import("@/lib/line-channel-token");
+    const { withSupabaseQueryRetry } = await import("@/lib/supabase-retry");
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const businessDate = resolveBusinessDateFromJst();
@@ -62,7 +63,10 @@ export async function GET(request: Request) {
     let storesHasGuidanceRequestTime = true;
 
     const trySelect = async (cols: string) =>
-      supabase.from("stores").select(cols);
+      withSupabaseQueryRetry(() => supabase.from("stores").select(cols), {
+        label: "[CRON:guide-hearing] stores",
+        attempts: 3,
+      });
 
     let sel =
       "id, name, business_type, guidance_request_time, guide_hearing_time, guide_hearing_enabled, last_guide_hearing_sent_date, is_guide_enabled";

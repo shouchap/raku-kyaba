@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { withSupabaseQueryRetry } from "@/lib/supabase-retry";
 
 export type LineTokenSource = "store" | "env" | "none";
 
@@ -58,11 +59,15 @@ export async function fetchResolvedLineChannelAccessTokenForStore(
   storeId: string,
   logTag = "[LineToken]"
 ): Promise<{ token: string; source: LineTokenSource } | null> {
-  const { data, error } = await supabase
-    .from("stores")
-    .select("line_channel_access_token")
-    .eq("id", storeId)
-    .maybeSingle();
+  const { data, error } = await withSupabaseQueryRetry(
+    () =>
+      supabase
+        .from("stores")
+        .select("line_channel_access_token")
+        .eq("id", storeId)
+        .maybeSingle(),
+    { label: `${logTag} store-token`, attempts: 3 }
+  );
 
   if (error) {
     console.error(
