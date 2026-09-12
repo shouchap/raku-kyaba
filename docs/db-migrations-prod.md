@@ -25,18 +25,37 @@ npm run db:push
 
 特に未適用になりやすいもの:
 
-- `035_guide_hearing_staffs_daily_results.sql`（`last_guide_hearing_sent_date` など）
+- `035_guide_hearing_staffs_daily_results.sql` / `065_add_last_guide_hearing_sent_date.sql`（`last_guide_hearing_sent_date`）
+- `066_cron_run_logs.sql`（cron 実行ログ）
+- `067_reminder_cast_claim.sql`（`claim_reminder_cast_send` / `casts.last_reminder_sent_date`）
 - `064_seed_attendance_schedules_2026_09_01_30.sql`（シフトシード。業務データのため適用前に内容を確認）
 
 ## 確認用 SQL（適用後）
 
 ```sql
--- 035: 重複抑止列の存在確認
+-- 035/065: 重複抑止列の存在確認
 SELECT column_name, data_type
 FROM information_schema.columns
 WHERE table_schema = 'public'
   AND table_name = 'stores'
   AND column_name = 'last_guide_hearing_sent_date';
+
+-- 066: cron ログテーブル
+SELECT to_regclass('public.cron_run_logs');
+
+-- 067: レギュラー向け claim RPC
+SELECT proname
+FROM pg_proc
+WHERE proname IN (
+  'claim_reminder_cast_send',
+  'restore_reminder_cast_last_reminder_sent_date'
+);
+
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'casts'
+  AND column_name = 'last_reminder_sent_date';
 
 -- マイグレーション履歴（Supabase 管理）
 SELECT version, name
@@ -46,3 +65,4 @@ LIMIT 20;
 ```
 
 列が存在すれば案内数 cron は通常どおり送信・日付更新を行います。
+`claim_reminder_cast_send` が存在すれば ELINE のシフトなしレギュラー経路も例外になりません。
