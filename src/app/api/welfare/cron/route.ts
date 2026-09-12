@@ -27,6 +27,7 @@ import { fetchStoreLineTokenResult } from "@/lib/line-channel-token";
 import {
   alertCronDeliveryFailures,
 } from "@/lib/cron-delivery-alert";
+import { recordCronRuns, storeResultToCronLog } from "@/lib/cron-run-log";
 import { isValidStoreId } from "@/lib/current-store";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import { getTodayJst, getWeekdayJst } from "@/lib/date-utils";
@@ -483,13 +484,41 @@ export async function GET(request: Request) {
       return items;
     });
 
+    const nameById = new Map(stores.map((s) => [s.id, (s as { name?: string | null }).name ?? null]));
+    const hourJst = Number(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo", hour: "numeric", hour12: false })
+    );
+    await recordCronRuns(
+      supabase,
+      results.map((r) => {
+        const err = (r.error ?? "").trim();
+        const skipped = err === "regular_holiday" ? "regular_holiday" : !err && (r.recipients ?? 0) === 0 ? "no_targets" : undefined;
+        return storeResultToCronLog({
+          job: `welfare:${segment}`,
+          storeId: r.storeId,
+          storeName: nameById.get(r.storeId) ?? null,
+          skipped: skipped && err !== "token_fetch_failed" ? skipped : err === "no_line_token" ? "no_line_token" : err === "token_fetch_failed" ? "token_fetch_failed" : skipped,
+          error: err && err !== "regular_holiday" && err !== "no_line_token" && err !== "token_fetch_failed" ? err : undefined,
+          sent: !err && (r.recipients ?? 0) > 0,
+          successCount: r.recipients ?? 0,
+          failureCount: err && err !== "regular_holiday" ? 1 : 0,
+          targetCount: r.activeCastCount ?? r.recipients ?? 0,
+          jstDate: todayJst,
+          jstHour: hourJst,
+        });
+      })
+    );
+
     await alertCronDeliveryFailures({
       logTag: `${LOG_PREFIX}:${segment}`,
-      failures,
+      job: `welfare:${segment}`,
+      jstDate: todayJst,
+      jstHour: hourJst,
+      failures: failures.map((f) => ({
+        ...f,
+        storeName: nameById.get(f.storeId) ?? null,
+      })),
       supabase,
-      notifyFromStoreIds: results
-        .filter((r) => r.error !== "token_fetch_failed" && !(r.error ?? "").startsWith("uncaught:"))
-        .map((r) => r.storeId),
     });
 
     return NextResponse.json({

@@ -7,6 +7,7 @@ import {
   alertCronDeliveryFailures,
   collectCronFailuresFromResults,
 } from "@/lib/cron-delivery-alert";
+import { recordCronRuns, storeResultToCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -124,19 +125,39 @@ export async function GET(request: Request) {
       });
     }
 
+    const hourJst = Number(nowHm.split(":")[0] || "0");
+    await recordCronRuns(
+      admin,
+      results.map((r) =>
+        storeResultToCronLog({
+          job: "weekly-report",
+          storeId: r.storeId,
+          storeName: r.name,
+          skipped: r.error === "token_fetch_failed" ? "token_fetch_failed" : r.skipped,
+          error: r.error,
+          sent: r.sent === true,
+          successCount: r.sent === true ? 1 : 0,
+          failureCount: r.sent === true ? 0 : r.skipped ? 0 : 1,
+          jstDate: todayYmd,
+          jstHour: hourJst,
+        })
+      )
+    );
+
     await alertCronDeliveryFailures({
       logTag: "[cron/weekly-report]",
+      job: "weekly-report",
+      jstDate: todayYmd,
+      jstHour: hourJst,
       failures: collectCronFailuresFromResults(
         results.map((r) => ({
           storeId: r.storeId,
+          storeName: r.name,
           skipped: r.error === "token_fetch_failed" ? "token_fetch_failed" : r.skipped,
           error: r.error,
         }))
       ),
       supabase: admin,
-      notifyFromStoreIds: results
-        .filter((r) => r.error !== "token_fetch_failed")
-        .map((r) => r.storeId),
     });
 
     return NextResponse.json({

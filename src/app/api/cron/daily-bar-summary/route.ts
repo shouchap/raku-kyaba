@@ -11,6 +11,7 @@ import {
   alertCronDeliveryFailures,
   collectCronFailuresFromResults,
 } from "@/lib/cron-delivery-alert";
+import { recordCronRuns, storeResultToCronLog } from "@/lib/cron-run-log";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -124,13 +125,41 @@ async function runDailyBarSummary(): Promise<{
     }
   }
 
+  const hourJst = Number(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo", hour: "numeric", hour12: false })
+  );
+  await recordCronRuns(
+    admin,
+    results.map((r) =>
+      storeResultToCronLog({
+        job: "daily-bar-summary",
+        storeId: r.storeId,
+        storeName: r.name,
+        skipped: r.skipped,
+        error: r.error,
+        sent: r.sent,
+        successCount: r.sent ? 1 : 0,
+        failureCount: r.sent ? 0 : r.skipped ? 0 : 1,
+        jstDate: dateYmd,
+        jstHour: hourJst,
+      })
+    )
+  );
+
   await alertCronDeliveryFailures({
     logTag: "[daily-bar-summary]",
-    failures: collectCronFailuresFromResults(results),
+    job: "daily-bar-summary",
+    jstDate: dateYmd,
+    jstHour: hourJst,
+    failures: collectCronFailuresFromResults(
+      results.map((r) => ({
+        storeId: r.storeId,
+        storeName: r.name,
+        skipped: r.skipped,
+        error: r.error,
+      }))
+    ),
     supabase: admin,
-    notifyFromStoreIds: results
-      .filter((r) => r.sent || (r.skipped !== "token_fetch_failed" && r.skipped !== "exception"))
-      .map((r) => r.storeId),
   });
 
   return { dateYmd, results };

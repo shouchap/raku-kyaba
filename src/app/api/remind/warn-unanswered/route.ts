@@ -384,6 +384,15 @@ export async function GET(request: Request) {
     if (warnedCount === 0 && errors.length > 0) {
       await alertCronDeliveryFailures({
         logTag: "[WarnUnanswered]",
+        job: "warn-unanswered",
+        jstDate: getTodayJst(),
+        jstHour: Number(
+          new Date().toLocaleString("en-US", {
+            timeZone: "Asia/Tokyo",
+            hour: "numeric",
+            hour12: false,
+          })
+        ),
         failures: errors
           .filter((e) => e.includes("token_fetch_failed"))
           .map((e) => {
@@ -419,11 +428,17 @@ export async function GET(request: Request) {
     if (tokenFetchFailures.length > 0) {
       await alertCronDeliveryFailures({
         logTag: "[WarnUnanswered]",
+        job: "warn-unanswered",
+        jstDate: getTodayJst(),
+        jstHour: Number(
+          new Date().toLocaleString("en-US", {
+            timeZone: "Asia/Tokyo",
+            hour: "numeric",
+            hour12: false,
+          })
+        ),
         failures: tokenFetchFailures,
         supabase,
-        notifyFromStoreIds: [...storeIds].filter(
-          (id) => !tokenFetchFailures.some((f) => f.storeId === id)
-        ),
       });
     }
 
