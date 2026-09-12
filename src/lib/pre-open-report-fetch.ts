@@ -4,6 +4,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PreOpenScheduleRow } from "@/lib/pre-open-report-message";
+import { withSupabaseQueryRetry } from "@/lib/supabase-retry";
 
 const DEFAULT_LOG_PREFIX = "[PreOpenReportFetch]";
 
@@ -19,11 +20,15 @@ export async function fetchSchedulesForPreOpenReport(
   const minSelect =
     "id, cast_id, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, response_status, late_reason, absent_reason, public_holiday_reason, half_holiday_reason, has_reservation, reservation_details, pending_line_flow";
 
-  const first = await supabase
-    .from("attendance_schedules")
-    .select(fullSelect)
-    .eq("store_id", storeId)
-    .eq("scheduled_date", targetDate);
+  const first = await withSupabaseQueryRetry(
+    () =>
+      supabase
+        .from("attendance_schedules")
+        .select(fullSelect)
+        .eq("store_id", storeId)
+        .eq("scheduled_date", targetDate),
+    { label: `${logPrefix} schedules+casts`, attempts: 3 }
+  );
 
   if (first.error) {
     console.error(`${logPrefix} schedules select (with casts)`, storeId, {
@@ -32,17 +37,21 @@ export async function fetchSchedulesForPreOpenReport(
       details: first.error.details,
       hint: first.error.hint,
     });
-    const second = await supabase
-      .from("attendance_schedules")
-      .select(minSelect)
-      .eq("store_id", storeId)
-      .eq("scheduled_date", targetDate);
+    const second = await withSupabaseQueryRetry(
+      () =>
+        supabase
+          .from("attendance_schedules")
+          .select(minSelect)
+          .eq("store_id", storeId)
+          .eq("scheduled_date", targetDate),
+      { label: `${logPrefix} schedules-min`, attempts: 3 }
+    );
     if (second.error) {
       console.error(`${logPrefix} schedules select (minimal)`, storeId, {
         message: second.error.message,
         code: second.error.code,
       });
-      return { data: null, error: { message: second.error.message, code: second.error.code } };
+      return { data: null, error: { message: second.error.message ?? "unknown", code: second.error.code } };
     }
     console.warn(`${logPrefix} using schedule rows without casts(name); names may show as 不明`);
     return {

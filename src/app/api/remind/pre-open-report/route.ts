@@ -23,10 +23,14 @@ import { isValidStoreId } from "@/lib/current-store";
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { applyPreOpenReportCustomization } from "@/lib/pre-open-report-customization";
 import { withSupabaseQueryRetry } from "@/lib/supabase-retry";
+import { mapWithConcurrency } from "@/lib/concurrency";
 import {
   alertCronDeliveryFailures,
   collectCronFailuresFromResults,
 } from "@/lib/cron-delivery-alert";
+import { recordCronRuns, storeResultToCronLog } from "@/lib/cron-run-log";
+
+const PRE_OPEN_STORE_CONCURRENCY = 4;
 
 export const dynamic = "force-dynamic";
 
@@ -229,12 +233,16 @@ async function processPreOpenReportForStore(
       };
     }
 
-    const { data: settingsRow } = await supabase
-      .from("system_settings")
-      .select("value")
-      .eq("store_id", sid)
-      .eq("key", "reminder_config")
-      .maybeSingle();
+    const { data: settingsRow } = await withSupabaseQueryRetry(
+      () =>
+        supabase
+          .from("system_settings")
+          .select("value")
+          .eq("store_id", sid)
+          .eq("key", "reminder_config")
+          .maybeSingle(),
+      { label: `${LOG_PREFIX} reminder_config ${sid}`, attempts: 3 }
+    );
     const cfg = (settingsRow?.value ?? {}) as Record<string, unknown>;
     const customizedBody = applyPreOpenReportCustomization(body, cfg);
 
@@ -258,13 +266,17 @@ async function processPreOpenReportForStore(
     }
 
     if (!force) {
-      const { error: updErr } = await supabase
-        .from("stores")
-        .update({
-          last_pre_open_report_date: targetDate,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", sid);
+      const { error: updErr } = await withSupabaseQueryRetry(
+        () =>
+          supabase
+            .from("stores")
+            .update({
+              last_pre_open_report_date: targetDate,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", sid),
+        { label: `${LOG_PREFIX} last_pre_open_report_date ${sid}`, attempts: 3 }
+      );
 
       if (updErr) {
         console.error(`${LOG_PREFIX} last_pre_open_report_date 更新失敗`, sid, updErr);
@@ -458,17 +470,15 @@ export async function GET(request: Request) {
 
     let settled: PromiseSettledResult<ProcessResult>[];
     try {
-      settled = await Promise.allSettled(
-        list.map((store) =>
-          processPreOpenReportForStore(supabase, store, {
-            targetDate,
-            hourJst,
-            force: false,
-          })
-        )
+      settled = await mapWithConcurrency(list, PRE_OPEN_STORE_CONCURRENCY, (store) =>
+        processPreOpenReportForStore(supabase, store, {
+          targetDate,
+          hourJst,
+          force: false,
+        })
       );
     } catch (batchErr) {
-      console.error(`${LOG_PREFIX} batch Promise.allSettled failed`, batchErr);
+      console.error(`${LOG_PREFIX} batch mapWithConcurrency failed`, batchErr);
       throw batchErr;
     }
 
@@ -483,13 +493,39 @@ export async function GET(request: Request) {
 
     const processedCount = results.filter((r) => r.sent === true).length;
 
+    const nameById = new Map(list.map((s) => [s.id, s.name ?? null]));
+    await recordCronRuns(
+      supabase,
+      results.map((r) =>
+        storeResultToCronLog({
+          job: "pre-open-report",
+          storeId: r.storeId,
+          storeName: nameById.get(r.storeId) ?? null,
+          skipped: r.skipped,
+          error: r.error,
+          sent: r.sent === true,
+          successCount: r.sent === true ? 1 : 0,
+          failureCount: r.sent === true ? 0 : r.skipped ? 0 : 1,
+          jstDate: todayJst,
+          jstHour: hourJst,
+        })
+      )
+    );
+
     await alertCronDeliveryFailures({
       logTag: LOG_PREFIX,
-      failures: collectCronFailuresFromResults(results),
+      job: "pre-open-report",
+      jstDate: todayJst,
+      jstHour: hourJst,
+      failures: collectCronFailuresFromResults(
+        results.map((r) => ({
+          storeId: r.storeId,
+          storeName: nameById.get(r.storeId) ?? null,
+          skipped: r.skipped,
+          error: r.error,
+        }))
+      ),
       supabase,
-      notifyFromStoreIds: results
-        .filter((r) => r.skipped !== "token_fetch_failed" && !(r.skipped ?? "").startsWith("fetch_error"))
-        .map((r) => r.storeId),
     });
 
     return NextResponse.json({

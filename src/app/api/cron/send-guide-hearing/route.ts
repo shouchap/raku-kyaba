@@ -53,6 +53,7 @@ export async function GET(request: Request) {
     const { alertCronDeliveryFailures, collectCronFailuresFromResults } = await import(
       "@/lib/cron-delivery-alert"
     );
+    const { recordCronRuns, storeResultToCronLog } = await import("@/lib/cron-run-log");
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const businessDate = resolveBusinessDateFromJst();
@@ -180,11 +181,15 @@ export async function GET(request: Request) {
       let staffNames: string[] = [];
 
       // システム設定（guide_hearing_reporter_id / guide_staff_names）を唯一の送信元設定として扱う
-      const { data: configStore, error: configErr } = await supabase
-        .from("stores")
-        .select("guide_hearing_reporter_id, guide_staff_names")
-        .eq("id", store.id)
-        .maybeSingle();
+      const { data: configStore, error: configErr } = await withSupabaseQueryRetry(
+        () =>
+          supabase
+            .from("stores")
+            .select("guide_hearing_reporter_id, guide_staff_names")
+            .eq("id", store.id)
+            .maybeSingle(),
+        { label: `[GuideCron] config ${store.id}`, attempts: 3 }
+      );
 
       if (configErr) {
         results.push({
@@ -217,13 +222,17 @@ export async function GET(request: Request) {
         continue;
       }
 
-      const { data: reporter, error: reporterErr } = await supabase
-        .from("casts")
-        .select("id, line_user_id")
-        .eq("id", reporterId)
-        .eq("store_id", store.id)
-        .eq("is_active", true)
-        .maybeSingle();
+      const { data: reporter, error: reporterErr } = await withSupabaseQueryRetry(
+        () =>
+          supabase
+            .from("casts")
+            .select("id, line_user_id")
+            .eq("id", reporterId)
+            .eq("store_id", store.id)
+            .eq("is_active", true)
+            .maybeSingle(),
+        { label: `[GuideCron] reporter ${store.id}`, attempts: 3 }
+      );
       if (reporterErr || !reporter?.id || !reporter.line_user_id) {
         results.push({ storeId: store.id, sent: 0, skipped: "invalid_reporter" });
         continue;
@@ -240,13 +249,17 @@ export async function GET(request: Request) {
         results.push({ storeId: store.id, sent: 1 });
 
         if (storesHasLastSentDate) {
-          const { error: updateErr } = await supabase
-            .from("stores")
-            .update({
-              last_guide_hearing_sent_date: businessDate,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", store.id);
+          const { error: updateErr } = await withSupabaseQueryRetry(
+            () =>
+              supabase
+                .from("stores")
+                .update({
+                  last_guide_hearing_sent_date: businessDate,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", store.id),
+            { label: `[GuideCron] last_sent ${store.id}`, attempts: 3 }
+          );
           if (updateErr) {
             console.error("[CRON] failed to update last_guide_hearing_sent_date:", updateErr.message);
           }
@@ -258,13 +271,41 @@ export async function GET(request: Request) {
       }
     }
 
+    const nameById = new Map(targetStores.map((s) => [s.id, s.name ?? null]));
+    const hourNum = Number(currentHour);
+    await recordCronRuns(
+      supabase,
+      results.map((r) =>
+        storeResultToCronLog({
+          job: "guide-hearing",
+          storeId: r.storeId,
+          storeName: nameById.get(r.storeId) ?? null,
+          skipped: r.skipped,
+          error: r.error,
+          sent: r.sent > 0,
+          successCount: r.sent,
+          failureCount: r.sent > 0 ? 0 : r.skipped ? 0 : 1,
+          targetCount: 1,
+          jstDate: businessDate,
+          jstHour: hourNum,
+        })
+      )
+    );
+
     await alertCronDeliveryFailures({
       logTag: "[CRON:guide-hearing]",
-      failures: collectCronFailuresFromResults(results),
+      job: "guide-hearing",
+      jstDate: businessDate,
+      jstHour: hourNum,
+      failures: collectCronFailuresFromResults(
+        results.map((r) => ({
+          storeId: r.storeId,
+          storeName: nameById.get(r.storeId) ?? null,
+          skipped: r.skipped,
+          error: r.error,
+        }))
+      ),
       supabase,
-      notifyFromStoreIds: results
-        .filter((r) => r.sent > 0 || (r.skipped !== "token_fetch_failed" && r.skipped !== "exception"))
-        .map((r) => r.storeId),
     });
 
     return NextResponse.json({

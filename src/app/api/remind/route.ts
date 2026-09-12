@@ -28,6 +28,16 @@ import {
   alertCronDeliveryFailures,
   collectCronFailuresFromResults,
 } from "@/lib/cron-delivery-alert";
+import { mapWithConcurrency } from "@/lib/concurrency";
+import {
+  recordCronRuns,
+  sanitizeCronDetail,
+  storeResultToCronLog,
+  type CronRunLogRow,
+} from "@/lib/cron-run-log";
+
+/** キャスト単位の送信同時実行上限（Supabase 過負荷防止） */
+const REMIND_SEND_CONCURRENCY = 4;
 
 /** キャッシュ無効化: 毎回最新のDB値を取得する */
 export const dynamic = "force-dynamic";
@@ -147,6 +157,29 @@ function serializeRemindRejectReason(reason: unknown): { message: string; stack?
   return { message: String(reason) };
 }
 
+function classifyRemindRejectReason(reason: unknown): { reason: string; detail: string } {
+  const message = serializeRemindRejectReason(reason).message;
+  const lower = message.toLowerCase();
+  if (
+    lower.includes("claim_reminder") ||
+    lower.includes("does not exist") ||
+    lower.includes("pgrst202") ||
+    lower.includes("42883") ||
+    (lower.includes("function") && lower.includes("not found"))
+  ) {
+    return { reason: "claim_failed", detail: sanitizeCronDetail(message) ?? message.slice(0, 1000) };
+  }
+  return { reason: "push_failed", detail: sanitizeCronDetail(message) ?? message.slice(0, 1000) };
+}
+
+type CastFailureLog = {
+  castName?: string | null;
+  castId?: string | null;
+  scheduleId?: string | null;
+  reason: string;
+  detail: string;
+};
+
 /** Promise.allSettled で rejected になった送信を Vercel ログで追えるようにする */
 function logRemindPushRejected(ctx: {
   storeId: string;
@@ -199,12 +232,16 @@ async function loadReminderConfig(
   messageTemplate: string;
   holidayFlex: HolidayFlexFlags;
 } | null> {
-  const fullSelect = await supabase
-    .from("system_settings")
-    .select("value, enable_public_holiday, enable_half_holiday")
-    .eq("store_id", storeId)
-    .eq("key", "reminder_config")
-    .maybeSingle();
+  const fullSelect = await withSupabaseQueryRetry(
+    () =>
+      supabase
+        .from("system_settings")
+        .select("value, enable_public_holiday, enable_half_holiday")
+        .eq("store_id", storeId)
+        .eq("key", "reminder_config")
+        .maybeSingle(),
+    { label: `[Remind] reminder_config store=${storeId}`, attempts: 3 }
+  );
 
   let settingsRow: {
     value: unknown;
@@ -214,12 +251,16 @@ async function loadReminderConfig(
 
   if (fullSelect.error) {
     if (isUndefinedColumnError(fullSelect.error, "enable_public_holiday")) {
-      const fallback = await supabase
-        .from("system_settings")
-        .select("value")
-        .eq("store_id", storeId)
-        .eq("key", "reminder_config")
-        .maybeSingle();
+      const fallback = await withSupabaseQueryRetry(
+        () =>
+          supabase
+            .from("system_settings")
+            .select("value")
+            .eq("store_id", storeId)
+            .eq("key", "reminder_config")
+            .maybeSingle(),
+        { label: `[Remind] reminder_config fallback store=${storeId}`, attempts: 3 }
+      );
       if (fallback.error) {
         logError(`reminder_config 取得失敗 store=${storeId}`, fallback.error);
         return null;
@@ -243,11 +284,11 @@ async function loadReminderConfig(
     attendanceFlowType: "default",
   };
 
-  const flowTypeRes = await supabase
-    .from("stores")
-    .select("attendance_flow_type")
-    .eq("id", storeId)
-    .maybeSingle();
+  const flowTypeRes = await withSupabaseQueryRetry(
+    () =>
+      supabase.from("stores").select("attendance_flow_type").eq("id", storeId).maybeSingle(),
+    { label: `[Remind] attendance_flow_type store=${storeId}`, attempts: 3 }
+  );
   if (!flowTypeRes.error && flowTypeRes.data?.attendance_flow_type === "bar_extended") {
     holidayFlex.attendanceFlowType = "bar_extended";
   }
@@ -367,19 +408,29 @@ async function runRemindForStore(
   opts: { isManual: boolean; todayJst: string; hourJst: number }
 ): Promise<{
   storeId: string;
+  storeName?: string | null;
   skipped?: string;
   error?: string;
   successCount: number;
   failureCount: number;
   totalCandidates: number;
+  castFailures?: CastFailureLog[];
 }> {
   const { isManual, todayJst, hourJst } = opts;
   const storeId = store.id;
   const storeLabel = (store.name ?? "").trim() || "（店舗名未設定）";
+  const storeName = store.name ?? null;
 
   const remindHour = parseRemindHourJst(store.remind_time ?? "07:00");
   if (remindHour === null) {
-    return { storeId, skipped: "invalid_remind_time", successCount: 0, failureCount: 0, totalCandidates: 0 };
+    return {
+      storeId,
+      storeName,
+      skipped: "invalid_remind_time",
+      successCount: 0,
+      failureCount: 0,
+      totalCandidates: 0,
+    };
   }
 
   const dowJst = getWeekdayJst(todayJst);
@@ -388,7 +439,14 @@ async function runRemindForStore(
     console.info(
       `[Remind] 定休日のためスキップ ${storeLabel} (ID: ${storeId}) weekday=${dowJst}`
     );
-    return { storeId, skipped: "regular_holiday", successCount: 0, failureCount: 0, totalCandidates: 0 };
+    return {
+      storeId,
+      storeName,
+      skipped: "regular_holiday",
+      successCount: 0,
+      failureCount: 0,
+      totalCandidates: 0,
+    };
   }
 
   if (!isManual) {
@@ -396,11 +454,25 @@ async function runRemindForStore(
       console.info(
         `[Remind] Skipping ${storeLabel} (ID: ${storeId}) - remind_time_hour (${remindHour}) does not match current_hour (${hourJst})`
       );
-      return { storeId, skipped: "hour_mismatch", successCount: 0, failureCount: 0, totalCandidates: 0 };
+      return {
+        storeId,
+        storeName,
+        skipped: "hour_mismatch",
+        successCount: 0,
+        failureCount: 0,
+        totalCandidates: 0,
+      };
     }
     const sentDate = store.last_reminded_date?.trim() ?? null;
     if (sentDate === todayJst) {
-      return { storeId, skipped: "already_reminded_today", successCount: 0, failureCount: 0, totalCandidates: 0 };
+      return {
+        storeId,
+        storeName,
+        skipped: "already_reminded_today",
+        successCount: 0,
+        failureCount: 0,
+        totalCandidates: 0,
+      };
     }
   }
 
@@ -417,12 +489,26 @@ async function runRemindForStore(
         "stores.line_channel_access_token が空か未設定です（他店舗OAへの誤送信防止のため env フォールバックは使いません）"
       )
     );
-    return { storeId, skipped: "no_line_token", successCount: 0, failureCount: 0, totalCandidates: 0 };
+    return {
+      storeId,
+      storeName,
+      skipped: "no_line_token",
+      successCount: 0,
+      failureCount: 0,
+      totalCandidates: 0,
+    };
   }
 
   const loaded = await loadReminderConfig(supabase, storeId);
   if (!loaded) {
-    return { storeId, skipped: "settings_error", successCount: 0, failureCount: 0, totalCandidates: 0 };
+    return {
+      storeId,
+      storeName,
+      skipped: "settings_error",
+      successCount: 0,
+      failureCount: 0,
+      totalCandidates: 0,
+    };
   }
   const { config, messageTemplate, holidayFlex, rawConfig } = loaded;
   const regularRemindMessageFromStore = store.regular_remind_message;
@@ -439,21 +525,40 @@ async function runRemindForStore(
     console.info(
       `[Remind] Skipping ${storeLabel} (ID: ${storeId}) - is_remind_active is false`
     );
-    return { storeId, skipped: "reminder_disabled", successCount: 0, failureCount: 0, totalCandidates: 0 };
+    return {
+      storeId,
+      storeName,
+      skipped: "reminder_disabled",
+      successCount: 0,
+      failureCount: 0,
+      totalCandidates: 0,
+    };
   }
 
-  const { data: rawSchedules, error } = await supabase
-    .from("attendance_schedules")
-    .select(
-      "id, cast_id, store_id, scheduled_date, scheduled_time, is_dohan, is_sabaki, last_reminded_at, casts(name, line_user_id, employment_type, is_admin)"
-    )
-    .eq("store_id", storeId)
-    .eq("scheduled_date", todayJst)
-    .or("scheduled_time.not.is.null,is_sabaki.eq.true");
+  const { data: rawSchedules, error } = await withSupabaseQueryRetry(
+    () =>
+      supabase
+        .from("attendance_schedules")
+        .select(
+          "id, cast_id, store_id, scheduled_date, scheduled_time, is_dohan, is_sabaki, last_reminded_at, casts(name, line_user_id, employment_type, is_admin)"
+        )
+        .eq("store_id", storeId)
+        .eq("scheduled_date", todayJst)
+        .or("scheduled_time.not.is.null,is_sabaki.eq.true"),
+    { label: `[Remind] schedules store=${storeId}`, attempts: 3 }
+  );
 
   if (error) {
     logError(`出勤予定取得失敗 store=${storeId}`, error);
-    return { storeId, skipped: "fetch_error", successCount: 0, failureCount: 0, totalCandidates: 0 };
+    return {
+      storeId,
+      storeName,
+      skipped: "fetch_error",
+      error: error.message,
+      successCount: 0,
+      failureCount: 0,
+      totalCandidates: 0,
+    };
   }
 
   let schedules = (rawSchedules ?? []).filter((s) => {
@@ -474,21 +579,29 @@ async function runRemindForStore(
     return true;
   });
 
-  const { data: existingTodaySched } = await supabase
-    .from("attendance_schedules")
-    .select("cast_id")
-    .eq("store_id", storeId)
-    .eq("scheduled_date", todayJst);
+  const { data: existingTodaySched } = await withSupabaseQueryRetry(
+    () =>
+      supabase
+        .from("attendance_schedules")
+        .select("cast_id")
+        .eq("store_id", storeId)
+        .eq("scheduled_date", todayJst),
+    { label: `[Remind] schedule cast_ids store=${storeId}`, attempts: 3 }
+  );
 
   const castIdsWithAnyScheduleToday = new Set((existingTodaySched ?? []).map((r) => r.cast_id));
 
-  const { data: regularCastsRaw, error: regErr } = await supabase
-    .from("casts")
-    .select("id, name, line_user_id, employment_type, is_admin")
-    .eq("store_id", storeId)
-    .eq("is_active", true)
-    .eq("employment_type", "regular")
-    .not("line_user_id", "is", null);
+  const { data: regularCastsRaw, error: regErr } = await withSupabaseQueryRetry(
+    () =>
+      supabase
+        .from("casts")
+        .select("id, name, line_user_id, employment_type, is_admin")
+        .eq("store_id", storeId)
+        .eq("is_active", true)
+        .eq("employment_type", "regular")
+        .not("line_user_id", "is", null),
+    { label: `[Remind] regular casts store=${storeId}`, attempts: 3 }
+  );
 
   if (regErr) {
     logError(`レギュラーキャスト取得失敗 store=${storeId}`, regErr);
@@ -509,7 +622,14 @@ async function runRemindForStore(
   const totalCandidates = schedules.length + regularNoSchedule.length;
 
   if (totalCandidates === 0) {
-    return { storeId, skipped: "no_targets", successCount: 0, failureCount: 0, totalCandidates: 0 };
+    return {
+      storeId,
+      storeName,
+      skipped: "no_targets",
+      successCount: 0,
+      failureCount: 0,
+      totalCandidates: 0,
+    };
   }
 
   const nowIso = new Date().toISOString();
@@ -554,9 +674,71 @@ async function runRemindForStore(
     }
   };
 
+  type SendJob =
+    | { kind: "schedule"; schedule: ScheduleRow }
+    | { kind: "regular"; cast: (typeof regularNoSchedule)[number] };
+
+  const sendJobs: SendJob[] = [
+    ...schedules.map((schedule) => ({ kind: "schedule" as const, schedule })),
+    ...regularNoSchedule.map((cast) => ({ kind: "regular" as const, cast })),
+  ];
+
+  const collectCastFailures = (
+    mode: "manual" | "cron",
+    lineResults: PromiseSettledResult<unknown>[]
+  ): CastFailureLog[] => {
+    const castFailures: CastFailureLog[] = [];
+    for (let i = 0; i < lineResults.length; i++) {
+      const r = lineResults[i];
+      if (!r || r.status !== "rejected") continue;
+      const job = sendJobs[i];
+      if (!job) continue;
+      if (job.kind === "schedule") {
+        const c = parseCastJoinFromSchedule(job.schedule);
+        logRemindPushRejected({
+          storeId,
+          mode,
+          kind: "schedule",
+          scheduleId: job.schedule.id,
+          castId: job.schedule.cast_id ?? null,
+          castName: c?.name ?? null,
+          reason: r.reason,
+        });
+        const classified = classifyRemindRejectReason(r.reason);
+        castFailures.push({
+          castName: c?.name ?? null,
+          castId: job.schedule.cast_id ?? null,
+          scheduleId: job.schedule.id,
+          reason: classified.reason,
+          detail: classified.detail,
+        });
+      } else {
+        logRemindPushRejected({
+          storeId,
+          mode,
+          kind: "regular",
+          scheduleId: null,
+          castId: job.cast.id,
+          castName: job.cast.name,
+          reason: r.reason,
+        });
+        const classified = classifyRemindRejectReason(r.reason);
+        castFailures.push({
+          castName: job.cast.name,
+          castId: job.cast.id,
+          scheduleId: null,
+          reason: classified.reason,
+          detail: classified.detail,
+        });
+      }
+    }
+    return castFailures;
+  };
+
   if (isManual) {
-    const lineResults = await Promise.allSettled([
-      ...schedules.map(async (schedule) => {
+    const lineResults = await mapWithConcurrency(sendJobs, REMIND_SEND_CONCURRENCY, async (job) => {
+      if (job.kind === "schedule") {
+        const schedule = job.schedule;
         const c = parseCastJoinFromSchedule(schedule);
         if (!c) throw new Error(`No cast for schedule ${schedule.id}`);
         const name = c.name ?? "キャスト";
@@ -582,58 +764,29 @@ async function runRemindForStore(
         });
         await sendPushMessage(c.line_user_id as string, channelAccessToken, [message]);
         return { kind: "schedule" as const, schedule };
-      }),
-      ...regularNoSchedule.map(async (rc) => {
-        const reminderMessageLine = buildRegularRemindMessageLine(
-          rc.name,
-          regularRemindMessageFromStore
-        );
-        const scheduledNoRowDisplay = formatRemindScheduledTime(null, false, regularFallbackHm);
-        const message = buildAttendanceRemindFlexMessage({
-          castName: rc.name,
-          scheduledTimeDisplay: scheduledNoRowDisplay,
-          todayJst,
-          storeName: store.name,
-          flexOptions: {
-            enablePublicHoliday: holidayFlex.enablePublicHoliday,
-            enableHalfHoliday: holidayFlex.enableHalfHoliday,
-          },
-          reminderMessageLine,
-        });
-        await sendPushMessage(rc.line_user_id, channelAccessToken, [message]);
-        return { kind: "regular" as const, castId: rc.id };
-      }),
-    ]);
-
-    for (let i = 0; i < lineResults.length; i++) {
-      const r = lineResults[i];
-      if (r.status !== "rejected") continue;
-      if (i < schedules.length) {
-        const sch = schedules[i];
-        const c = parseCastJoinFromSchedule(sch);
-        logRemindPushRejected({
-          storeId,
-          mode: "manual",
-          kind: "schedule",
-          scheduleId: sch?.id,
-          castId: sch?.cast_id ?? null,
-          castName: c?.name ?? null,
-          reason: r.reason,
-        });
-      } else {
-        const rIdx = i - schedules.length;
-        const rc = regularNoSchedule[rIdx];
-        logRemindPushRejected({
-          storeId,
-          mode: "manual",
-          kind: "regular",
-          scheduleId: null,
-          castId: rc?.id ?? null,
-          castName: rc?.name ?? null,
-          reason: r.reason,
-        });
       }
-    }
+      const rc = job.cast;
+      const reminderMessageLine = buildRegularRemindMessageLine(
+        rc.name,
+        regularRemindMessageFromStore
+      );
+      const scheduledNoRowDisplay = formatRemindScheduledTime(null, false, regularFallbackHm);
+      const message = buildAttendanceRemindFlexMessage({
+        castName: rc.name,
+        scheduledTimeDisplay: scheduledNoRowDisplay,
+        todayJst,
+        storeName: store.name,
+        flexOptions: {
+          enablePublicHoliday: holidayFlex.enablePublicHoliday,
+          enableHalfHoliday: holidayFlex.enableHalfHoliday,
+        },
+        reminderMessageLine,
+      });
+      await sendPushMessage(rc.line_user_id, channelAccessToken, [message]);
+      return { kind: "regular" as const, castId: rc.id };
+    });
+
+    const castFailures = collectCastFailures("manual", lineResults);
 
     const fulfilled = lineResults.filter((r) => r.status === "fulfilled") as PromiseFulfilledResult<
       | { kind: "schedule"; schedule: ScheduleRow }
@@ -651,31 +804,35 @@ async function runRemindForStore(
       .map((v) => v.castId);
 
     if (okSchedules.length > 0) {
-      await Promise.all(
-        okSchedules.map(async (schedule) => {
-          const { error: updateError } = await supabase
-            .from("attendance_schedules")
-            .update({ last_reminded_at: nowIso })
-            .eq("id", schedule.id);
-          if (updateError) {
-            logError(`last_reminded_at 更新失敗 scheduleId=${schedule.id}`, updateError);
-          }
-        })
-      );
+      await mapWithConcurrency(okSchedules, REMIND_SEND_CONCURRENCY, async (schedule) => {
+        const { error: updateError } = await withSupabaseQueryRetry(
+          () =>
+            supabase
+              .from("attendance_schedules")
+              .update({ last_reminded_at: nowIso })
+              .eq("id", schedule.id),
+          { label: `[Remind] last_reminded_at schedule=${schedule.id}`, attempts: 3 }
+        );
+        if (updateError) {
+          logError(`last_reminded_at 更新失敗 scheduleId=${schedule.id}`, updateError);
+        }
+      });
     }
 
     if (okRegularIds.length > 0) {
-      await Promise.all(
-        okRegularIds.map(async (castId) => {
-          const { error: updErr } = await supabase
-            .from("casts")
-            .update({ last_reminder_sent_date: todayJst, updated_at: nowIso })
-            .eq("id", castId);
-          if (updErr) {
-            logError(`last_reminder_sent_date 更新失敗 castId=${castId}`, updErr);
-          }
-        })
-      );
+      await mapWithConcurrency(okRegularIds, REMIND_SEND_CONCURRENCY, async (castId) => {
+        const { error: updErr } = await withSupabaseQueryRetry(
+          () =>
+            supabase
+              .from("casts")
+              .update({ last_reminder_sent_date: todayJst, updated_at: nowIso })
+              .eq("id", castId),
+          { label: `[Remind] last_reminder_sent_date cast=${castId}`, attempts: 3 }
+        );
+        if (updErr) {
+          logError(`last_reminder_sent_date 更新失敗 castId=${castId}`, updErr);
+        }
+      });
     }
 
     const successCount = fulfilled.length;
@@ -698,18 +855,25 @@ async function runRemindForStore(
 
     return {
       storeId,
+      storeName,
       successCount,
       failureCount,
       totalCandidates,
+      castFailures,
     };
   }
 
   /** 本番: シフト行は RPC、シフトなしレギュラーは claim_reminder_cast_send */
-  const lineResults = await Promise.allSettled([
-    ...schedules.map(async (schedule) => {
-      const { data: claimRows, error: claimErr } = await supabase.rpc(
-        "claim_reminder_schedule_send",
-        { p_schedule_id: schedule.id, p_today: todayJst }
+  const lineResults = await mapWithConcurrency(sendJobs, REMIND_SEND_CONCURRENCY, async (job) => {
+    if (job.kind === "schedule") {
+      const schedule = job.schedule;
+      const { data: claimRows, error: claimErr } = await withSupabaseQueryRetry(
+        () =>
+          supabase.rpc("claim_reminder_schedule_send", {
+            p_schedule_id: schedule.id,
+            p_today: todayJst,
+          }),
+        { label: `[Remind] claim_schedule ${schedule.id}`, attempts: 3 }
       );
 
       if (claimErr) {
@@ -730,10 +894,14 @@ async function runRemindForStore(
 
       const c = parseCastJoinFromSchedule(schedule);
       if (!c?.line_user_id) {
-        await supabase.rpc("restore_reminder_schedule_last_reminded_at", {
-          p_schedule_id: schedule.id,
-          p_prior_last_reminded_at: prior,
-        });
+        await withSupabaseQueryRetry(
+          () =>
+            supabase.rpc("restore_reminder_schedule_last_reminded_at", {
+              p_schedule_id: schedule.id,
+              p_prior_last_reminded_at: prior,
+            }),
+          { label: `[Remind] restore_schedule ${schedule.id}`, attempts: 3 }
+        );
         throw new Error(`No line_user_id for schedule ${schedule.id}`);
       }
 
@@ -762,105 +930,91 @@ async function runRemindForStore(
       try {
         await sendPushMessage(c.line_user_id, channelAccessToken, [message]);
       } catch (pushErr) {
-        await supabase.rpc("restore_reminder_schedule_last_reminded_at", {
-          p_schedule_id: schedule.id,
-          p_prior_last_reminded_at: prior,
-        });
+        await withSupabaseQueryRetry(
+          () =>
+            supabase.rpc("restore_reminder_schedule_last_reminded_at", {
+              p_schedule_id: schedule.id,
+              p_prior_last_reminded_at: prior,
+            }),
+          { label: `[Remind] restore_schedule_after_push ${schedule.id}`, attempts: 3 }
+        );
         throw pushErr;
       }
 
       return { kind: "schedule" as const, schedule, skipped: false as const, prior };
-    }),
-    ...regularNoSchedule.map(async (rc) => {
-      const { data: claimRows, error: claimErr } = await supabase.rpc("claim_reminder_cast_send", {
-        p_cast_id: rc.id,
-        p_today: todayJst,
-      });
+    }
 
-      if (claimErr) {
-        logError(`claim_reminder_cast_send RPC 未適用または失敗 castId=${rc.id}`, claimErr);
-        throw claimErr;
-      }
-
-      const row = Array.isArray(claimRows) ? claimRows[0] : claimRows;
-      const claimed =
-        row && typeof row === "object" && (row as { claimed?: boolean }).claimed === true;
-      const priorDate =
-        row && typeof row === "object"
-          ? (row as { prior_last_reminder_sent_date: string | null }).prior_last_reminder_sent_date ??
-            null
-          : null;
-
-      if (!claimed) {
-        return { kind: "regular" as const, castId: rc.id, skipped: true as const, priorDate };
-      }
-
-      const reminderMessageLine = buildRegularRemindMessageLine(
-        rc.name,
-        regularRemindMessageFromStore
-      );
-      const scheduledNoRowDisplay = formatRemindScheduledTime(null, false, regularFallbackHm);
-      const message = buildAttendanceRemindFlexMessage({
-        castName: rc.name,
-        scheduledTimeDisplay: scheduledNoRowDisplay,
-        todayJst,
-        storeName: store.name,
-        flexOptions: {
-          enablePublicHoliday: holidayFlex.enablePublicHoliday,
-          enableHalfHoliday: holidayFlex.enableHalfHoliday,
-        },
-        reminderMessageLine,
-      });
-
-      try {
-        await sendPushMessage(rc.line_user_id, channelAccessToken, [message]);
-      } catch (pushErr) {
-        await supabase.rpc("restore_reminder_cast_last_reminder_sent_date", {
+    const rc = job.cast;
+    const { data: claimRows, error: claimErr } = await withSupabaseQueryRetry(
+      () =>
+        supabase.rpc("claim_reminder_cast_send", {
           p_cast_id: rc.id,
-          p_prior: priorDate,
-        });
-        throw pushErr;
-      }
+          p_today: todayJst,
+        }),
+      { label: `[Remind] claim_cast ${rc.id}`, attempts: 3 }
+    );
 
-      return { kind: "regular" as const, castId: rc.id, skipped: false as const, priorDate };
-    }),
-  ]);
+    if (claimErr) {
+      logError(`claim_reminder_cast_send RPC 未適用または失敗 castId=${rc.id}`, claimErr);
+      throw claimErr;
+    }
 
+    const row = Array.isArray(claimRows) ? claimRows[0] : claimRows;
+    const claimed =
+      row && typeof row === "object" && (row as { claimed?: boolean }).claimed === true;
+    const priorDate =
+      row && typeof row === "object"
+        ? (row as { prior_last_reminder_sent_date: string | null }).prior_last_reminder_sent_date ??
+          null
+        : null;
+
+    if (!claimed) {
+      return { kind: "regular" as const, castId: rc.id, skipped: true as const, priorDate };
+    }
+
+    const reminderMessageLine = buildRegularRemindMessageLine(
+      rc.name,
+      regularRemindMessageFromStore
+    );
+    const scheduledNoRowDisplay = formatRemindScheduledTime(null, false, regularFallbackHm);
+    const message = buildAttendanceRemindFlexMessage({
+      castName: rc.name,
+      scheduledTimeDisplay: scheduledNoRowDisplay,
+      todayJst,
+      storeName: store.name,
+      flexOptions: {
+        enablePublicHoliday: holidayFlex.enablePublicHoliday,
+        enableHalfHoliday: holidayFlex.enableHalfHoliday,
+      },
+      reminderMessageLine,
+    });
+
+    try {
+      await sendPushMessage(rc.line_user_id, channelAccessToken, [message]);
+    } catch (pushErr) {
+      await withSupabaseQueryRetry(
+        () =>
+          supabase.rpc("restore_reminder_cast_last_reminder_sent_date", {
+            p_cast_id: rc.id,
+            p_prior: priorDate,
+          }),
+        { label: `[Remind] restore_cast_after_push ${rc.id}`, attempts: 3 }
+      );
+      throw pushErr;
+    }
+
+    return { kind: "regular" as const, castId: rc.id, skipped: false as const, priorDate };
+  });
+
+  const castFailures = collectCastFailures("cron", lineResults);
   const sentSchedules: ScheduleRow[] = [];
   const sentRegularIds: string[] = [];
 
-  for (let i = 0; i < lineResults.length; i++) {
-    const r = lineResults[i];
-    if (r.status !== "fulfilled") {
-      const idx = i;
-      if (idx < schedules.length) {
-        const sch = schedules[idx];
-        const c = sch ? parseCastJoinFromSchedule(sch) : null;
-        logRemindPushRejected({
-          storeId,
-          mode: "cron",
-          kind: "schedule",
-          scheduleId: sch?.id,
-          castId: sch?.cast_id ?? null,
-          castName: c?.name ?? null,
-          reason: r.reason,
-        });
-      } else {
-        const rIdx = idx - schedules.length;
-        const rc = regularNoSchedule[rIdx];
-        logRemindPushRejected({
-          storeId,
-          mode: "cron",
-          kind: "regular",
-          scheduleId: null,
-          castId: rc?.id ?? null,
-          castName: rc?.name ?? null,
-          reason: r.reason,
-        });
-      }
-      continue;
-    }
-    const v = r.value;
+  for (const r of lineResults) {
+    if (r.status !== "fulfilled") continue;
+    const v = r.value as
+      | { kind: "schedule"; schedule: ScheduleRow; skipped: boolean }
+      | { kind: "regular"; castId: string; skipped: boolean };
     if (v.kind === "schedule" && !v.skipped) {
       sentSchedules.push(v.schedule);
     }
@@ -873,10 +1027,14 @@ async function runRemindForStore(
   const failureCount = lineResults.filter((r) => r.status === "rejected").length;
 
   if (successCount > 0) {
-    const { error: storeUpdErr } = await supabase
-      .from("stores")
-      .update({ last_reminded_date: todayJst, updated_at: nowIso })
-      .eq("id", storeId);
+    const { error: storeUpdErr } = await withSupabaseQueryRetry(
+      () =>
+        supabase
+          .from("stores")
+          .update({ last_reminded_date: todayJst, updated_at: nowIso })
+          .eq("id", storeId),
+      { label: `[Remind] last_reminded_date store=${storeId}`, attempts: 3 }
+    );
 
     if (storeUpdErr) {
       logError(`last_reminded_date 更新失敗 store=${storeId}`, storeUpdErr);
@@ -898,10 +1056,13 @@ async function runRemindForStore(
 
   return {
     storeId,
+    storeName,
     successCount,
     failureCount,
     totalCandidates,
+    castFailures,
   };
+
 }
 
 /**
@@ -1032,6 +1193,12 @@ async function handleRemind(request: Request) {
 
   const results: Awaited<ReturnType<typeof runRemindForStore>>[] = [];
   const failedStores: { storeId: string; error: string }[] = [];
+  const storeNameById = new Map(
+    (stores ?? []).map((s) => [
+      String((s as StoreRow)?.id ?? ""),
+      (s as StoreRow)?.name ?? null,
+    ])
+  );
 
   for (const s of stores ?? []) {
     const storeId = String((s as StoreRow)?.id ?? "").trim() || "(unknown)";
@@ -1050,6 +1217,7 @@ async function handleRemind(request: Request) {
       console.error(`[Remind] store loop exception storeId=${storeId}:`, message);
       results.push({
         storeId,
+        storeName: storeNameById.get(storeId) ?? null,
         skipped: "exception",
         error: message,
         successCount: 0,
@@ -1063,13 +1231,54 @@ async function handleRemind(request: Request) {
   const totalSuccess = results.reduce((a, b) => a + b.successCount, 0);
   const totalFailure = results.reduce((a, b) => a + b.failureCount, 0);
 
+  const logRows: CronRunLogRow[] = [];
+  for (const r of results) {
+    logRows.push(
+      storeResultToCronLog({
+        job: "remind",
+        storeId: r.storeId,
+        storeName: r.storeName ?? storeNameById.get(r.storeId) ?? null,
+        skipped: r.skipped,
+        error: r.error,
+        targetCount: r.totalCandidates,
+        successCount: r.successCount,
+        failureCount: r.failureCount,
+        jstDate: todayJst,
+        jstHour: hourJst,
+      })
+    );
+    for (const cf of r.castFailures ?? []) {
+      logRows.push({
+        job: "remind",
+        store_id: r.storeId,
+        store_name: r.storeName ?? storeNameById.get(r.storeId) ?? null,
+        status: "failed",
+        reason: cf.reason,
+        detail: `cast=${cf.castName ?? "?"} schedule=${cf.scheduleId ?? "-"} ${cf.detail}`,
+        target_count: 1,
+        success_count: 0,
+        failure_count: 1,
+        jst_date: todayJst,
+        jst_hour: hourJst,
+      });
+    }
+  }
+  await recordCronRuns(supabase, logRows);
+
   await alertCronDeliveryFailures({
     logTag: "[Remind]",
-    failures: collectCronFailuresFromResults(results),
+    job: "remind",
+    jstDate: todayJst,
+    jstHour: hourJst,
+    failures: collectCronFailuresFromResults(
+      results.map((r) => ({
+        storeId: r.storeId,
+        storeName: r.storeName ?? storeNameById.get(r.storeId) ?? null,
+        skipped: r.skipped,
+        error: r.error ?? (r.failureCount > 0 && r.successCount === 0 ? "push_failed" : undefined),
+      }))
+    ),
     supabase,
-    notifyFromStoreIds: (stores ?? [])
-      .map((s) => String((s as StoreRow)?.id ?? "").trim())
-      .filter((id) => id && !failedStores.some((f) => f.storeId === id)),
   });
 
   return NextResponse.json({
