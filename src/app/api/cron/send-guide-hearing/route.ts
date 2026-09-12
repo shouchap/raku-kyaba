@@ -117,6 +117,19 @@ export async function GET(request: Request) {
     }
     stores = storeFetch.data as unknown as StoreBaseRow[];
 
+    // last_guide_hearing_sent_date が無いと二重送信を防げないため、送信せず安全側に倒す
+    if (!storesHasLastSentDate) {
+      console.error(
+        "[ALERT] [CRON:guide-hearing] missing_dedupe_column last_guide_hearing_sent_date — migration 035 未適用の可能性。送信をスキップします。"
+      );
+      return NextResponse.json({
+        status: "skipped",
+        reason: "missing_dedupe_column",
+        hourJst: currentTimeStr,
+        businessDate,
+      });
+    }
+
     const targetStores = stores.filter((store) => {
       if (storesHasIsGuideEnabled && store.is_guide_enabled === false) return false;
       if (storesHasCabaretGuideCronColumns) {
@@ -132,7 +145,7 @@ export async function GET(request: Request) {
       return (
         !!slot &&
         slot.startsWith(`${currentHour}:`) &&
-        (!storesHasLastSentDate || store.last_guide_hearing_sent_date !== businessDate)
+        store.last_guide_hearing_sent_date !== businessDate
       );
     });
 

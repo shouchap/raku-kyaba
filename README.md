@@ -27,7 +27,16 @@ cp .env.example .env.local
 
 ### 3. データベース
 
-Supabase ダッシュボードの SQL Editor で `supabase/migrations/001_initial_schema.sql` を実行してください。
+初回は Supabase ダッシュボードの SQL Editor で `supabase/migrations/001_initial_schema.sql` を実行してください。
+
+以降の本番適用は CLI を使います（手順・確認 SQL は [docs/db-migrations-prod.md](docs/db-migrations-prod.md)）。
+
+```bash
+npm run db:status   # 適用状況
+npm run db:push     # 未適用を本番へ
+```
+
+特に `035`（`stores.last_guide_hearing_sent_date`）と `064` が未適用の場合は案内数 cron が安全スキップするため、上記ドキュメントに従って適用してください。
 
 ### 4. LINE Developers 設定
 
