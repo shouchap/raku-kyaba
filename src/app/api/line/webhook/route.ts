@@ -160,13 +160,17 @@ app.post("*", async (c) => {
 
       const sec = effectiveStore?.line_channel_secret?.trim();
       const tok = effectiveStore?.line_channel_access_token?.trim();
-      if (sec && tok) {
+      // LINE の channel secret は通常 32 文字前後。短すぎる値はプレースホルダとみなし使わない
+      // （トークンだけ DB に入れた結果、不正な secret で署名検証が落ちて管理者通知が止まる事故を防ぐ）
+      const secretOk = !!sec && sec.length >= 20;
+      if (secretOk && tok) {
         channelSecret = sec;
         channelAccessToken = tok;
         console.log(`[Webhook] ボットID ${botUserId} に紐づく店舗設定をDBから取得しました`);
       } else {
         console.log(
-          `[Webhook] ボットID ${botUserId} のDB設定が不完全なため環境変数へフォールバックします`
+          `[Webhook] ボットID ${botUserId} のDB設定が不完全なため環境変数へフォールバックします` +
+            ` (secretLen=${sec?.length ?? 0} tokenLen=${tok?.length ?? 0})`
         );
       }
     }
