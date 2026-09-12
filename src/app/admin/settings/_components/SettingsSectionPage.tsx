@@ -316,6 +316,8 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
   );
   const [testingWelfare, setTestingWelfare] = useState(false);
   const [welfareTestDetail, setWelfareTestDetail] = useState<string | null>(null);
+  const [broadcastingWelfare, setBroadcastingWelfare] = useState(false);
+  const [welfareBroadcastDetail, setWelfareBroadcastDetail] = useState<string | null>(null);
   const [testingWelfareUnstarted, setTestingWelfareUnstarted] = useState(false);
   const [welfareUnstartedDetail, setWelfareUnstartedDetail] = useState<string | null>(null);
   const [preOpenPreviewLoading, setPreOpenPreviewLoading] = useState(false);
@@ -1171,6 +1173,57 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
       setTestingWelfare(false);
     }
   }, [activeStoreId, welfareTestCastId, welfareTestSegment]);
+
+  const handleWelfareBroadcastSend = useCallback(async () => {
+    if (!activeStoreId) return;
+    const segLabel =
+      welfareTestSegment === "morning"
+        ? "作業開始（朝）"
+        : welfareTestSegment === "midday"
+          ? "体調確認（昼）"
+          : "作業終了（夕）";
+    const linkedCount = guideReporterCandidates.filter((c) => !!c.line_user_id).length;
+    if (
+      !window.confirm(
+        `${segLabel}を、LINE連携済みの利用者 ${linkedCount}名へ一斉送信します。よろしいですか？`
+      )
+    ) {
+      return;
+    }
+    setBroadcastingWelfare(true);
+    setWelfareBroadcastDetail(null);
+    try {
+      const res = await fetch("/api/admin/welfare/broadcast-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId: activeStoreId,
+          segment: welfareTestSegment,
+        }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        recipients?: number;
+        skippedNoLine?: number;
+        partialError?: string;
+        message?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "一斉送信に失敗しました");
+      if ((data.recipients ?? 0) === 0) {
+        setWelfareBroadcastDetail(data.message ?? "送信対象がいませんでした");
+        return;
+      }
+      setWelfareBroadcastDetail(
+        `「${segLabel}」を ${data.recipients}名へ送信しました` +
+          (data.skippedNoLine ? `（LINE未連携 ${data.skippedNoLine}名は除外）` : "") +
+          (data.partialError ? ` ※一部失敗: ${data.partialError}` : "")
+      );
+    } catch (e) {
+      setWelfareBroadcastDetail(e instanceof Error ? e.message : "一斉送信に失敗しました");
+    } finally {
+      setBroadcastingWelfare(false);
+    }
+  }, [activeStoreId, welfareTestSegment, guideReporterCandidates]);
 
   const handleWelfareUnstartedTest = useCallback(async () => {
     setTestingWelfareUnstarted(true);
@@ -2260,12 +2313,12 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
             ) : null}
 
             {businessType === "welfare_b" ? (
-              <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
-                <p className="text-xs font-semibold text-slate-800">福祉定期配信 個別テスト</p>
-                <p className="text-xs text-slate-600">
-                  朝開始・昼体調確認・夕方終了のFlexを、選択した利用者へ1通だけ送信します。
-                </p>
-                <div className="flex flex-wrap gap-2">
+              <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-slate-800">福祉定期配信 手動送信</p>
+                  <p className="text-xs text-slate-600">
+                    朝の作業開始・昼の体調確認・夕方の作業終了を、今すぐ送れます。自動配信が止まったときの再送にも使えます。
+                  </p>
                   <select
                     value={welfareTestSegment}
                     onChange={(e) =>
@@ -2279,33 +2332,60 @@ export default function SettingsSectionPage({ section }: { section: Section }) {
                     }
                     className={`w-full max-w-[220px] text-sm ${CONTROL_CLASS}`}
                   >
-                    <option value="morning">朝開始（10:00）</option>
-                    <option value="midday">昼体調確認（12:00）</option>
-                    <option value="evening">夕方終了（17:00）</option>
+                    <option value="morning">作業開始（朝10:00）</option>
+                    <option value="midday">体調確認（昼12:00）</option>
+                    <option value="evening">作業終了（夕17:00）</option>
                   </select>
-                  <select
-                    value={welfareTestCastId}
-                    onChange={(e) => setWelfareTestCastId(e.target.value)}
-                    className={`min-w-0 flex-1 max-w-xs text-sm ${CONTROL_CLASS}`}
-                  >
-                    <option value="">送信先選択</option>
-                    {guideReporterCandidates.map((c) => (
-                      <option key={`welfare-${c.id}`} value={c.id} disabled={!c.line_user_id}>
-                        {c.name}
-                        {c.line_user_id ? "" : "（LINE未連携）"}
-                      </option>
-                    ))}
-                  </select>
+                </div>
+
+                <div className="space-y-2 border-t border-slate-200 pt-3">
+                  <p className="text-xs font-semibold text-slate-800">全員へ一斉送信</p>
+                  <p className="text-xs text-slate-600">
+                    LINE連携済みのアクティブな利用者すべてへ、上で選んだ配信を送ります（定休日でも送信します）。
+                  </p>
                   <button
                     type="button"
-                    onClick={() => void handleWelfareTestSend()}
-                    disabled={testingWelfare || !welfareTestCastId}
-                    className="btn-secondary whitespace-nowrap"
+                    onClick={() => void handleWelfareBroadcastSend()}
+                    disabled={broadcastingWelfare || !activeStoreId}
+                    className="btn-primary whitespace-nowrap"
                   >
-                    {testingWelfare ? "送信中..." : "送信"}
+                    {broadcastingWelfare ? "送信中..." : "全員に今すぐ送信"}
                   </button>
+                  {welfareBroadcastDetail ? (
+                    <p className="text-xs text-slate-600">{welfareBroadcastDetail}</p>
+                  ) : null}
                 </div>
-                {welfareTestDetail ? <p className="text-xs text-slate-600">{welfareTestDetail}</p> : null}
+
+                <div className="space-y-2 border-t border-slate-200 pt-3">
+                  <p className="text-xs font-semibold text-slate-800">個別テスト</p>
+                  <p className="text-xs text-slate-600">
+                    選択した利用者へ1通だけ送り、文面を確認できます。
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <select
+                      value={welfareTestCastId}
+                      onChange={(e) => setWelfareTestCastId(e.target.value)}
+                      className={`min-w-0 flex-1 max-w-xs text-sm ${CONTROL_CLASS}`}
+                    >
+                      <option value="">送信先選択</option>
+                      {guideReporterCandidates.map((c) => (
+                        <option key={`welfare-${c.id}`} value={c.id} disabled={!c.line_user_id}>
+                          {c.name}
+                          {c.line_user_id ? "" : "（LINE未連携）"}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void handleWelfareTestSend()}
+                      disabled={testingWelfare || !welfareTestCastId}
+                      className="btn-secondary whitespace-nowrap"
+                    >
+                      {testingWelfare ? "送信中..." : "個別送信"}
+                    </button>
+                  </div>
+                  {welfareTestDetail ? <p className="text-xs text-slate-600">{welfareTestDetail}</p> : null}
+                </div>
               </div>
             ) : null}
 
