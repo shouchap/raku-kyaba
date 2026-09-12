@@ -7,6 +7,10 @@ import { fetchStoreLineTokenResult } from "@/lib/line-channel-token";
 import { isUndefinedColumnError, logPostgrestError } from "@/lib/postgrest-error";
 import { chunkDailyBarSummaryBody, generateDailyBarSummaryForStore } from "@/lib/daily-bar-summary";
 import { applyDailyBarSummaryCustomization } from "@/lib/daily-bar-summary-customization";
+import {
+  alertCronDeliveryFailures,
+  collectCronFailuresFromResults,
+} from "@/lib/cron-delivery-alert";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -116,9 +120,18 @@ async function runDailyBarSummary(): Promise<{
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[daily-bar-summary] store error", storeId, msg);
-      results.push({ storeId, name: store.name, sent: false, error: msg });
+      results.push({ storeId, name: store.name, sent: false, skipped: "exception", error: msg });
     }
   }
+
+  await alertCronDeliveryFailures({
+    logTag: "[daily-bar-summary]",
+    failures: collectCronFailuresFromResults(results),
+    supabase: admin,
+    notifyFromStoreIds: results
+      .filter((r) => r.sent || (r.skipped !== "token_fetch_failed" && r.skipped !== "exception"))
+      .map((r) => r.storeId),
+  });
 
   return { dateYmd, results };
 }

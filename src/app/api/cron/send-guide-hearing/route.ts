@@ -50,6 +50,9 @@ export async function GET(request: Request) {
     const { sendPushMessage } = await import("@/lib/line-reply");
     const { fetchStoreLineTokenResult } = await import("@/lib/line-channel-token");
     const { withSupabaseQueryRetry } = await import("@/lib/supabase-retry");
+    const { alertCronDeliveryFailures, collectCronFailuresFromResults } = await import(
+      "@/lib/cron-delivery-alert"
+    );
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const businessDate = resolveBusinessDateFromJst();
@@ -254,6 +257,15 @@ export async function GET(request: Request) {
         results.push({ storeId: store.id, sent: 0, skipped: "send_failed", error: message });
       }
     }
+
+    await alertCronDeliveryFailures({
+      logTag: "[CRON:guide-hearing]",
+      failures: collectCronFailuresFromResults(results),
+      supabase,
+      notifyFromStoreIds: results
+        .filter((r) => r.sent > 0 || (r.skipped !== "token_fetch_failed" && r.skipped !== "exception"))
+        .map((r) => r.storeId),
+    });
 
     return NextResponse.json({
       status: "ok",

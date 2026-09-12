@@ -24,6 +24,9 @@ import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendMulticastMessage } from "@/lib/line-reply";
 import { fetchStoreLineTokenResult } from "@/lib/line-channel-token";
+import {
+  alertCronDeliveryFailures,
+} from "@/lib/cron-delivery-alert";
 import { isValidStoreId } from "@/lib/current-store";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import { getTodayJst, getWeekdayJst } from "@/lib/date-utils";
@@ -456,6 +459,38 @@ export async function GET(request: Request) {
       return e !== "" && e !== "regular_holiday" && !e.startsWith("partial:");
     });
     const anyPartial = results.some((row) => row.error?.startsWith("partial:"));
+
+    const failures = results.flatMap((row) => {
+      const items: { storeId: string; reason: string; detail?: string }[] = [];
+      const e = (row.error ?? "").trim();
+      if (e === "token_fetch_failed" || e === "exception" || e.startsWith("fetch_error") || e.startsWith("uncaught:")) {
+        items.push({
+          storeId: row.storeId,
+          reason: e.startsWith("uncaught:") ? "exception" : e,
+        });
+      }
+      const ua = row.unstartedAlert;
+      if (ua?.error && (ua.error.includes("token_fetch") || ua.error.startsWith("uncaught:"))) {
+        items.push({
+          storeId: row.storeId,
+          reason: ua.error.startsWith("uncaught:") ? "exception" : "token_fetch_failed",
+          detail: ua.error,
+        });
+      }
+      if (ua?.skipped === "token_fetch_failed") {
+        items.push({ storeId: row.storeId, reason: "token_fetch_failed" });
+      }
+      return items;
+    });
+
+    await alertCronDeliveryFailures({
+      logTag: `${LOG_PREFIX}:${segment}`,
+      failures,
+      supabase,
+      notifyFromStoreIds: results
+        .filter((r) => r.error !== "token_fetch_failed" && !(r.error ?? "").startsWith("uncaught:"))
+        .map((r) => r.storeId),
+    });
 
     return NextResponse.json({
       ok: !anyHardFailure,

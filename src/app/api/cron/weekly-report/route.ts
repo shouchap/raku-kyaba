@@ -3,6 +3,10 @@ import { createServiceRoleClient } from "@/lib/supabase-service";
 import { getCurrentTimeJstString, getTodayJst, getWeekdayJst } from "@/lib/date-utils";
 import { sendWeeklyReportForStore } from "@/lib/weekly-report-send";
 import { isUndefinedColumnError, logPostgrestError } from "@/lib/postgrest-error";
+import {
+  alertCronDeliveryFailures,
+  collectCronFailuresFromResults,
+} from "@/lib/cron-delivery-alert";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -119,6 +123,21 @@ export async function GET(request: Request) {
         chunkCount: sendRes.chunkCount,
       });
     }
+
+    await alertCronDeliveryFailures({
+      logTag: "[cron/weekly-report]",
+      failures: collectCronFailuresFromResults(
+        results.map((r) => ({
+          storeId: r.storeId,
+          skipped: r.error === "token_fetch_failed" ? "token_fetch_failed" : r.skipped,
+          error: r.error,
+        }))
+      ),
+      supabase: admin,
+      notifyFromStoreIds: results
+        .filter((r) => r.error !== "token_fetch_failed")
+        .map((r) => r.storeId),
+    });
 
     return NextResponse.json({
       ok: true,

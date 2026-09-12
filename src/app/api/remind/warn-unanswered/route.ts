@@ -17,6 +17,7 @@ import { fetchStoreLineTokenResult } from "@/lib/line-channel-token";
 import { getTodayJst } from "@/lib/date-utils";
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 import { getAdminRecipientLineUserIds } from "@/lib/line-admin-recipients";
+import { alertCronDeliveryFailures } from "@/lib/cron-delivery-alert";
 
 export const dynamic = "force-dynamic";
 
@@ -381,6 +382,20 @@ export async function GET(request: Request) {
     }
 
     if (warnedCount === 0 && errors.length > 0) {
+      await alertCronDeliveryFailures({
+        logTag: "[WarnUnanswered]",
+        failures: errors
+          .filter((e) => e.includes("token_fetch_failed"))
+          .map((e) => {
+            const m = e.match(/store ([^:]+):/);
+            return {
+              storeId: m?.[1] ?? "(unknown)",
+              reason: "token_fetch_failed",
+              detail: e,
+            };
+          }),
+        supabase,
+      });
       return NextResponse.json(
         {
           ok: false,
@@ -389,6 +404,27 @@ export async function GET(request: Request) {
         },
         { status: 500 }
       );
+    }
+
+    const tokenFetchFailures = errors
+      .filter((e) => e.includes("token_fetch_failed"))
+      .map((e) => {
+        const m = e.match(/store ([^:]+):/);
+        return {
+          storeId: m?.[1] ?? "(unknown)",
+          reason: "token_fetch_failed" as const,
+          detail: e,
+        };
+      });
+    if (tokenFetchFailures.length > 0) {
+      await alertCronDeliveryFailures({
+        logTag: "[WarnUnanswered]",
+        failures: tokenFetchFailures,
+        supabase,
+        notifyFromStoreIds: [...storeIds].filter(
+          (id) => !tokenFetchFailures.some((f) => f.storeId === id)
+        ),
+      });
     }
 
     console.log(

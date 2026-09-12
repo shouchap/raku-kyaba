@@ -24,6 +24,10 @@ import type { HolidayFlexFlags } from "@/lib/reminder-config";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import { normalizeDbTimeToShiftOption, parseShiftTimeStepMinutes } from "@/lib/time-options";
 import { withSupabaseQueryRetry } from "@/lib/supabase-retry";
+import {
+  alertCronDeliveryFailures,
+  collectCronFailuresFromResults,
+} from "@/lib/cron-delivery-alert";
 
 /** キャッシュ無効化: 毎回最新のDB値を取得する */
 export const dynamic = "force-dynamic";
@@ -1059,12 +1063,14 @@ async function handleRemind(request: Request) {
   const totalSuccess = results.reduce((a, b) => a + b.successCount, 0);
   const totalFailure = results.reduce((a, b) => a + b.failureCount, 0);
 
-  if (failedStores.length > 0) {
-    console.error(
-      `[ALERT] [Remind] 店舗ループで例外/失敗 ${failedStores.length}件:`,
-      failedStores.map((f) => `${f.storeId}:${f.error}`).join(" | ")
-    );
-  }
+  await alertCronDeliveryFailures({
+    logTag: "[Remind]",
+    failures: collectCronFailuresFromResults(results),
+    supabase,
+    notifyFromStoreIds: (stores ?? [])
+      .map((s) => String((s as StoreRow)?.id ?? "").trim())
+      .filter((id) => id && !failedStores.some((f) => f.storeId === id)),
+  });
 
   return NextResponse.json({
     ok: true,

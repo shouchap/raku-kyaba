@@ -23,6 +23,10 @@ import { isValidStoreId } from "@/lib/current-store";
 import { canUserEditStore, getAuthedUserForAdminApi } from "@/lib/admin-store-auth";
 import { applyPreOpenReportCustomization } from "@/lib/pre-open-report-customization";
 import { withSupabaseQueryRetry } from "@/lib/supabase-retry";
+import {
+  alertCronDeliveryFailures,
+  collectCronFailuresFromResults,
+} from "@/lib/cron-delivery-alert";
 
 export const dynamic = "force-dynamic";
 
@@ -286,7 +290,8 @@ function settledToResult(
   console.error(`${LOG_PREFIX} Promise rejected`, storeId, reason);
   return {
     storeId,
-    skipped: `rejected:${reason instanceof Error ? reason.message : String(reason)}`,
+    skipped: "exception",
+    error: reason instanceof Error ? reason.message : String(reason),
   };
 }
 
@@ -477,6 +482,15 @@ export async function GET(request: Request) {
     });
 
     const processedCount = results.filter((r) => r.sent === true).length;
+
+    await alertCronDeliveryFailures({
+      logTag: LOG_PREFIX,
+      failures: collectCronFailuresFromResults(results),
+      supabase,
+      notifyFromStoreIds: results
+        .filter((r) => r.skipped !== "token_fetch_failed" && !(r.skipped ?? "").startsWith("fetch_error"))
+        .map((r) => r.storeId),
+    });
 
     return NextResponse.json({
       ok: true,
