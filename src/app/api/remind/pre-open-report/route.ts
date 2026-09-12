@@ -12,7 +12,7 @@
 import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendMulticastMessage, sendPushMessage } from "@/lib/line-reply";
-import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
+import { fetchStoreLineTokenResult } from "@/lib/line-channel-token";
 import { getTodayJst, getCurrentTimeJst, getWeekdayJst } from "@/lib/date-utils";
 import {
   buildPreOpenReportMessageByBusinessType,
@@ -131,6 +131,7 @@ type ProcessResult = {
   skipped?: string;
   sent?: boolean;
   adminCount?: number;
+  error?: string;
 };
 
 /**
@@ -172,10 +173,15 @@ async function processPreOpenReportForStore(
       }
     }
 
-    const resolved = await fetchResolvedLineChannelAccessTokenForStore(supabase, sid, LOG_PREFIX);
-    if (!resolved?.token) {
-      return { storeId: sid, skipped: "no_line_token" };
+    const tokenResult = await fetchStoreLineTokenResult(supabase, sid, LOG_PREFIX);
+    if (!tokenResult.ok) {
+      return {
+        storeId: sid,
+        skipped: tokenResult.reason === "db_error" ? "token_fetch_failed" : "no_line_token",
+        ...(tokenResult.reason === "db_error" ? { error: tokenResult.message } : {}),
+      };
     }
+    const resolved = tokenResult;
 
     const [adminIds, lineGroupId] = await Promise.all([
       getAdminLineUserIds(supabase, sid),

@@ -23,7 +23,7 @@
 import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendMulticastMessage } from "@/lib/line-reply";
-import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
+import { fetchStoreLineTokenResult } from "@/lib/line-channel-token";
 import { isValidStoreId } from "@/lib/current-store";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
 import { getTodayJst, getWeekdayJst } from "@/lib/date-utils";
@@ -207,13 +207,17 @@ async function pushSegmentToStore(
   activeCastCount?: number;
 }> {
   const storeId = storeRow.id;
-  const resolved = await fetchResolvedLineChannelAccessTokenForStore(supabase, storeId, LOG_PREFIX);
-  if (!resolved?.token) {
+  const tokenResult = await fetchStoreLineTokenResult(supabase, storeId, LOG_PREFIX);
+  if (!tokenResult.ok) {
+    const skipReason =
+      tokenResult.reason === "db_error" ? "token_fetch_failed" : "no_line_token";
     console.error(
-      `${LOG_PREFIX} segment=${segment} storeId=${storeId} skip=no_line_token (LINE channel access token missing or invalid)`
+      `${LOG_PREFIX} segment=${segment} storeId=${storeId} skip=${skipReason}` +
+        (tokenResult.reason === "db_error" ? ` message=${tokenResult.message}` : "")
     );
-    return { ok: false, recipients: 0, error: "no_line_token" };
+    return { ok: false, recipients: 0, error: skipReason };
   }
+  const resolved = tokenResult;
 
   const { data: castRows, error: castErr } = await supabase
     .from("casts")

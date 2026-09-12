@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
+import { fetchStoreLineTokenResult } from "@/lib/line-channel-token";
 import { sendMulticastMessage } from "@/lib/line-reply";
 import { buildWeeklyReportBody, chunkWeeklyReportBody } from "@/lib/line-weekly-report";
 import { loadWeeklyReportBuildInput } from "@/lib/weekly-report-data";
@@ -66,10 +66,14 @@ export async function sendWeeklyReportForStore(
     }
   }
 
-  const tokenPack = await fetchResolvedLineChannelAccessTokenForStore(admin, storeId, prefix);
-  if (!tokenPack?.token) {
-    return { ok: false, error: "no_line_token" };
+  const tokenResult = await fetchStoreLineTokenResult(admin, storeId, prefix);
+  if (!tokenResult.ok) {
+    return {
+      ok: false,
+      error: tokenResult.reason === "db_error" ? "token_fetch_failed" : "no_line_token",
+    };
   }
+  const tokenPack = tokenResult;
 
   const adminIds = await fetchAdminLineUserIds(admin, storeId);
   if (adminIds.length === 0) {

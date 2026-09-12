@@ -13,7 +13,7 @@
 import { NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sendMulticastMessage } from "@/lib/line-reply";
-import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
+import { fetchStoreLineTokenResult } from "@/lib/line-channel-token";
 import { getTodayJst } from "@/lib/date-utils";
 import { resolveActiveStoreIdFromRequest } from "@/lib/current-store";
 import { getAdminRecipientLineUserIds } from "@/lib/line-admin-recipients";
@@ -329,17 +329,26 @@ export async function GET(request: Request) {
         continue;
       }
 
-      const tokenResult = await fetchResolvedLineChannelAccessTokenForStore(
+      const tokenResult = await fetchStoreLineTokenResult(
         supabase,
         storeId,
         "[WarnUnanswered]"
       );
-      if (!tokenResult) {
-        console.warn(
-          "[WarnUnanswered] 店舗の LINE トークンなし（stores または LINE_CHANNEL_ACCESS_TOKEN） storeId=",
-          storeId
-        );
-        errors.push(`store ${storeId}: no LINE channel access token`);
+      if (!tokenResult.ok) {
+        if (tokenResult.reason === "db_error") {
+          console.error(
+            "[WarnUnanswered] 店舗トークン取得失敗(token_fetch_failed) storeId=",
+            storeId,
+            tokenResult.message
+          );
+          errors.push(`store ${storeId}: token_fetch_failed: ${tokenResult.message}`);
+        } else {
+          console.warn(
+            "[WarnUnanswered] 店舗の LINE トークン未設定(no_line_token) storeId=",
+            storeId
+          );
+          errors.push(`store ${storeId}: no_line_token`);
+        }
         continue;
       }
 

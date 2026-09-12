@@ -48,7 +48,7 @@ export async function GET(request: Request) {
       resolveGuideHearingScheduleSlot,
     } = await import("@/lib/guide-hearing");
     const { sendPushMessage } = await import("@/lib/line-reply");
-    const { fetchResolvedLineChannelAccessTokenForStore } = await import("@/lib/line-channel-token");
+    const { fetchStoreLineTokenResult } = await import("@/lib/line-channel-token");
     const { withSupabaseQueryRetry } = await import("@/lib/supabase-retry");
 
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -148,11 +148,17 @@ export async function GET(request: Request) {
     const results: CronResult[] = [];
 
     for (const store of targetStores) {
-      const token = await fetchResolvedLineChannelAccessTokenForStore(supabase, store.id, "[GuideCron]");
-      if (!token?.token) {
-        results.push({ storeId: store.id, sent: 0, skipped: "no_line_token" });
+      const tokenResult = await fetchStoreLineTokenResult(supabase, store.id, "[GuideCron]");
+      if (!tokenResult.ok) {
+        results.push({
+          storeId: store.id,
+          sent: 0,
+          skipped: tokenResult.reason === "db_error" ? "token_fetch_failed" : "no_line_token",
+          ...(tokenResult.reason === "db_error" ? { error: tokenResult.message } : {}),
+        });
         continue;
       }
+      const token = tokenResult;
 
       let reporterId: string | null = null;
       let staffNames: string[] = [];

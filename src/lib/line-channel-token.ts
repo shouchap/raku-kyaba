@@ -50,15 +50,22 @@ export function logResolvedLineToken(
   );
 }
 
+export type StoreLineTokenResult =
+  | { ok: true; token: string; source: "store" }
+  | { ok: false; reason: "db_error"; message: string }
+  | { ok: false; reason: "not_configured" };
+
 /**
- * 店舗ごとの Messaging API チャネルアクセストークンを解決（DB のみ）。
- * 取得失敗・未設定時は null（env へフォールバックしない＝他店舗 OA への誤送信防止）。
+ * 店舗トークン取得の成否理由を区別する（cron 向け）。
+ * - db_error: Supabase 一時障害など（リトライ後も失敗）
+ * - not_configured: 行はあるが line_channel_access_token が空
+ * env フォールバックはしない。
  */
-export async function fetchResolvedLineChannelAccessTokenForStore(
+export async function fetchStoreLineTokenResult(
   supabase: SupabaseClient,
   storeId: string,
   logTag = "[LineToken]"
-): Promise<{ token: string; source: LineTokenSource } | null> {
+): Promise<StoreLineTokenResult> {
   const { data, error } = await withSupabaseQueryRetry(
     () =>
       supabase
@@ -71,10 +78,10 @@ export async function fetchResolvedLineChannelAccessTokenForStore(
 
   if (error) {
     console.error(
-      `${logTag} stores トークン取得失敗 storeId=${storeId}（envフォールバック禁止）:`,
+      `${logTag} stores トークン取得失敗(db_error) storeId=${storeId}（envフォールバック禁止）:`,
       error.message
     );
-    return null;
+    return { ok: false, reason: "db_error", message: error.message ?? "unknown db error" };
   }
 
   const resolved = resolveLineChannelAccessToken(
@@ -82,11 +89,26 @@ export async function fetchResolvedLineChannelAccessTokenForStore(
     { allowEnvFallback: false }
   );
   logResolvedLineToken(storeId, resolved, logTag);
-  if (!resolved.token) {
+  if (!resolved.token || resolved.source !== "store") {
     console.error(
-      `${logTag} stores.line_channel_access_token 未設定 storeId=${storeId}（送信スキップ・envフォールバックなし）`
+      `${logTag} stores.line_channel_access_token 未設定(not_configured) storeId=${storeId}（送信スキップ・envフォールバックなし）`
     );
-    return null;
+    return { ok: false, reason: "not_configured" };
   }
-  return { token: resolved.token, source: resolved.source };
+  return { ok: true, token: resolved.token, source: "store" };
+}
+
+/**
+ * 店舗ごとの Messaging API チャネルアクセストークンを解決（DB のみ）。
+ * 取得失敗・未設定時は null（env へフォールバックしない＝他店舗 OA への誤送信防止）。
+ * 理由の区別が必要な cron は fetchStoreLineTokenResult を使う。
+ */
+export async function fetchResolvedLineChannelAccessTokenForStore(
+  supabase: SupabaseClient,
+  storeId: string,
+  logTag = "[LineToken]"
+): Promise<{ token: string; source: LineTokenSource } | null> {
+  const result = await fetchStoreLineTokenResult(supabase, storeId, logTag);
+  if (!result.ok) return null;
+  return { token: result.token, source: result.source };
 }

@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceRoleClient } from "@/lib/supabase-service";
 import { getTodayJst } from "@/lib/date-utils";
 import { sendMulticastMessage } from "@/lib/line-reply";
-import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
+import { fetchStoreLineTokenResult } from "@/lib/line-channel-token";
 import { isUndefinedColumnError, logPostgrestError } from "@/lib/postgrest-error";
 import { chunkDailyBarSummaryBody, generateDailyBarSummaryForStore } from "@/lib/daily-bar-summary";
 import { applyDailyBarSummaryCustomization } from "@/lib/daily-bar-summary-customization";
@@ -73,11 +73,18 @@ async function runDailyBarSummary(): Promise<{
     const storeId = store.id;
 
     try {
-      const tokenPack = await fetchResolvedLineChannelAccessTokenForStore(admin, storeId, "[daily-bar-summary]");
-      if (!tokenPack?.token) {
-        results.push({ storeId, name: store.name, sent: false, skipped: "no_line_token" });
+      const tokenResult = await fetchStoreLineTokenResult(admin, storeId, "[daily-bar-summary]");
+      if (!tokenResult.ok) {
+        results.push({
+          storeId,
+          name: store.name,
+          sent: false,
+          skipped: tokenResult.reason === "db_error" ? "token_fetch_failed" : "no_line_token",
+          ...(tokenResult.reason === "db_error" ? { error: tokenResult.message } : {}),
+        });
         continue;
       }
+      const tokenPack = tokenResult;
 
       const adminIds = await fetchAdminLineUserIds(admin, storeId);
       if (adminIds.length === 0) {

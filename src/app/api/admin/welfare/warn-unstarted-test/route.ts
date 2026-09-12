@@ -98,7 +98,9 @@ export async function POST(request: Request) {
         ? "送信先の管理者がLINE未連携です（店舗のLINE管理者IDか、管理者キャストのLINE連携を設定してください）"
         : result.reason === "no_line_token"
           ? "LINEチャネルトークンが未設定です"
-          : `LINE送信に失敗しました: ${result.detail ?? ""}`;
+          : result.reason === "token_fetch_failed"
+            ? `LINEチャネルトークンの取得に失敗しました: ${result.detail ?? ""}`
+            : `LINE送信に失敗しました: ${result.detail ?? ""}`;
     return NextResponse.json({ error: message }, { status: 502 });
   }
 

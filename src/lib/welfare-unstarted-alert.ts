@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendMulticastMessage } from "@/lib/line-reply";
-import { fetchResolvedLineChannelAccessTokenForStore } from "@/lib/line-channel-token";
+import { fetchStoreLineTokenResult } from "@/lib/line-channel-token";
 import { getAdminRecipientLineUserIds } from "@/lib/line-admin-recipients";
 
 /**
@@ -18,7 +18,11 @@ export const WELFARE_UNSTARTED_WARN_STATE_KEY = "welfare_unstarted_warn_state";
 
 export type UnstartedAlertSendResult =
   | { ok: true; recipients: number }
-  | { ok: false; reason: "no_admin_recipient" | "no_line_token" | "line_send"; detail?: string };
+  | {
+      ok: false;
+      reason: "no_admin_recipient" | "no_line_token" | "token_fetch_failed" | "line_send";
+      detail?: string;
+    };
 
 export type UnstartedAlertStoreResult = {
   storeId: string;
@@ -105,17 +109,17 @@ export async function sendUnstartedAlertToAdmins(
     return { ok: false, reason: "no_admin_recipient" };
   }
 
-  const token = await fetchResolvedLineChannelAccessTokenForStore(
-    supabase,
-    storeId,
-    logPrefix
-  );
-  if (!token?.token) {
-    return { ok: false, reason: "no_line_token" };
+  const tokenResult = await fetchStoreLineTokenResult(supabase, storeId, logPrefix);
+  if (!tokenResult.ok) {
+    return {
+      ok: false,
+      reason: tokenResult.reason === "db_error" ? "token_fetch_failed" : "no_line_token",
+      ...(tokenResult.reason === "db_error" ? { detail: tokenResult.message } : {}),
+    };
   }
 
   try {
-    await sendMulticastMessage(adminIds, token.token, [
+    await sendMulticastMessage(adminIds, tokenResult.token, [
       { type: "text", text: buildUnstartedAlertMessage(names) },
     ]);
   } catch (sendErr) {
