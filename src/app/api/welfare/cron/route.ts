@@ -27,10 +27,11 @@ import { fetchStoreLineTokenResult } from "@/lib/line-channel-token";
 import {
   alertCronDeliveryFailures,
 } from "@/lib/cron-delivery-alert";
-import { recordCronRuns, storeResultToCronLog } from "@/lib/cron-run-log";
+import { recordCronRuns, storeResultToCronLog, jobLevelCronLog } from "@/lib/cron-run-log";
 import { isValidStoreId } from "@/lib/current-store";
 import { isUndefinedColumnError } from "@/lib/postgrest-error";
-import { getTodayJst, getWeekdayJst } from "@/lib/date-utils";
+import { getTodayJst, getWeekdayJst, getCurrentTimeJst } from "@/lib/date-utils";
+import { withSupabaseQueryRetry } from "@/lib/supabase-retry";
 import {
   buildWelfareEveningEndFlexMessage,
   buildWelfareMiddayHealthFlexMessage,
@@ -100,27 +101,39 @@ const WELFARE_STORE_SELECT =
 const WELFARE_STORE_SELECT_NO_REGULAR =
   "id, welfare_message_morning, welfare_message_midday, welfare_message_evening";
 
+type WelfareStoresResult =
+  | { ok: true; stores: WelfareCronStoreRow[] }
+  | { ok: false; error: string };
+
 async function fetchWelfareStores(
   supabase: SupabaseClient,
   singleStoreId: string | null
-): Promise<WelfareCronStoreRow[]> {
+): Promise<WelfareStoresResult> {
   if (singleStoreId) {
-    let { data, error } = await supabase
-      .from("stores")
-      .select(WELFARE_STORE_SELECT)
-      .eq("id", singleStoreId)
-      .eq("business_type", "welfare_b")
-      .maybeSingle();
+    let { data, error } = await withSupabaseQueryRetry(
+      () =>
+        supabase
+          .from("stores")
+          .select(WELFARE_STORE_SELECT)
+          .eq("id", singleStoreId)
+          .eq("business_type", "welfare_b")
+          .maybeSingle(),
+      { label: `${LOG_PREFIX} single-store`, attempts: 3 }
+    );
     if (error && isUndefinedColumnError(error, "regular_holidays")) {
       console.warn(
         `${LOG_PREFIX} stores.regular_holidays 未適用。定休スキップなし。マイグレーション 018 を適用してください。`
       );
-      const retry = await supabase
-        .from("stores")
-        .select(WELFARE_STORE_SELECT_NO_REGULAR)
-        .eq("id", singleStoreId)
-        .eq("business_type", "welfare_b")
-        .maybeSingle();
+      const retry = await withSupabaseQueryRetry(
+        () =>
+          supabase
+            .from("stores")
+            .select(WELFARE_STORE_SELECT_NO_REGULAR)
+            .eq("id", singleStoreId)
+            .eq("business_type", "welfare_b")
+            .maybeSingle(),
+        { label: `${LOG_PREFIX} single-store no-regular`, attempts: 3 }
+      );
       data = retry.data as typeof data;
       error = retry.error;
     }
@@ -129,35 +142,48 @@ async function fetchWelfareStores(
         console.warn(
           `${LOG_PREFIX} welfare_message_* 未適用。024 適用までデフォルト文言で送信します。`
         );
-        const fb = await supabase
-          .from("stores")
-          .select("id")
-          .eq("id", singleStoreId)
-          .eq("business_type", "welfare_b")
-          .maybeSingle();
-        if (fb.error || !fb.data?.id) return [];
-        return [normalizeWelfareCronRow(fb.data as Record<string, unknown>)];
+        const fb = await withSupabaseQueryRetry(
+          () =>
+            supabase
+              .from("stores")
+              .select("id")
+              .eq("id", singleStoreId)
+              .eq("business_type", "welfare_b")
+              .maybeSingle(),
+          { label: `${LOG_PREFIX} single-store id-only`, attempts: 3 }
+        );
+        if (fb.error) {
+          console.error(LOG_PREFIX, "single store fetch fallback", fb.error.message);
+          return { ok: false, error: fb.error.message ?? "unknown" };
+        }
+        if (!fb.data?.id) return { ok: true, stores: [] };
+        return { ok: true, stores: [normalizeWelfareCronRow(fb.data as Record<string, unknown>)] };
       }
       console.error(LOG_PREFIX, "single store fetch", error.message);
-      return [];
+      return { ok: false, error: error.message ?? "unknown" };
     }
-    if (!data?.id) return [];
-    return [normalizeWelfareCronRow(data as Record<string, unknown>)];
+    if (!data?.id) return { ok: true, stores: [] };
+    return { ok: true, stores: [normalizeWelfareCronRow(data as Record<string, unknown>)] };
   }
 
-  let { data, error } = await supabase
-    .from("stores")
-    .select(WELFARE_STORE_SELECT)
-    .eq("business_type", "welfare_b");
+  let { data, error } = await withSupabaseQueryRetry(
+    () =>
+      supabase.from("stores").select(WELFARE_STORE_SELECT).eq("business_type", "welfare_b"),
+    { label: `${LOG_PREFIX} stores list`, attempts: 3 }
+  );
 
   if (error && isUndefinedColumnError(error, "regular_holidays")) {
     console.warn(
       `${LOG_PREFIX} stores.regular_holidays 未適用。定休スキップなし。マイグレーション 018 を適用してください。`
     );
-    const retry = await supabase
-      .from("stores")
-      .select(WELFARE_STORE_SELECT_NO_REGULAR)
-      .eq("business_type", "welfare_b");
+    const retry = await withSupabaseQueryRetry(
+      () =>
+        supabase
+          .from("stores")
+          .select(WELFARE_STORE_SELECT_NO_REGULAR)
+          .eq("business_type", "welfare_b"),
+      { label: `${LOG_PREFIX} stores list no-regular`, attempts: 3 }
+    );
     data = retry.data as typeof data;
     error = retry.error;
   }
@@ -167,17 +193,26 @@ async function fetchWelfareStores(
       console.warn(
         `${LOG_PREFIX} welfare_message_* 未適用。024 適用までデフォルト文言で送信します。`
       );
-      const fb = await supabase.from("stores").select("id").eq("business_type", "welfare_b");
+      const fb = await withSupabaseQueryRetry(
+        () => supabase.from("stores").select("id").eq("business_type", "welfare_b"),
+        { label: `${LOG_PREFIX} stores list id-only`, attempts: 3 }
+      );
       if (fb.error) {
         console.error(LOG_PREFIX, "stores list fallback", fb.error.message);
-        return [];
+        return { ok: false, error: fb.error.message ?? "unknown" };
       }
-      return (fb.data ?? []).map((r) => normalizeWelfareCronRow(r as Record<string, unknown>));
+      return {
+        ok: true,
+        stores: (fb.data ?? []).map((r) => normalizeWelfareCronRow(r as Record<string, unknown>)),
+      };
     }
     console.error(LOG_PREFIX, "stores list", error.message);
-    return [];
+    return { ok: false, error: error.message ?? "unknown" };
   }
-  return (data ?? []).map((r) => normalizeWelfareCronRow(r as Record<string, unknown>));
+  return {
+    ok: true,
+    stores: (data ?? []).map((r) => normalizeWelfareCronRow(r as Record<string, unknown>)),
+  };
 }
 
 function normalizeWelfareCronRow(r: Record<string, unknown>): WelfareCronStoreRow {
@@ -348,7 +383,36 @@ export async function GET(request: Request) {
     const singleStoreId =
       storeIdRaw && isValidStoreId(storeIdRaw) ? storeIdRaw.toLowerCase() : null;
 
-    const stores = await fetchWelfareStores(supabase, singleStoreId);
+    const todayJst = getTodayJst();
+    const hourJst = getCurrentTimeJst().hour;
+    const storesResult = await fetchWelfareStores(supabase, singleStoreId);
+
+    if (!storesResult.ok) {
+      console.error(
+        `[ALERT] ${LOG_PREFIX} segment=${segment} stores_fetch_failed: ${storesResult.error}`
+      );
+      await recordCronRuns(supabase, [
+        jobLevelCronLog({
+          job: `welfare:${segment}`,
+          status: "failed",
+          reason: "stores_fetch_failed",
+          detail: storesResult.error,
+          jstDate: todayJst,
+          jstHour: hourJst,
+        }),
+      ]);
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "stores_fetch_failed",
+          details: storesResult.error,
+          segment,
+        },
+        { status: 500 }
+      );
+    }
+
+    const stores = storesResult.stores;
     const results: {
       storeId: string;
       recipients: number;
@@ -361,7 +425,6 @@ export async function GET(request: Request) {
         error?: string;
       };
     }[] = [];
-    const todayJst = getTodayJst();
 
     console.info(
       `${LOG_PREFIX} run_begin segment=${segment} todayJst=${todayJst} weekdayJst=${getWeekdayJst(todayJst)} storeCount=${stores.length} singleStoreId=${singleStoreId ?? "null"}`
@@ -371,6 +434,22 @@ export async function GET(request: Request) {
       console.warn(
         `${LOG_PREFIX} segment=${segment} no_welfare_b_stores (business_type=welfare_b の店舗が0件、または storeId 指定が不正)`
       );
+      await recordCronRuns(supabase, [
+        jobLevelCronLog({
+          job: `welfare:${segment}`,
+          status: "skipped",
+          reason: "no_welfare_b_stores",
+          jstDate: todayJst,
+          jstHour: hourJst,
+        }),
+      ]);
+      return NextResponse.json({
+        ok: true,
+        segment,
+        storeCount: 0,
+        results: [],
+        skipped: "no_welfare_b_stores",
+      });
     }
 
     for (const s of stores) {
@@ -485,9 +564,6 @@ export async function GET(request: Request) {
     });
 
     const nameById = new Map(stores.map((s) => [s.id, (s as { name?: string | null }).name ?? null]));
-    const hourJst = Number(
-      new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo", hour: "numeric", hour12: false })
-    );
     await recordCronRuns(
       supabase,
       results.map((r) => {

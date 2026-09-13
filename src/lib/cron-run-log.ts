@@ -34,6 +34,7 @@ export function sanitizeCronDetail(raw: string | null | undefined): string | nul
 
 /**
  * cron 実行結果をまとめて記録する。失敗しても例外を投げず console.error のみ。
+ * 30日超の掃除は JST 4時台の記録時のみ行う（毎時の無駄な DELETE を避ける）。
  */
 export async function recordCronRuns(
   supabase: SupabaseClient,
@@ -84,6 +85,30 @@ export async function recordCronRuns(
       e instanceof Error ? e.message : String(e)
     );
   }
+}
+
+/** 店舗が特定できないジョブ単位の失敗・スキップ用 */
+export function jobLevelCronLog(opts: {
+  job: string;
+  status: CronRunLogStatus;
+  reason: string;
+  detail?: string | null;
+  jstDate: string;
+  jstHour: number;
+}): CronRunLogRow {
+  return {
+    job: opts.job,
+    store_id: null,
+    store_name: null,
+    status: opts.status,
+    reason: opts.reason,
+    detail: sanitizeCronDetail(opts.detail),
+    target_count: 0,
+    success_count: 0,
+    failure_count: opts.status === "failed" ? 1 : 0,
+    jst_date: opts.jstDate,
+    jst_hour: opts.jstHour,
+  };
 }
 
 /** 店舗結果1件を cron_run_logs 行に変換 */
