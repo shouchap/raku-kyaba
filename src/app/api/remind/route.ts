@@ -33,6 +33,7 @@ import {
   recordCronRuns,
   sanitizeCronDetail,
   storeResultToCronLog,
+  jobLevelCronLog,
   type CronRunLogRow,
 } from "@/lib/cron-run-log";
 
@@ -1185,6 +1186,17 @@ async function handleRemind(request: Request) {
 
   if (storesErr) {
     logError("店舗一覧取得失敗", storesErr);
+    await recordCronRuns(supabase, [
+      jobLevelCronLog({
+        job: "remind",
+        status: "failed",
+        reason: "stores_fetch_failed",
+        detail: storesErr.message,
+        jstDate: todayJst,
+        jstHour: hourJst,
+      }),
+    ]);
+    console.error(`[ALERT] [Remind] stores_fetch_failed: ${storesErr.message}`);
     return NextResponse.json(
       { error: "Failed to fetch stores", details: storesErr.message },
       { status: 500 }

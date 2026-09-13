@@ -28,7 +28,7 @@ import {
   alertCronDeliveryFailures,
   collectCronFailuresFromResults,
 } from "@/lib/cron-delivery-alert";
-import { recordCronRuns, storeResultToCronLog } from "@/lib/cron-run-log";
+import { recordCronRuns, storeResultToCronLog, jobLevelCronLog } from "@/lib/cron-run-log";
 
 const PRE_OPEN_STORE_CONCURRENCY = 4;
 
@@ -460,6 +460,17 @@ export async function GET(request: Request) {
         code: storesErr.code,
         details: storesErr.details,
       });
+      console.error(`[ALERT] ${LOG_PREFIX} stores_fetch_failed: ${storesErr.message}`);
+      await recordCronRuns(supabase, [
+        jobLevelCronLog({
+          job: "pre-open-report",
+          status: "failed",
+          reason: "stores_fetch_failed",
+          detail: storesErr.message,
+          jstDate: todayJst,
+          jstHour: hourJst,
+        }),
+      ]);
       return NextResponse.json(
         { error: "Failed to fetch stores", details: storesErr.message },
         { status: 500 }

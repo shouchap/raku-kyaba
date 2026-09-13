@@ -53,7 +53,9 @@ export async function GET(request: Request) {
     const { alertCronDeliveryFailures, collectCronFailuresFromResults } = await import(
       "@/lib/cron-delivery-alert"
     );
-    const { recordCronRuns, storeResultToCronLog } = await import("@/lib/cron-run-log");
+    const { recordCronRuns, storeResultToCronLog, jobLevelCronLog } = await import(
+      "@/lib/cron-run-log"
+    );
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const businessDate = resolveBusinessDateFromJst();
@@ -108,6 +110,19 @@ export async function GET(request: Request) {
         hint: storeFetch.error?.hint,
         code: storeFetch.error?.code,
       });
+      console.error(
+        `[ALERT] [CRON:guide-hearing] stores_fetch_failed: ${storeFetch.error?.message ?? "no data"}`
+      );
+      await recordCronRuns(supabase, [
+        jobLevelCronLog({
+          job: "guide-hearing",
+          status: "failed",
+          reason: "stores_fetch_failed",
+          detail: storeFetch.error?.message ?? "no data",
+          jstDate: businessDate,
+          jstHour: Number(currentHour),
+        }),
+      ]);
       return NextResponse.json(
         {
           error: "DB Error",
@@ -126,6 +141,15 @@ export async function GET(request: Request) {
       console.error(
         "[ALERT] [CRON:guide-hearing] missing_dedupe_column last_guide_hearing_sent_date — migration 035 未適用の可能性。送信をスキップします。"
       );
+      await recordCronRuns(supabase, [
+        jobLevelCronLog({
+          job: "guide-hearing",
+          status: "skipped",
+          reason: "missing_dedupe_column",
+          jstDate: businessDate,
+          jstHour: Number(currentHour),
+        }),
+      ]);
       return NextResponse.json({
         status: "skipped",
         reason: "missing_dedupe_column",
@@ -154,8 +178,18 @@ export async function GET(request: Request) {
     });
 
     if (targetStores.length === 0) {
+      await recordCronRuns(supabase, [
+        jobLevelCronLog({
+          job: "guide-hearing",
+          status: "skipped",
+          reason: "no_target_stores",
+          jstDate: businessDate,
+          jstHour: Number(currentHour),
+        }),
+      ]);
       return NextResponse.json({
         status: "skipped",
+        reason: "no_target_stores",
         hourJst: currentTimeStr,
         businessDate,
       });
