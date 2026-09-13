@@ -68,7 +68,10 @@ export async function recordCronRuns(
     );
   }
 
-  // 任意: 30日より古い行を掃除（失敗しても本処理に影響しない）
+  // 30日超の掃除は JST 4時台の記録時のみ（毎時の無駄な DELETE を避ける）
+  const shouldCleanup = rows.some((r) => r.jst_hour === 4);
+  if (!shouldCleanup) return;
+
   try {
     const cutoff = new Date();
     cutoff.setUTCDate(cutoff.getUTCDate() - 30);
