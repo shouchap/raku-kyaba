@@ -60,6 +60,7 @@ function parseSegment(raw: string | null): Segment | null {
 
 type WelfareCronStoreRow = {
   id: string;
+  name: string | null;
   welfare_message_morning: string | null;
   welfare_message_midday: string | null;
   welfare_message_evening: string | null;
@@ -96,10 +97,12 @@ function flexForSegment(
 }
 
 const WELFARE_STORE_SELECT =
-  "id, welfare_message_morning, welfare_message_midday, welfare_message_evening, regular_holidays";
+  "id, name, welfare_message_morning, welfare_message_midday, welfare_message_evening, regular_holidays";
 
 const WELFARE_STORE_SELECT_NO_REGULAR =
-  "id, welfare_message_morning, welfare_message_midday, welfare_message_evening";
+  "id, name, welfare_message_morning, welfare_message_midday, welfare_message_evening";
+
+const WELFARE_STORE_SELECT_ID_NAME = "id, name";
 
 type WelfareStoresResult =
   | { ok: true; stores: WelfareCronStoreRow[] }
@@ -146,7 +149,7 @@ async function fetchWelfareStores(
           () =>
             supabase
               .from("stores")
-              .select("id")
+              .select(WELFARE_STORE_SELECT_ID_NAME)
               .eq("id", singleStoreId)
               .eq("business_type", "welfare_b")
               .maybeSingle(),
@@ -194,7 +197,11 @@ async function fetchWelfareStores(
         `${LOG_PREFIX} welfare_message_* 未適用。024 適用までデフォルト文言で送信します。`
       );
       const fb = await withSupabaseQueryRetry(
-        () => supabase.from("stores").select("id").eq("business_type", "welfare_b"),
+        () =>
+          supabase
+            .from("stores")
+            .select(WELFARE_STORE_SELECT_ID_NAME)
+            .eq("business_type", "welfare_b"),
         { label: `${LOG_PREFIX} stores list id-only`, attempts: 3 }
       );
       if (fb.error) {
@@ -225,6 +232,7 @@ function normalizeWelfareCronRow(r: Record<string, unknown>): WelfareCronStoreRo
   }
   return {
     id: String(r.id ?? ""),
+    name: typeof r.name === "string" ? r.name : null,
     welfare_message_morning:
       typeof r.welfare_message_morning === "string" ? r.welfare_message_morning : null,
     welfare_message_midday:
@@ -258,17 +266,21 @@ async function pushSegmentToStore(
   }
   const resolved = tokenResult;
 
-  const { data: castRows, error: castErr } = await supabase
-    .from("casts")
-    .select("line_user_id")
-    .eq("store_id", storeId)
-    .eq("is_active", true);
+  const { data: castRows, error: castErr } = await withSupabaseQueryRetry(
+    () =>
+      supabase
+        .from("casts")
+        .select("line_user_id")
+        .eq("store_id", storeId)
+        .eq("is_active", true),
+    { label: `${LOG_PREFIX} casts store=${storeId}`, attempts: 3 }
+  );
 
   if (castErr) {
     console.error(
       `${LOG_PREFIX} segment=${segment} storeId=${storeId} casts_query_failed message=${castErr.message} code=${castErr.code ?? ""}`
     );
-    return { ok: false, recipients: 0, error: castErr.message };
+    return { ok: false, recipients: 0, error: castErr.message ?? "casts_query_failed" };
   }
 
   const rows = castRows ?? [];
@@ -539,21 +551,63 @@ export async function GET(request: Request) {
       return e !== "" && e !== "regular_holiday" && !e.startsWith("partial:");
     });
     const anyPartial = results.some((row) => row.error?.startsWith("partial:"));
+    const anySuccessfulSend = results.some(
+      (row) =>
+        (row.recipients ?? 0) > 0 &&
+        (!(row.error ?? "") || (row.error ?? "").startsWith("partial:"))
+    );
+    // 1人も送れなかった（error 付き）かつ、どの店舗にも送信済みが無い → 再試行可能な 500
+    const shouldReturn500 =
+      !anySuccessfulSend &&
+      results.some((row) => {
+        const e = (row.error ?? "").trim();
+        return (
+          (row.recipients ?? 0) === 0 &&
+          e !== "" &&
+          e !== "regular_holiday" &&
+          !e.startsWith("partial:")
+        );
+      });
 
     const failures = results.flatMap((row) => {
       const items: { storeId: string; reason: string; detail?: string }[] = [];
       const e = (row.error ?? "").trim();
-      if (e === "token_fetch_failed" || e === "exception" || e.startsWith("fetch_error") || e.startsWith("uncaught:")) {
+      if (
+        e === "token_fetch_failed" ||
+        e === "exception" ||
+        e.startsWith("fetch_error") ||
+        e.startsWith("uncaught:") ||
+        (/gateway timeout|timeout|timed out/i.test(e) && (row.recipients ?? 0) === 0)
+      ) {
         items.push({
           storeId: row.storeId,
-          reason: e.startsWith("uncaught:") ? "exception" : e,
+          reason: e.startsWith("uncaught:")
+            ? "exception"
+            : e === "token_fetch_failed"
+              ? "token_fetch_failed"
+              : /gateway timeout|timeout|timed out/i.test(e)
+                ? "fetch_error"
+                : e,
+          detail: e,
         });
+      } else if (
+        e &&
+        e !== "regular_holiday" &&
+        e !== "no_line_token" &&
+        !e.startsWith("partial:") &&
+        (row.recipients ?? 0) === 0
+      ) {
+        items.push({ storeId: row.storeId, reason: "fetch_error", detail: e });
       }
       const ua = row.unstartedAlert;
-      if (ua?.error && (ua.error.includes("token_fetch") || ua.error.startsWith("uncaught:"))) {
+      if (ua?.error && (ua.error.includes("token_fetch") || ua.error.startsWith("uncaught:") || /gateway timeout|timeout/i.test(ua.error))) {
         items.push({
           storeId: row.storeId,
-          reason: ua.error.startsWith("uncaught:") ? "exception" : "token_fetch_failed",
+          reason: ua.error.startsWith("uncaught:")
+            ? "exception"
+            : ua.error.includes("token_fetch")
+              ? "token_fetch_failed"
+              : "fetch_error",
           detail: ua.error,
         });
       }
@@ -563,7 +617,7 @@ export async function GET(request: Request) {
       return items;
     });
 
-    const nameById = new Map(stores.map((s) => [s.id, (s as { name?: string | null }).name ?? null]));
+    const nameById = new Map(stores.map((s) => [s.id, s.name ?? null]));
     await recordCronRuns(
       supabase,
       results.map((r) => {
@@ -597,13 +651,16 @@ export async function GET(request: Request) {
       supabase,
     });
 
-    return NextResponse.json({
-      ok: !anyHardFailure,
-      segment,
-      storeCount: stores.length,
-      results,
-      ...(anyPartial ? { warning: "one_or_more_multicast_chunks_failed_see_results" } : {}),
-    });
+    return NextResponse.json(
+      {
+        ok: !anyHardFailure,
+        segment,
+        storeCount: stores.length,
+        results,
+        ...(anyPartial ? { warning: "one_or_more_multicast_chunks_failed_see_results" } : {}),
+      },
+      { status: shouldReturn500 ? 500 : 200 }
+    );
   } catch (e) {
     console.error(LOG_PREFIX, e);
     return NextResponse.json(

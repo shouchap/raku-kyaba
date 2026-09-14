@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendMulticastMessage } from "@/lib/line-reply";
 import { fetchStoreLineTokenResult } from "@/lib/line-channel-token";
 import { getAdminRecipientLineUserIds } from "@/lib/line-admin-recipients";
+import { withSupabaseQueryRetry } from "@/lib/supabase-retry";
 
 /**
  * B型事業所（welfare_b）の「作業開始 未打刻アラート」共通処理。
@@ -45,12 +46,16 @@ export async function fetchUnstartedCastNames(
   storeId: string,
   today: string
 ): Promise<string[]> {
-  const { data: castRows, error: castErr } = await supabase
-    .from("casts")
-    .select("id, name, display_name, is_admin")
-    .eq("store_id", storeId)
-    .eq("is_active", true)
-    .order("name");
+  const { data: castRows, error: castErr } = await withSupabaseQueryRetry(
+    () =>
+      supabase
+        .from("casts")
+        .select("id, name, display_name, is_admin")
+        .eq("store_id", storeId)
+        .eq("is_active", true)
+        .order("name"),
+    { label: `[WelfareUnstarted] casts store=${storeId}`, attempts: 3 }
+  );
 
   if (castErr) {
     throw new Error(`casts fetch error: ${castErr.message}`);
@@ -65,12 +70,16 @@ export async function fetchUnstartedCastNames(
   const members = ((castRows ?? []) as CastRow[]).filter((c) => c.is_admin !== true);
   if (members.length === 0) return [];
 
-  const { data: logRows, error: logErr } = await supabase
-    .from("welfare_daily_logs")
-    .select("cast_id, started_at")
-    .eq("store_id", storeId)
-    .eq("work_date", today)
-    .not("started_at", "is", null);
+  const { data: logRows, error: logErr } = await withSupabaseQueryRetry(
+    () =>
+      supabase
+        .from("welfare_daily_logs")
+        .select("cast_id, started_at")
+        .eq("store_id", storeId)
+        .eq("work_date", today)
+        .not("started_at", "is", null),
+    { label: `[WelfareUnstarted] welfare_daily_logs store=${storeId}`, attempts: 3 }
+  );
 
   if (logErr) {
     throw new Error(`welfare_daily_logs fetch error: ${logErr.message}`);

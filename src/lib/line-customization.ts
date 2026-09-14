@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { withSupabaseQueryRetry } from "@/lib/supabase-retry";
 
 export type WelfareLineCustomization = {
   bodyColor?: string;
@@ -67,12 +68,24 @@ export async function fetchLineCustomizationForStore(
   supabase: SupabaseClient,
   storeId: string
 ): Promise<LineCustomization> {
-  const { data } = await supabase
-    .from("system_settings")
-    .select("value")
-    .eq("store_id", storeId)
-    .eq("key", "reminder_config")
-    .maybeSingle();
+  const { data, error } = await withSupabaseQueryRetry(
+    () =>
+      supabase
+        .from("system_settings")
+        .select("value")
+        .eq("store_id", storeId)
+        .eq("key", "reminder_config")
+        .maybeSingle(),
+    { label: `[LineCustomization] reminder_config store=${storeId}`, attempts: 3 }
+  );
+
+  if (error) {
+    console.error(
+      `[LineCustomization] reminder_config fetch failed storeId=${storeId}:`,
+      error.message
+    );
+    return {};
+  }
 
   const value = (data?.value ?? {}) as Record<string, unknown>;
   return parseLineCustomization(value.line_customization);
