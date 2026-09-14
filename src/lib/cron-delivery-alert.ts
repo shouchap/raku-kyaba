@@ -20,7 +20,39 @@ function isAlertableReason(reason: string): boolean {
   if (r.startsWith("fetch_error")) return true;
   if (r.startsWith("claim_failed")) return true;
   if (r.startsWith("uncaught:") || r.startsWith("exception")) return true;
+  if (/gateway timeout|timed out|timeout/i.test(r)) return true;
   return false;
+}
+
+async function enrichStoreNames(
+  supabase: SupabaseClient,
+  failures: CronFailureItem[]
+): Promise<CronFailureItem[]> {
+  const missingIds = [
+    ...new Set(
+      failures
+        .filter((f) => !String(f.storeName ?? "").trim() && f.storeId.length > 10)
+        .map((f) => f.storeId)
+    ),
+  ];
+  if (missingIds.length === 0) return failures;
+
+  try {
+    const { data, error } = await supabase
+      .from("stores")
+      .select("id, name")
+      .in("id", missingIds);
+    if (error || !data) return failures;
+    const map = new Map(
+      data.map((r) => [String((r as { id: string }).id), (r as { name?: string | null }).name ?? null])
+    );
+    return failures.map((f) => ({
+      ...f,
+      storeName: f.storeName?.trim() || map.get(f.storeId) || f.storeName,
+    }));
+  } catch {
+    return failures;
+  }
 }
 
 async function alreadyAlertedToday(
@@ -67,21 +99,27 @@ export async function alertCronDeliveryFailures(opts: {
   const alertable = opts.failures.filter((f) => isAlertableReason(f.reason));
   if (alertable.length === 0) return;
 
-  const summary = alertable
+  const namedForLog = opts.supabase
+    ? await enrichStoreNames(opts.supabase, alertable)
+    : alertable;
+
+  const summary = namedForLog
     .map(
       (f) =>
-        `${f.storeName ?? f.storeId}:${f.reason}${f.detail ? `(${f.detail})` : ""}`
+        `${f.storeName?.trim() || f.storeId}:${f.reason}${f.detail ? `(${f.detail})` : ""}`
     )
     .join(" | ");
   console.error(
-    `[ALERT] ${opts.logTag} 本日の配信に失敗した店舗があります (${alertable.length}件): ${summary}`
+    `[ALERT] ${opts.logTag} 本日の配信に失敗した店舗があります (${namedForLog.length}件): ${summary}`
   );
 
   if (!opts.supabase) return;
 
+  const alertableNamed = namedForLog;
+
   // job × reason 単位で1日1回
   const reasonsSeen = new Set<string>();
-  for (const f of alertable) {
+  for (const f of alertableNamed) {
     const reasonKey = f.reason.trim();
     if (reasonsSeen.has(reasonKey)) continue;
     reasonsSeen.add(reasonKey);
@@ -93,7 +131,7 @@ export async function alertCronDeliveryFailures(opts: {
       continue;
     }
 
-    const sameReason = alertable.filter((x) => x.reason.trim() === reasonKey);
+    const sameReason = alertableNamed.filter((x) => x.reason.trim() === reasonKey);
     let notified = false;
 
     for (const item of sameReason) {
@@ -116,7 +154,10 @@ export async function alertCronDeliveryFailures(opts: {
 
         const lines = sameReason
           .slice(0, 8)
-          .map((x) => `・${x.storeName?.trim() || x.storeId.slice(0, 8) + "…"} ${x.reason}`)
+          .map((x) => {
+            const label = String(x.storeName ?? "").trim() || "（店舗名不明）";
+            return `・${label} ${x.reason}`;
+          })
           .join("\n");
         const text =
           `⚠️ 本日の配信に失敗した店舗があります\n` +
@@ -125,7 +166,7 @@ export async function alertCronDeliveryFailures(opts: {
           (sameReason.length > 8 ? `\n…他 ${sameReason.length - 8} 件` : "");
 
         await sendMulticastMessage(adminIds, tokenResult.token, [{ type: "text", text }]);
-        console.info(`[ALERT] ${opts.logTag} 管理者LINE通知送信 storeId=${storeId}`);
+        console.info(`[ALERT] ${opts.logTag} 管理者LINE通知送信 store=${item.storeName ?? storeId}`);
         notified = true;
         // 失敗店舗ごとにその店の管理者へ送る（最初の1店で止めない）
       } catch (e) {
