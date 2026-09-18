@@ -6,7 +6,8 @@
  * これらはほぼ変化しないため、プロセス内に短時間だけ保持する。
  */
 
-const TTL_MS = 30_000;
+/** 店舗一覧・業態は頻繁に変わらない。設定保存時は clearAdminShellCache で即時無効化 */
+const TTL_MS = 5 * 60_000;
 
 type Entry<T> = { value: T; expiresAt: number };
 

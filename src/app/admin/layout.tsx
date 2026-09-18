@@ -4,6 +4,7 @@ import AdminNav from "@/components/AdminNav";
 import { ToastViewport } from "@/components/Toast";
 import { ConfirmDialogHost } from "@/components/ConfirmDialog";
 import { ActiveStoreProvider } from "@/contexts/ActiveStoreContext";
+import { readAdminAuthHeaders } from "@/lib/admin-auth-headers";
 import { tryGetActiveStoreIdFromServerCookies } from "@/lib/current-store-server";
 import { createServiceRoleClient } from "@/lib/supabase-service";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -57,14 +58,23 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   let customTerms = resolveCustomTerms(null);
   let menuSettings: MenuSettingsMap = {};
   try {
-    const supabase = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    isSuperAdmin = isSuperAdminUser(user);
+    // ミドルウェアで既に getUser() 済みなら、その結果を使い二重通信を避ける
+    const authFromMw = readAdminAuthHeaders(h);
+    let scopedStoreId: string | null = null;
+    if (authFromMw) {
+      isSuperAdmin = authFromMw.isSuperAdmin;
+      scopedStoreId = isSuperAdmin ? null : authFromMw.storeAdminStoreId;
+    } else {
+      // フォールバック（ミドルウェアが認証を省略した経路など）
+      const supabase = await createSupabaseServerClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      isSuperAdmin = isSuperAdminUser(user);
+      scopedStoreId = isSuperAdmin ? null : getStoreAdminStoreIdFromUser(user);
+    }
 
     const admin = createServiceRoleClient();
-    const scopedStoreId = isSuperAdmin ? null : getStoreAdminStoreIdFromUser(user);
 
     /** 店舗一覧・店舗設定は毎ナビゲーションで変わらないため短時間キャッシュする */
     const [storeList, storeMeta] = await Promise.all([

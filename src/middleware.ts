@@ -1,6 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import {
+  clearAdminAuthHeaders,
+  setAdminAuthHeaders,
+} from "@/lib/admin-auth-headers";
+import {
   ACTIVE_STORE_COOKIE_NAME,
   getActiveStoreCookieOptions,
 } from "@/lib/current-store";
@@ -32,6 +36,8 @@ export async function middleware(request: NextRequest) {
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-pathname", pathname);
+  // クライアントからの偽装ヘッダを必ず除去（後で検証済み値だけを載せる）
+  clearAdminAuthHeaders(requestHeaders);
 
   /** 画面: メンテナンス中は専用ページ以外へアクセスさせない */
   if (isMaintenanceMode()) {
@@ -87,19 +93,40 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // レイアウト側の二重 getUser() を避けるため、検証済みロール情報を内部ヘッダで渡す
+  if (user) {
+    const isSuper = isSuperAdminUser(user);
+    setAdminAuthHeaders(requestHeaders, {
+      userId: user.id,
+      isSuperAdmin: isSuper,
+      storeAdminStoreId: isSuper ? null : getStoreAdminStoreIdFromUser(user),
+    });
+  }
+
+  // getUser 後に載せたヘッダを RSC へ確実に渡すため、レスポンスを作り直す
+  // （cookie 更新は getUser 中に response へ書かれているので引き継ぐ）
+  const forwarded = NextResponse.next({
+    request: { headers: requestHeaders },
+  });
+  for (const cookie of response.cookies.getAll()) {
+    forwarded.cookies.set(cookie);
+  }
+  response = forwarded;
+
   if (pathname.startsWith("/admin")) {
     if (!user && !pathname.startsWith("/admin/view/submit")) {
       return NextResponse.redirect(new URL("/login", request.url));
     }
 
     if (user) {
+      const isSuper = isSuperAdminUser(user);
       if (pathname.startsWith("/admin/stores")) {
-        if (!isSuperAdminUser(user)) {
+        if (!isSuper) {
           return NextResponse.redirect(new URL("/admin/weekly", request.url));
         }
       }
 
-      if (!isSuperAdminUser(user)) {
+      if (!isSuper) {
         const tenantId = getStoreAdminStoreIdFromUser(user);
         if (tenantId) {
           response.cookies.set(

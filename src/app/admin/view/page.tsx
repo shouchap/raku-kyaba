@@ -196,10 +196,10 @@ export default function AdminViewPage() {
   };
   const scheduleFetchRef = useRef<{ key: string; promise: Promise<RawScheduleRow[]> } | null>(null);
   const fetchSchedulesRaw = useCallback(
-    (storeId: string) => {
+    (storeId: string, options?: { force?: boolean }) => {
       const key = `${storeId}|${dates.join(",")}`;
       const cached = scheduleFetchRef.current;
-      if (cached && cached.key === key) {
+      if (!options?.force && cached && cached.key === key) {
         return cached.promise;
       }
       const promise = Promise.resolve(
@@ -221,8 +221,7 @@ export default function AdminViewPage() {
     setLoading(true);
     setLoadError(null);
     const storeId = activeStoreId;
-    // キャスト・店舗の取得を待たずに、既存シフトの取得も同時に開始しておく
-    void fetchSchedulesRaw(storeId);
+    const schedulesPromise = fetchSchedulesRaw(storeId, { force: true });
     try {
       const [castsRes, storesRes] = await Promise.all([
         supabase
@@ -238,6 +237,7 @@ export default function AdminViewPage() {
           .single(),
       ]);
 
+      let nextCasts: Cast[] = [];
       if (
         castsRes.error &&
         (String(castsRes.error.message).includes("role") || castsRes.error.code === "42703")
@@ -249,43 +249,27 @@ export default function AdminViewPage() {
           .eq("is_active", true)
           .order("name");
         if (fallback.data) {
-          setCasts(
-            (fallback.data as Cast[]).map((c) => ({
-              ...c,
-              role: "cast" as const,
-            }))
-          );
-        } else {
-          setCasts([]);
+          nextCasts = (fallback.data as Cast[]).map((c) => ({
+            ...c,
+            role: "cast" as const,
+          }));
         }
       } else if (castsRes.data) {
-        setCasts(castsRes.data as Cast[]);
-      } else {
-        if (castsRes.error) {
-          console.error(castsRes.error);
-          setLoadError("キャスト情報を取得できませんでした。通信状況を確認して再読み込みしてください。");
-        }
-        setCasts([]);
+        nextCasts = castsRes.data as Cast[];
+      } else if (castsRes.error) {
+        console.error(castsRes.error);
+        setLoadError("キャスト情報を取得できませんでした。通信状況を確認して再読み込みしてください。");
       }
-      if (storesRes.data) setStore(storesRes.data as Store);
-    } catch (err) {
-      console.error(err);
-      setLoadError("データの取得に失敗しました。通信状況を確認して再読み込みしてください。");
-    } finally {
-      setLoading(false);
-    }
-  }, [supabase, activeStoreId, fetchSchedulesRaw]);
 
-  const loadSchedules = useCallback(
-    async (storeId: string) => {
-      // fetchData 側で先行取得している場合はその Promise をそのまま使う（二重リクエスト防止）
-      const schedules = await fetchSchedulesRaw(storeId);
+      const nextStore = storesRes.data ? (storesRes.data as Store) : null;
+      setCasts(nextCasts);
+      if (nextStore) setStore(nextStore);
 
-      const isWelfare = store?.business_type === "welfare_b";
+      const schedules = await schedulesPromise;
+      const isWelfare = nextStore?.business_type === "welfare_b";
       const emptyLabel = isWelfare ? WELFARE_FIXED_SHIFT_LABEL : "";
-
       const next: Record<string, Record<string, CellData>> = {};
-      casts.forEach((c) => {
+      nextCasts.forEach((c) => {
         next[c.id] = {};
         dates.forEach((d) => {
           next[c.id][d] = {
@@ -295,8 +279,6 @@ export default function AdminViewPage() {
           };
         });
       });
-
-      // attendance_schedules の response_status を優先（Webhook で更新済み）
       schedules.forEach((row) => {
         if (next[row.cast_id]?.[row.scheduled_date]) {
           const status =
@@ -309,43 +291,24 @@ export default function AdminViewPage() {
               : null;
           const label = formatShiftRangeLabel(row.scheduled_time, row.scheduled_end_time);
           next[row.cast_id][row.scheduled_date] = {
-            // 福祉は時刻未登録でも 10-17 固定表示
             time: isWelfare && (label === "—" || !label) ? WELFARE_FIXED_SHIFT_LABEL : label,
             lastRemindedAt: row.last_reminded_at ?? null,
             responseStatus: status,
           };
         }
       });
-
       setMatrix(next);
-    },
-    [casts, dates, store?.business_type, fetchSchedulesRaw]
-  );
+    } catch (err) {
+      console.error(err);
+      setLoadError("データの取得に失敗しました。通信状況を確認して再読み込みしてください。");
+    } finally {
+      setLoading(false);
+    }
+  }, [supabase, activeStoreId, fetchSchedulesRaw, dates]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
-
-  useEffect(() => {
-    if (store && casts.length > 0 && dates.length === 7) {
-      loadSchedules(store.id);
-    } else if (casts.length > 0 && dates.length === 7) {
-      const emptyLabel =
-        store?.business_type === "welfare_b" ? WELFARE_FIXED_SHIFT_LABEL : "—";
-      const next: Record<string, Record<string, CellData>> = {};
-      casts.forEach((c) => {
-        next[c.id] = {};
-        dates.forEach((d) => {
-          next[c.id][d] = {
-            time: emptyLabel,
-            lastRemindedAt: null,
-            responseStatus: null,
-          };
-        });
-      });
-      setMatrix(next);
-    }
-  }, [store, casts, dates, loadSchedules]);
 
   const handleSaveAsImage = useCallback(async () => {
     const el = captureRef.current;

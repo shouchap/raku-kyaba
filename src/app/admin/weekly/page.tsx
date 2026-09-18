@@ -125,10 +125,10 @@ export default function AdminWeeklyPage() {
   };
   const scheduleFetchRef = useRef<{ key: string; promise: Promise<RawScheduleRow[]> } | null>(null);
   const fetchSchedulesRaw = useCallback(
-    (storeId: string) => {
+    (storeId: string, options?: { force?: boolean }) => {
       const key = `${storeId}|${dates.join(",")}`;
       const cached = scheduleFetchRef.current;
-      if (cached && cached.key === key) {
+      if (!options?.force && cached && cached.key === key) {
         return cached.promise;
       }
       const promise = Promise.resolve(
@@ -144,12 +144,11 @@ export default function AdminWeeklyPage() {
     [supabase, dates]
   );
 
-  // データ取得（キャスト・店舗・既存シフト）
+  // データ取得（キャスト・店舗・既存シフトを同時開始し、表まで一度に反映）
   const fetchData = useCallback(async () => {
     setLoading(true);
     const storeId = activeStoreId;
-    // キャスト・店舗の取得を待たずに、既存シフトの取得も同時に開始しておく
-    void fetchSchedulesRaw(storeId);
+    const schedulesPromise = fetchSchedulesRaw(storeId, { force: true });
     try {
       const [castsRes, storesResFirst] = await Promise.all([
         supabase
@@ -179,6 +178,7 @@ export default function AdminWeeklyPage() {
           .single();
       }
 
+      let nextCasts: Cast[] = [];
       if (
         castsRes.error &&
         (String(castsRes.error.message).includes("role") || castsRes.error.code === "42703")
@@ -190,20 +190,16 @@ export default function AdminWeeklyPage() {
           .eq("is_active", true)
           .order("name");
         if (fallback.data) {
-          setCasts(
-            sortCastsForShiftDisplay(
-              (fallback.data as Cast[]).map((c) => ({ ...c, role: "cast" as const }))
-            )
+          nextCasts = sortCastsForShiftDisplay(
+            (fallback.data as Cast[]).map((c) => ({ ...c, role: "cast" as const }))
           );
-        } else {
-          setCasts([]);
         }
       } else if (castsRes.data) {
-        setCasts(sortCastsForShiftDisplay(castsRes.data as Cast[]));
-      } else {
-        if (castsRes.error) console.error(castsRes.error);
-        setCasts([]);
+        nextCasts = sortCastsForShiftDisplay(castsRes.data as Cast[]);
+      } else if (castsRes.error) {
+        console.error(castsRes.error);
       }
+
       let storeRaw: Record<string, unknown> | null = null;
       if (storesRes.error?.code === "42703") {
         const legacyStoreRes = await supabase
@@ -218,11 +214,13 @@ export default function AdminWeeklyPage() {
         storeRaw = storesRes.data as Record<string, unknown>;
       }
 
+      let nextStore: Store | null = null;
+      let nextStep = shiftStep;
       if (storeRaw) {
         const raw = storeRaw;
         const rh = raw.regular_holidays;
-        const step = parseShiftTimeStepMinutes(raw.shift_time_step_minutes);
-        setStore({
+        nextStep = parseShiftTimeStepMinutes(raw.shift_time_step_minutes);
+        nextStore = {
           id: String(raw.id ?? ""),
           name: String(raw.name ?? ""),
           regular_holidays: Array.isArray(rh)
@@ -235,28 +233,67 @@ export default function AdminWeeklyPage() {
               ? null
               : String(raw.regular_start_time),
           is_dohan_sabaki_enabled: raw.is_dohan_sabaki_enabled !== false,
-          shift_time_step_minutes: step,
-        });
+          shift_time_step_minutes: nextStep,
+        };
+        setStore(nextStore);
       }
+      setCasts(nextCasts);
+
+      const data = await schedulesPromise;
+      const nextMatrix: Record<string, Record<string, string>> = {};
+      const nextEndMatrix: Record<string, Record<string, string>> = {};
+      const nextDohan: Record<string, Record<string, boolean>> = {};
+      const nextSabaki: Record<string, Record<string, boolean>> = {};
+      nextCasts.forEach((c) => {
+        nextMatrix[c.id] = {};
+        nextEndMatrix[c.id] = {};
+        nextDohan[c.id] = {};
+        nextSabaki[c.id] = {};
+        dates.forEach((d) => {
+          nextMatrix[c.id][d] = "";
+          nextEndMatrix[c.id][d] = "";
+          nextDohan[c.id][d] = false;
+          nextSabaki[c.id][d] = false;
+        });
+      });
+      data.forEach((row: RawScheduleRow) => {
+        if (nextMatrix[row.cast_id]) {
+          nextMatrix[row.cast_id][row.scheduled_date] = normalizeDbTimeToShiftOption(
+            row.scheduled_time ?? null,
+            nextStep
+          );
+          nextEndMatrix[row.cast_id][row.scheduled_date] = normalizeDbTimeToShiftOption(
+            row.scheduled_end_time ?? null,
+            nextStep
+          );
+          nextDohan[row.cast_id][row.scheduled_date] = Boolean(row.is_dohan);
+          nextSabaki[row.cast_id][row.scheduled_date] = Boolean(row.is_sabaki);
+        }
+      });
+      setMatrix(nextMatrix);
+      setEndMatrix(nextEndMatrix);
+      setDohan(nextDohan);
+      setSabaki(nextSabaki);
+      setDirty(false);
     } catch (err) {
       console.error(err);
       setMessage("error");
     } finally {
       setLoading(false);
     }
-  }, [supabase, activeStoreId, fetchSchedulesRaw]);
+  }, [supabase, activeStoreId, fetchSchedulesRaw, dates]);
 
-  // 既存シフトの読み込み（scheduled_time・scheduled_end_time・is_dohan・is_sabaki を取得）
+  // 既存シフトの読み込み（保存後の再表示など）
   const loadExistingSchedules = useCallback(
-    async (storeId: string) => {
-      // fetchData 側で先行取得している場合はその Promise をそのまま使う（二重リクエスト防止）
-      const data = await fetchSchedulesRaw(storeId);
+    async (storeId: string, castsForMatrix: Cast[] = casts, step = shiftStep) => {
+      // 保存後などは必ず最新を取り直す（同一週のキャッシュを使わない）
+      const data = await fetchSchedulesRaw(storeId, { force: true });
 
       const nextMatrix: Record<string, Record<string, string>> = {};
       const nextEndMatrix: Record<string, Record<string, string>> = {};
       const nextDohan: Record<string, Record<string, boolean>> = {};
       const nextSabaki: Record<string, Record<string, boolean>> = {};
-      casts.forEach((c) => {
+      castsForMatrix.forEach((c) => {
         nextMatrix[c.id] = {};
         nextEndMatrix[c.id] = {};
         nextDohan[c.id] = {};
@@ -273,11 +310,11 @@ export default function AdminWeeklyPage() {
           if (nextMatrix[row.cast_id]) {
             nextMatrix[row.cast_id][row.scheduled_date] = normalizeDbTimeToShiftOption(
               row.scheduled_time ?? null,
-              shiftStep
+              step
             );
             nextEndMatrix[row.cast_id][row.scheduled_date] = normalizeDbTimeToShiftOption(
               row.scheduled_end_time ?? null,
-              shiftStep
+              step
             );
             nextDohan[row.cast_id][row.scheduled_date] = Boolean(row.is_dohan);
             nextSabaki[row.cast_id][row.scheduled_date] = Boolean(row.is_sabaki);
@@ -296,35 +333,6 @@ export default function AdminWeeklyPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
-
-  useEffect(() => {
-    if (store && casts.length > 0 && dates.length === 7) {
-      loadExistingSchedules(store.id);
-    } else if (casts.length > 0 && dates.length === 7) {
-      // 店舗がまだ無い場合の空マトリックス初期化
-      const next: Record<string, Record<string, string>> = {};
-      const nextEnd: Record<string, Record<string, string>> = {};
-      const nextDohan: Record<string, Record<string, boolean>> = {};
-      const nextSabaki: Record<string, Record<string, boolean>> = {};
-      casts.forEach((c) => {
-        next[c.id] = {};
-        nextEnd[c.id] = {};
-        nextDohan[c.id] = {};
-        nextSabaki[c.id] = {};
-        dates.forEach((d) => {
-          next[c.id][d] = "";
-          nextEnd[c.id][d] = "";
-          nextDohan[c.id][d] = false;
-          nextSabaki[c.id][d] = false;
-        });
-      });
-      setMatrix(next);
-      setEndMatrix(nextEnd);
-      setDohan(nextDohan);
-      setSabaki(nextSabaki);
-      setDirty(false);
-    }
-  }, [store, casts, dates, loadExistingSchedules]);
 
   const updateCell = (castId: string, dateStr: string, value: string) => {
     setDirty(true);
@@ -475,7 +483,6 @@ export default function AdminWeeklyPage() {
         throw new Error(data.error ?? "今月固定の一括保存に失敗しました");
       }
       await fetchData();
-      await loadExistingSchedules(store.id);
       setMessage("success");
       toast.success("今月固定シフトを反映しました。");
     } catch (e) {
@@ -485,7 +492,7 @@ export default function AdminWeeklyPage() {
     } finally {
       setFixingMonth(false);
     }
-  }, [store, baseDate, fetchData, loadExistingSchedules]);
+  }, [store, baseDate, fetchData]);
 
   const handleSave = async () => {
     if (!store) return;
