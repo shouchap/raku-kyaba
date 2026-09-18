@@ -1834,6 +1834,25 @@ export async function tryHandleCompletedFollowupText(
 
   if (!cast) return false;
 
+  // 風俗（松島 黄金）はグループLINE運用のため、追記テキストの管理者通知は送らない。
+  // 他業態（cabaret / bar / welfare_b）の挙動は変更しない。
+  {
+    const { data: storeMeta } = await supabase
+      .from("stores")
+      .select("business_type")
+      .eq("id", cast.store_id)
+      .maybeSingle();
+    const businessType = String(
+      (storeMeta as { business_type?: string | null } | null)?.business_type ?? ""
+    ).trim();
+    if (businessType === "fuzoku") {
+      console.info(
+        `[CompletedFollowup] fuzoku のため公式LINE受信通知をスキップ store_id=${cast.store_id}`
+      );
+      return false;
+    }
+  }
+
   const todayJst = getTodayJst();
   const { data: row } = await supabase
     .from("attendance_schedules")
