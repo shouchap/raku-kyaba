@@ -175,10 +175,54 @@ export default function AdminViewPage() {
     });
   }, [casts, dates, matrix]);
 
+  // 既存シフトの取得を、キャスト一覧取得の完了を待たずに同時並行で開始するための
+  // キャッシュ。key（店舗×表示週）が同じ間は同じ Promise を再利用し、二重リクエストを
+  // 防ぐ（初回表示・週切り替え双方の待ち時間を短縮）。
+  type RawScheduleRow = {
+    cast_id: string;
+    scheduled_date: string;
+    scheduled_time?: string | null;
+    scheduled_end_time?: string | null;
+    is_dohan?: boolean | null;
+    is_sabaki?: boolean | null;
+    last_reminded_at?: string | null;
+    response_status?:
+      | "attending"
+      | "late"
+      | "absent"
+      | "public_holiday"
+      | "half_holiday"
+      | null;
+  };
+  const scheduleFetchRef = useRef<{ key: string; promise: Promise<RawScheduleRow[]> } | null>(null);
+  const fetchSchedulesRaw = useCallback(
+    (storeId: string) => {
+      const key = `${storeId}|${dates.join(",")}`;
+      const cached = scheduleFetchRef.current;
+      if (cached && cached.key === key) {
+        return cached.promise;
+      }
+      const promise = Promise.resolve(
+        supabase
+          .from("attendance_schedules")
+          .select(
+            "cast_id, scheduled_date, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, last_reminded_at, response_status"
+          )
+          .eq("store_id", storeId)
+          .in("scheduled_date", dates)
+      ).then(({ data }) => (data ?? []) as RawScheduleRow[]);
+      scheduleFetchRef.current = { key, promise };
+      return promise;
+    },
+    [supabase, dates]
+  );
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     const storeId = activeStoreId;
+    // キャスト・店舗の取得を待たずに、既存シフトの取得も同時に開始しておく
+    void fetchSchedulesRaw(storeId);
     try {
       const [castsRes, storesRes] = await Promise.all([
         supabase
@@ -230,34 +274,12 @@ export default function AdminViewPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, activeStoreId]);
+  }, [supabase, activeStoreId, fetchSchedulesRaw]);
 
   const loadSchedules = useCallback(
     async (storeId: string) => {
-      const { data: schedulesData } = await supabase
-        .from("attendance_schedules")
-        .select("cast_id, scheduled_date, scheduled_time, scheduled_end_time, is_dohan, is_sabaki, last_reminded_at, response_status")
-        .eq("store_id", storeId)
-        .in("scheduled_date", dates);
-
-      const schedulesRes = { data: schedulesData };
-
-      const schedules = (schedulesRes.data ?? []) as Array<{
-        cast_id: string;
-        scheduled_date: string;
-        scheduled_time?: string | null;
-        scheduled_end_time?: string | null;
-        is_dohan?: boolean | null;
-        is_sabaki?: boolean | null;
-        last_reminded_at?: string | null;
-        response_status?:
-          | "attending"
-          | "late"
-          | "absent"
-          | "public_holiday"
-          | "half_holiday"
-          | null;
-      }>;
+      // fetchData 側で先行取得している場合はその Promise をそのまま使う（二重リクエスト防止）
+      const schedules = await fetchSchedulesRaw(storeId);
 
       const isWelfare = store?.business_type === "welfare_b";
       const emptyLabel = isWelfare ? WELFARE_FIXED_SHIFT_LABEL : "";
@@ -297,7 +319,7 @@ export default function AdminViewPage() {
 
       setMatrix(next);
     },
-    [supabase, casts, dates, store?.business_type]
+    [casts, dates, store?.business_type, fetchSchedulesRaw]
   );
 
   useEffect(() => {

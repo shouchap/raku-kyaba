@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-client";
 import { useActiveStoreId } from "@/contexts/ActiveStoreContext";
 import { addCalendarDaysJst, getTodayJst, getWeekdayJst } from "@/lib/date-utils";
@@ -11,6 +11,16 @@ import { WeekRangePicker } from "@/components/WeekRangePicker";
 import { PageLoading } from "@/components/PageLoading";
 import { useUnsavedChangesWarning } from "@/hooks/useUnsavedChangesWarning";
 import { confirmDialog } from "@/components/ConfirmDialog";
+import {
+  AlertCircle,
+  AlertTriangle,
+  CalendarCheck2,
+  CheckCircle2,
+  Save,
+  Send,
+  SlidersHorizontal,
+  Users,
+} from "lucide-react";
 
 type Cast = {
   id: string;
@@ -102,10 +112,44 @@ export default function AdminWeeklyPage() {
   );
   const timeOptions = useMemo(() => getTimeOptions(shiftStep), [shiftStep]);
 
+  // 既存シフトの取得を、キャスト一覧取得の完了を待たずに同時並行で開始するための
+  // キャッシュ。key（店舗×表示週）が同じ間は同じ Promise を再利用し、二重リクエストを
+  // 防ぐ（初回表示・週切り替え双方の待ち時間を短縮）。
+  type RawScheduleRow = {
+    cast_id: string;
+    scheduled_date: string;
+    scheduled_time?: string;
+    scheduled_end_time?: string;
+    is_dohan?: boolean;
+    is_sabaki?: boolean;
+  };
+  const scheduleFetchRef = useRef<{ key: string; promise: Promise<RawScheduleRow[]> } | null>(null);
+  const fetchSchedulesRaw = useCallback(
+    (storeId: string) => {
+      const key = `${storeId}|${dates.join(",")}`;
+      const cached = scheduleFetchRef.current;
+      if (cached && cached.key === key) {
+        return cached.promise;
+      }
+      const promise = Promise.resolve(
+        supabase
+          .from("attendance_schedules")
+          .select("cast_id, scheduled_date, scheduled_time, scheduled_end_time, is_dohan, is_sabaki")
+          .eq("store_id", storeId)
+          .in("scheduled_date", dates)
+      ).then(({ data }) => (data ?? []) as RawScheduleRow[]);
+      scheduleFetchRef.current = { key, promise };
+      return promise;
+    },
+    [supabase, dates]
+  );
+
   // データ取得（キャスト・店舗・既存シフト）
   const fetchData = useCallback(async () => {
     setLoading(true);
     const storeId = activeStoreId;
+    // キャスト・店舗の取得を待たずに、既存シフトの取得も同時に開始しておく
+    void fetchSchedulesRaw(storeId);
     try {
       const [castsRes, storesResFirst] = await Promise.all([
         supabase
@@ -200,16 +244,13 @@ export default function AdminWeeklyPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, activeStoreId]);
+  }, [supabase, activeStoreId, fetchSchedulesRaw]);
 
   // 既存シフトの読み込み（scheduled_time・scheduled_end_time・is_dohan・is_sabaki を取得）
   const loadExistingSchedules = useCallback(
     async (storeId: string) => {
-      const { data } = await supabase
-        .from("attendance_schedules")
-        .select("cast_id, scheduled_date, scheduled_time, scheduled_end_time, is_dohan, is_sabaki")
-        .eq("store_id", storeId)
-        .in("scheduled_date", dates);
+      // fetchData 側で先行取得している場合はその Promise をそのまま使う（二重リクエスト防止）
+      const data = await fetchSchedulesRaw(storeId);
 
       const nextMatrix: Record<string, Record<string, string>> = {};
       const nextEndMatrix: Record<string, Record<string, string>> = {};
@@ -227,15 +268,8 @@ export default function AdminWeeklyPage() {
           nextSabaki[c.id][d] = false;
         });
       });
-      (data ?? []).forEach(
-        (row: {
-          cast_id: string;
-          scheduled_date: string;
-          scheduled_time?: string;
-          scheduled_end_time?: string;
-          is_dohan?: boolean;
-          is_sabaki?: boolean;
-        }) => {
+      data.forEach(
+        (row: RawScheduleRow) => {
           if (nextMatrix[row.cast_id]) {
             nextMatrix[row.cast_id][row.scheduled_date] = normalizeDbTimeToShiftOption(
               row.scheduled_time ?? null,
@@ -256,7 +290,7 @@ export default function AdminWeeklyPage() {
       setSabaki(nextSabaki);
       setDirty(false);
     },
-    [supabase, casts, dates, shiftStep]
+    [casts, dates, shiftStep, fetchSchedulesRaw]
   );
 
   useEffect(() => {
@@ -568,226 +602,288 @@ export default function AdminWeeklyPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-4 sm:py-6 px-3 sm:px-6">
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-4 sm:mb-6">
-          <h1 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 sm:mb-2">
-            週間シフト登録
-          </h1>
-          <p className="text-sm text-gray-600">
-            {store?.name ?? "店舗"}
-          </p>
+    <div className="w-full p-4 sm:p-6 lg:p-8">
+      {/* ヘッダー */}
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3 sm:mb-6">
+        <div>
+          <h1 className="text-lg font-bold text-gray-900 sm:text-xl">週間シフト登録</h1>
+          <p className="mt-1 text-sm text-gray-600">{store?.name ?? "店舗"}</p>
         </div>
+        {dirty && !saving && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">
+            <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+            未保存の変更があります
+          </span>
+        )}
+      </div>
 
-        <div className="mb-4 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 sm:gap-3">
-          <div className="flex w-full sm:w-auto gap-2">
+      {/* 基準日選択 */}
+      <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:mb-5">
+        <WeekRangePicker
+          label="基準日（週の開始日）"
+          inputId="base-date"
+          baseDate={baseDate}
+          onChange={setBaseDate}
+        />
+      </div>
+
+      {/* 一括操作ツールバー */}
+      <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <button
               type="button"
               onClick={handleApplyRegularBulk}
               disabled={loading || !store || casts.length === 0}
-              className="inline-flex items-center justify-center w-full sm:w-auto min-h-[44px] px-4 py-2.5 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-800 shadow-sm hover:bg-gray-50 focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-800 shadow-sm transition-colors hover:bg-gray-50 focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation sm:w-auto"
             >
+              <SlidersHorizontal className="h-4 w-4 text-gray-500" aria-hidden />
               レギュラー一括設定
             </button>
             <button
               type="button"
               onClick={handleFixCurrentMonth}
               disabled={loading || !store || casts.length === 0 || fixingMonth}
-              className="inline-flex items-center justify-center w-full sm:w-auto min-h-[44px] px-4 py-2.5 text-sm font-medium rounded-lg border border-blue-300 bg-blue-50 text-blue-800 shadow-sm hover:bg-blue-100 focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
+              className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-800 shadow-sm transition-colors hover:bg-blue-100 focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation sm:w-auto"
             >
+              <CalendarCheck2 className="h-4 w-4" aria-hidden />
               {fixingMonth ? "処理中..." : "今月固定"}
             </button>
           </div>
-          <p className="text-xs text-gray-500 sm:max-w-xl">
-            システム設定の「レギュラー出勤時間」を、勤務形態がレギュラーのキャストの定休日以外のマスに一括入力します（画面のみ。保存は「一括保存する」）。LINE
-            で付いた公休・欠勤などの回答は、保存時に既存どおりマージされます。
-          </p>
         </div>
+        <p className="mt-3 text-xs leading-relaxed text-gray-500">
+          システム設定の「レギュラー出勤時間」を、勤務形態がレギュラーのキャストの定休日以外のマスに一括入力します（画面のみ。保存は「一括保存する」）。LINE
+          で付いた公休・欠勤などの回答は、保存時に既存どおりマージされます。
+        </p>
+      </div>
 
-        {/* 基準日選択 */}
-        <div className="mb-4 sm:mb-6">
-          <WeekRangePicker
-            label="基準日（週の開始日）"
-            inputId="base-date"
-            baseDate={baseDate}
-            onChange={setBaseDate}
-          />
+      {/* 凡例 */}
+      {store?.is_dohan_sabaki_enabled !== false && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-gray-500">
+          <span className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-pink-500" aria-hidden />
+            同伴あり
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-amber-600" aria-hidden />
+            捌きあり
+          </span>
         </div>
+      )}
 
-        {/* マトリックステーブル（スマホで横スクロール） */}
-        <div className="w-full overflow-x-auto -mx-3 sm:mx-0 rounded-lg border border-gray-200 bg-white shadow-sm">
-          <table className="min-w-[400px] sm:min-w-[480px] w-full border-collapse">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="border-b border-r border-gray-200 px-2 py-2.5 text-left text-xs sm:text-sm font-semibold text-gray-800 sticky left-0 z-10 bg-gray-100 min-w-[88px] sm:min-w-[112px] border-r shadow-sm whitespace-nowrap">
-                  キャスト
-                </th>
-                {dates.map((d) => {
-                  const w = getWeekdayJst(d);
-                  const colorClass =
-                    w === 0 ? "text-red-600" : w === 6 ? "text-blue-600" : "text-gray-600";
+      {/* マトリックステーブル（スマホで横スクロール） */}
+      <div className="w-full overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <table className="min-w-[400px] w-full border-collapse sm:min-w-[480px]">
+          <thead>
+            <tr className="bg-slate-50">
+              <th className="sticky left-0 z-10 min-w-[88px] whitespace-nowrap border-b border-r border-gray-200 bg-slate-50 px-2 py-3 text-left text-xs font-semibold text-gray-700 shadow-sm sm:min-w-[112px] sm:text-sm">
+                キャスト
+              </th>
+              {dates.map((d) => {
+                const w = getWeekdayJst(d);
+                const colorClass =
+                  w === 0 ? "text-red-600" : w === 6 ? "text-blue-600" : "text-gray-600";
+                const isToday = d === today;
+                return (
+                  <th
+                    key={d}
+                    className={`min-w-[52px] whitespace-nowrap border-b border-r border-gray-200 px-1.5 py-3 text-center text-xs font-medium sm:min-w-0 sm:text-sm ${colorClass} ${
+                      isToday ? "bg-blue-50/70" : ""
+                    }`}
+                  >
+                    <span className="sm:hidden">{formatDateShort(d)}</span>
+                    <span className="hidden sm:inline">{formatDateWithWeekday(d)}</span>
+                    {isToday && (
+                      <span className="ml-1 hidden rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 sm:inline">
+                        今日
+                      </span>
+                    )}
+                  </th>
+                );
+              })}
+              <th className="min-w-[56px] border-b border-r border-gray-200 px-1 py-3 text-center text-xs font-semibold text-gray-700 sm:min-w-[72px] sm:px-2 sm:text-sm">
+                個別
+              </th>
+              <th className="min-w-[56px] border-b border-gray-200 px-1 py-3 text-center text-xs font-semibold text-gray-700 sm:min-w-[72px] sm:px-2 sm:text-sm">
+                変更通知
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {casts.map((cast, rowIndex) => (
+              <tr
+                key={cast.id}
+                className={`transition-colors hover:bg-blue-50/40 ${
+                  rowIndex % 2 === 1 ? "bg-slate-50/50" : "bg-white"
+                }`}
+              >
+                <td
+                  className={`sticky left-0 z-10 min-w-[88px] whitespace-nowrap border-b border-r border-gray-200 px-2 py-2 text-xs font-medium text-gray-900 shadow-sm sm:min-w-[112px] sm:text-sm ${
+                    rowIndex % 2 === 1 ? "bg-slate-50/50" : "bg-white"
+                  }`}
+                >
+                  {cast.name}
+                </td>
+                {dates.map((dateStr) => {
+                  const hasTime = Boolean(matrix[cast.id]?.[dateStr]?.trim());
+                  const isDohanOn = dohan[cast.id]?.[dateStr] ?? false;
+                  const isSabakiOn = sabaki[cast.id]?.[dateStr] ?? false;
+                  const isToday = dateStr === today;
                   return (
-                    <th
-                      key={d}
-                      className={`border-b border-r border-gray-200 px-1.5 py-2.5 text-center text-xs sm:text-sm font-medium ${colorClass} whitespace-nowrap min-w-[52px] sm:min-w-0`}
+                    <td
+                      key={dateStr}
+                      className={`border-b border-r border-gray-200 p-0.5 sm:p-1 ${
+                        isToday ? "bg-blue-50/30" : ""
+                      }`}
                     >
-                      <span className="sm:hidden">{formatDateShort(d)}</span>
-                      <span className="hidden sm:inline">{formatDateWithWeekday(d)}</span>
-                    </th>
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1">
+                          <select
+                            value={matrix[cast.id]?.[dateStr] ?? ""}
+                            onChange={(e) => updateCell(cast.id, dateStr, e.target.value)}
+                            className="w-full min-w-[56px] sm:w-20 min-h-[40px] sm:h-10 px-1 sm:px-1.5 text-xs sm:text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                          >
+                            {timeOptions.map((opt) => (
+                              <option key={opt.value || "empty"} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="text-xs text-slate-400" aria-hidden>
+                            〜
+                          </span>
+                          <select
+                            value={endMatrix[cast.id]?.[dateStr] ?? ""}
+                            onChange={(e) => updateEndCell(cast.id, dateStr, e.target.value)}
+                            className="w-full min-w-[56px] sm:w-20 min-h-[40px] sm:h-10 px-1 sm:px-1.5 text-xs sm:text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                          >
+                            {timeOptions.map((opt) => (
+                              <option key={`end-${opt.value || "empty"}`} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {/* 同伴・捌き: 出勤時間がある場合のみ */}
+                        {hasTime && store?.is_dohan_sabaki_enabled !== false && (
+                          <div className="flex gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => toggleDohan(cast.id, dateStr)}
+                              className={`flex-1 min-h-[28px] text-[10px] sm:text-xs px-0.5 py-0.5 rounded-md border touch-manipulation transition-colors ${
+                                isDohanOn
+                                  ? "bg-pink-500 border-pink-600 text-white font-medium shadow-sm"
+                                  : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+                              }`}
+                            >
+                              同伴
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleSabaki(cast.id, dateStr)}
+                              className={`flex-1 min-h-[28px] text-[10px] sm:text-xs px-0.5 py-0.5 rounded-md border touch-manipulation transition-colors ${
+                                isSabakiOn
+                                  ? "bg-amber-600 border-amber-700 text-white font-medium shadow-sm"
+                                  : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+                              }`}
+                            >
+                              捌き
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </td>
                   );
                 })}
-                <th className="border-b border-r border-gray-200 px-1 sm:px-2 py-2.5 text-center text-xs sm:text-sm font-semibold text-gray-800 min-w-[56px] sm:min-w-[72px]">
-                  個別
-                </th>
-                <th className="border-b border-gray-200 px-1 sm:px-2 py-2.5 text-center text-xs sm:text-sm font-semibold text-gray-800 min-w-[56px] sm:min-w-[72px]">
-                  変更通知
-                </th>
+                <td className="border-b border-r border-gray-200 p-0.5 sm:p-1 text-center align-top">
+                  <button
+                    type="button"
+                    onClick={() => handleNotifyIndividual(cast.id, false)}
+                    disabled={saving || notifying || notifyingOp !== null}
+                    title="この人にシフトをLINEで個別送信"
+                    className="w-full text-xs sm:text-sm px-1 sm:px-1.5 py-2 sm:py-1.5 min-h-[40px] rounded-md border border-[#06C755] text-[#06C755] hover:bg-[#06C755] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation font-medium"
+                  >
+                    {notifyingOp?.castId === cast.id && !notifyingOp.isUpdate
+                      ? "送信中..."
+                      : "個別"}
+                  </button>
+                </td>
+                <td className="border-b border-gray-200 p-0.5 sm:p-1 text-center align-top">
+                  <button
+                    type="button"
+                    onClick={() => handleNotifyIndividual(cast.id, true)}
+                    disabled={saving || notifying || notifyingOp !== null}
+                    title="この人に変更をLINEで通知"
+                    className="w-full text-xs sm:text-sm px-1 sm:px-1.5 py-2 sm:py-1.5 min-h-[40px] rounded-md border border-orange-500 text-orange-600 hover:bg-orange-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation font-medium"
+                  >
+                    {notifyingOp?.castId === cast.id && notifyingOp.isUpdate
+                      ? "送信中..."
+                      : "変更通知"}
+                  </button>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {casts.map((cast) => (
-                <tr key={cast.id} className="hover:bg-gray-50">
-                  <td className="border-b border-r border-gray-200 px-2 py-2 text-xs sm:text-sm font-medium text-gray-900 sticky left-0 z-10 bg-white min-w-[88px] sm:min-w-[112px] border-r shadow-sm whitespace-nowrap">
-                    {cast.name}
-                  </td>
-                  {dates.map((dateStr) => {
-                    const hasTime = Boolean(matrix[cast.id]?.[dateStr]?.trim());
-                    const isDohanOn = dohan[cast.id]?.[dateStr] ?? false;
-                    const isSabakiOn = sabaki[cast.id]?.[dateStr] ?? false;
-                    return (
-                      <td key={dateStr} className="border-b border-r border-gray-200 p-0.5 sm:p-1">
-                        <div className="flex flex-col gap-0.5">
-                          <div className="flex items-center gap-1">
-                            <select
-                              value={matrix[cast.id]?.[dateStr] ?? ""}
-                              onChange={(e) => updateCell(cast.id, dateStr, e.target.value)}
-                              className="w-full min-w-[56px] sm:w-20 min-h-[40px] sm:h-10 px-1 sm:px-1.5 text-xs sm:text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
-                            >
-                              {timeOptions.map((opt) => (
-                                <option key={opt.value || "empty"} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
-                            <span className="text-xs text-slate-400">-</span>
-                            <select
-                              value={endMatrix[cast.id]?.[dateStr] ?? ""}
-                              onChange={(e) => updateEndCell(cast.id, dateStr, e.target.value)}
-                              className="w-full min-w-[56px] sm:w-20 min-h-[40px] sm:h-10 px-1 sm:px-1.5 text-xs sm:text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
-                            >
-                              {timeOptions.map((opt) => (
-                                <option key={`end-${opt.value || "empty"}`} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          {/* 同伴・捌き: 出勤時間がある場合のみ */}
-                          {hasTime && store?.is_dohan_sabaki_enabled !== false && (
-                            <div className="flex gap-0.5">
-                              <button
-                                type="button"
-                                onClick={() => toggleDohan(cast.id, dateStr)}
-                                className={`flex-1 min-h-[28px] text-[10px] sm:text-xs px-0.5 py-0.5 rounded border touch-manipulation transition-colors ${
-                                  isDohanOn
-                                    ? "bg-pink-500 border-pink-600 text-white font-medium"
-                                    : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
-                                }`}
-                              >
-                                同伴
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => toggleSabaki(cast.id, dateStr)}
-                                className={`flex-1 min-h-[28px] text-[10px] sm:text-xs px-0.5 py-0.5 rounded border touch-manipulation transition-colors ${
-                                  isSabakiOn
-                                    ? "bg-amber-600 border-amber-700 text-white font-medium"
-                                    : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
-                                }`}
-                              >
-                                捌き
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                    );
-                  })}
-                  <td className="border-b border-r border-gray-200 p-0.5 sm:p-1 text-center align-top">
-                    <button
-                      type="button"
-                      onClick={() => handleNotifyIndividual(cast.id, false)}
-                      disabled={saving || notifying || notifyingOp !== null}
-                      className="w-full text-xs sm:text-sm px-1 sm:px-1.5 py-2 sm:py-1.5 min-h-[40px] rounded border border-[#06C755] text-[#06C755] hover:bg-[#06C755] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
-                    >
-                      {notifyingOp?.castId === cast.id && !notifyingOp.isUpdate
-                        ? "送信中..."
-                        : "個別"}
-                    </button>
-                  </td>
-                  <td className="border-b border-gray-200 p-0.5 sm:p-1 text-center align-top">
-                    <button
-                      type="button"
-                      onClick={() => handleNotifyIndividual(cast.id, true)}
-                      disabled={saving || notifying || notifyingOp !== null}
-                      className="w-full text-xs sm:text-sm px-1 sm:px-1.5 py-2 sm:py-1.5 min-h-[40px] rounded border border-orange-500 text-orange-600 hover:bg-orange-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
-                    >
-                      {notifyingOp?.castId === cast.id && notifyingOp.isUpdate
-                        ? "送信中..."
-                        : "変更通知"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {message === "success" && (
-          <p className="mt-4 text-green-600 text-sm font-medium">
-            保存しました
-          </p>
-        )}
-        {message === "error" && (
-          <div className="mt-4 text-red-600 text-sm space-y-1">
-            <p>保存に失敗しました。再度お試しください。</p>
-            {saveErrorHint ? (
-              <p className="text-xs text-red-800/90 font-mono break-words whitespace-pre-wrap">
-                {saveErrorHint}
-              </p>
-            ) : null}
-          </div>
-        )}
-
-        <div className="mt-4 sm:mt-6 flex flex-col sm:flex-row gap-3 sm:gap-4">
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving || notifying}
-            className="w-full sm:w-auto sm:min-w-[200px] min-h-[48px] h-12 px-6 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors touch-manipulation"
-          >
-            {saving ? "保存中..." : "一括保存する"}
-          </button>
-          <button
-            type="button"
-            onClick={handleNotify}
-            disabled={saving || notifying || notifyingOp !== null}
-            className="w-full sm:w-auto sm:min-w-[260px] min-h-[48px] h-12 px-6 py-3 bg-[#06C755] text-white font-medium rounded-lg hover:bg-[#05B34C] focus:ring-2 focus:ring-[#06C755] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap touch-manipulation"
-          >
-            {notifying
-              ? notifyStatus === "done"
-                ? "送信完了"
-                : "送信中..."
-              : "確定シフトをLINEで一斉通知"}
-          </button>
-        </div>
-
-        {casts.length === 0 && (
-          <p className="mt-6 text-sm text-amber-700 bg-amber-50 p-4 rounded-lg">
-            キャストが登録されていません。先にキャストを追加してください。
-          </p>
-        )}
+            ))}
+          </tbody>
+        </table>
       </div>
+
+      {/* 保存結果メッセージ */}
+      {message === "success" && (
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+          <CheckCircle2 className="h-4 w-4 flex-shrink-0" aria-hidden />
+          保存しました
+        </div>
+      )}
+      {message === "error" && (
+        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" aria-hidden />
+            保存に失敗しました。再度お試しください。
+          </div>
+          {saveErrorHint ? (
+            <p className="mt-1.5 break-words whitespace-pre-wrap font-mono text-xs text-red-800/90">
+              {saveErrorHint}
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      {/* メインアクション */}
+      <div className="mt-5 flex flex-col gap-3 border-t border-gray-200 pt-5 sm:mt-6 sm:flex-row sm:gap-4">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving || notifying}
+          className={`inline-flex min-h-[48px] h-12 w-full items-center justify-center gap-2 rounded-lg px-6 text-sm font-semibold text-white shadow-sm transition-colors touch-manipulation focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-[200px] ${
+            dirty
+              ? "bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 ring-2 ring-blue-300 ring-offset-1"
+              : "bg-blue-600 hover:bg-blue-700 focus:ring-blue-500"
+          }`}
+        >
+          <Save className="h-4 w-4" aria-hidden />
+          {saving ? "保存中..." : "一括保存する"}
+        </button>
+        <button
+          type="button"
+          onClick={handleNotify}
+          disabled={saving || notifying || notifyingOp !== null}
+          className="inline-flex min-h-[48px] h-12 w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#06C755] px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#05B34C] focus:ring-2 focus:ring-[#06C755] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation sm:w-auto sm:min-w-[260px]"
+        >
+          <Send className="h-4 w-4" aria-hidden />
+          {notifying
+            ? notifyStatus === "done"
+              ? "送信完了"
+              : "送信中..."
+            : "確定シフトをLINEで一斉通知"}
+        </button>
+      </div>
+
+      {casts.length === 0 && (
+        <div className="mt-6 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <Users className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
+          キャストが登録されていません。先にキャストを追加してください。
+        </div>
+      )}
     </div>
   );
 }
